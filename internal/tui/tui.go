@@ -767,8 +767,20 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 		}
 		defer permServer.Close()
 
-		if len(t.allowPatterns) > 0 {
-			permServer.SetPreAllowed(t.allowPatterns)
+		// Build pre-allowed patterns
+		preAllowed := append([]string{}, t.allowPatterns...)
+
+		// Auto-allow read-only access to the current repo
+		if repoRoot := getGitRoot(workingDir); repoRoot != "" {
+			preAllowed = append(preAllowed,
+				fmt.Sprintf("Read(%s:*)", repoRoot),
+				fmt.Sprintf("Glob(%s:*)", repoRoot),
+				fmt.Sprintf("Grep(%s:*)", repoRoot),
+			)
+		}
+
+		if len(preAllowed) > 0 {
+			permServer.SetPreAllowed(preAllowed)
 		}
 
 		go func() { _ = permServer.Serve(ctx) }()
@@ -848,4 +860,14 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 		return m.result, m.err
 	}
 	return m.result, nil
+}
+
+// getGitRoot returns the git repository root for the given directory, or empty string if not in a repo.
+func getGitRoot(dir string) string {
+	cmd := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }

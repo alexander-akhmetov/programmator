@@ -46,7 +46,8 @@ var (
 type scopeType int
 
 const (
-	scopeSession scopeType = iota
+	scopeOnce scopeType = iota
+	scopeSession
 	scopeProject
 	scopeGlobal
 )
@@ -71,7 +72,7 @@ func NewPermissionDialog(req *permission.Request, respChan chan<- permission.Han
 	d := &PermissionDialog{
 		request:      req,
 		responseChan: respChan,
-		scope:        scopeSession,
+		scope:        scopeOnce, // Default to one-time allow
 	}
 
 	d.repoRoot = detectGitRoot(req.Description)
@@ -165,8 +166,8 @@ func (d *PermissionDialog) HandleKey(key string) bool {
 		}
 		return false
 	case "tab", "left", "right":
-		// Cycle through scopes
-		d.scope = (d.scope + 1) % 3
+		// Cycle through scopes (Once, Session, Project, Global)
+		d.scope = (d.scope + 1) % 4
 		return false
 	case "enter", " ":
 		d.respond()
@@ -187,6 +188,8 @@ func (d *PermissionDialog) respond() {
 
 	var decision permission.Decision
 	switch d.scope {
+	case scopeOnce:
+		decision = permission.DecisionAllowOnce
 	case scopeSession:
 		decision = permission.DecisionAllow
 	case scopeProject:
@@ -255,7 +258,7 @@ func (d *PermissionDialog) renderDialog(width int) string {
 	b.WriteString(keyHintStyle.Render("(Tab)"))
 	b.WriteString("  ")
 
-	scopes := []string{"Session", "Project", "Global"}
+	scopes := []string{"Once", "Session", "Project", "Global"}
 	for i, s := range scopes {
 		style := optionInactiveStyle
 		if scopeType(i) == d.scope {

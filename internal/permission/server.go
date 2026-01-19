@@ -14,6 +14,7 @@ type Decision string
 
 const (
 	DecisionAllow        Decision = "allow"
+	DecisionAllowOnce    Decision = "allow_once" // Allow without saving
 	DecisionDeny         Decision = "deny"
 	DecisionAllowProject Decision = "allow_project"
 	DecisionAllowGlobal  Decision = "allow_global"
@@ -164,6 +165,9 @@ func (s *Server) processRequest(req *Request) Decision {
 	}
 
 	switch resp.Decision {
+	case DecisionAllowOnce:
+		// Allow without saving - just return allow
+		return DecisionAllow
 	case DecisionAllow:
 		s.addSessionPermission(req.SessionID, savePattern)
 	case DecisionAllowProject:

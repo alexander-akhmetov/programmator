@@ -181,6 +181,10 @@ func TestHandleKey_ScopeToggle(t *testing.T) {
 	respChan := make(chan permission.HandlerResponse, 1)
 	dialog := NewPermissionDialog(req, respChan)
 
+	// Default is now scopeOnce
+	assert.Equal(t, scopeOnce, dialog.scope)
+
+	dialog.HandleKey("tab")
 	assert.Equal(t, scopeSession, dialog.scope)
 
 	dialog.HandleKey("tab")
@@ -190,13 +194,13 @@ func TestHandleKey_ScopeToggle(t *testing.T) {
 	assert.Equal(t, scopeGlobal, dialog.scope)
 
 	dialog.HandleKey("tab")
-	assert.Equal(t, scopeSession, dialog.scope, "should wrap around")
+	assert.Equal(t, scopeOnce, dialog.scope, "should wrap around")
 
 	dialog.HandleKey("left")
-	assert.Equal(t, scopeProject, dialog.scope)
+	assert.Equal(t, scopeSession, dialog.scope)
 
 	dialog.HandleKey("right")
-	assert.Equal(t, scopeGlobal, dialog.scope)
+	assert.Equal(t, scopeProject, dialog.scope)
 }
 
 func TestHandleKey_Respond(t *testing.T) {
@@ -205,6 +209,11 @@ func TestHandleKey_Respond(t *testing.T) {
 		scope        scopeType
 		wantDecision permission.Decision
 	}{
+		{
+			name:         "once scope",
+			scope:        scopeOnce,
+			wantDecision: permission.DecisionAllowOnce,
+		},
 		{
 			name:         "session scope",
 			scope:        scopeSession,
