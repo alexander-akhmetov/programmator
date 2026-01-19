@@ -320,6 +320,17 @@ func (l *Loop) processTextOutput(stdout io.Reader) string {
 	return output.String()
 }
 
+type streamUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+}
+
+func (u streamUsage) TotalInputTokens() int {
+	return u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+}
+
 type streamEvent struct {
 	Type    string `json:"type"`
 	Subtype string `json:"subtype"`
@@ -330,16 +341,10 @@ type streamEvent struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
-		Usage struct {
-			InputTokens  int `json:"input_tokens"`
-			OutputTokens int `json:"output_tokens"`
-		} `json:"usage"`
+		Usage streamUsage `json:"usage"`
 	} `json:"message"`
-	Usage struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
-	Result string `json:"result"`
+	Usage  streamUsage `json:"usage"`
+	Result string      `json:"result"`
 }
 
 func (l *Loop) processStreamingOutput(stdout io.Reader) string {
@@ -370,7 +375,7 @@ func (l *Loop) processStreamingOutput(stdout io.Reader) string {
 			if l.currentState != nil {
 				l.currentState.UpdateTokens(
 					event.Message.Model,
-					event.Message.Usage.InputTokens,
+					event.Message.Usage.TotalInputTokens(),
 					event.Message.Usage.OutputTokens,
 				)
 				if l.onStateChange != nil && l.currentTicket != nil {
