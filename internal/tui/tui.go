@@ -326,7 +326,29 @@ func (m Model) renderStatus() string {
 			b.WriteString("\n")
 		} else {
 			currentPhase := m.ticket.CurrentPhase()
-			for _, phase := range m.ticket.Phases {
+			currentIdx := -1
+			for i, phase := range m.ticket.Phases {
+				if currentPhase != nil && phase.Name == currentPhase.Name {
+					currentIdx = i
+					break
+				}
+			}
+
+			const contextSize = 3
+			showFrom := 0
+			showTo := len(m.ticket.Phases) - 1
+
+			if len(m.ticket.Phases) > contextSize*2+1 && currentIdx >= 0 {
+				showFrom = max(0, currentIdx-contextSize)
+				showTo = min(len(m.ticket.Phases)-1, currentIdx+contextSize)
+			}
+
+			if showFrom > 0 {
+				b.WriteString(labelStyle.Render(fmt.Sprintf("  ... (%d more above)\n", showFrom)))
+			}
+
+			for i := showFrom; i <= showTo; i++ {
+				phase := m.ticket.Phases[i]
 				name := phase.Name
 				if len(name) > 40 {
 					name = name[:37] + "..."
@@ -342,6 +364,10 @@ func (m Model) renderStatus() string {
 					b.WriteString(labelStyle.Render(name))
 				}
 				b.WriteString("\n")
+			}
+
+			if showTo < len(m.ticket.Phases)-1 {
+				b.WriteString(labelStyle.Render(fmt.Sprintf("  ... (%d more below)\n", len(m.ticket.Phases)-1-showTo)))
 			}
 		}
 	}
