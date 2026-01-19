@@ -11,6 +11,7 @@ test-race:
 
 lint:
 	golangci-lint run
+	@golangci-lint fmt --diff | grep -q . && { echo "Formatting issues found. Run 'make fmt' to fix."; exit 1; } || true
 
 fmt:
 	golangci-lint fmt
