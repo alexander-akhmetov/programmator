@@ -214,8 +214,8 @@ func TestLoopLog(t *testing.T) {
 
 	l.log("test message")
 
-	if !strings.Contains(logOutput, "programmator:") {
-		t.Error("log output should contain programmator: prefix")
+	if !strings.Contains(logOutput, "[PROG]") {
+		t.Error("log output should contain [PROG] marker")
 	}
 	if !strings.Contains(logOutput, "test message") {
 		t.Error("log output should contain the message")

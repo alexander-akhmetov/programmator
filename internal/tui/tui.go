@@ -52,6 +52,13 @@ var (
 	helpStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241"))
 
+	progPrefixStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#E67E22")).
+			Bold(true)
+
+	progMsgStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#F39C12"))
+
 	pausedStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("208")).
 			Bold(true)
@@ -567,14 +574,40 @@ func (m Model) wrapLogs() string {
 		return ""
 	}
 
-	if m.renderer != nil {
-		rendered, err := m.renderer.Render(content)
-		if err == nil {
-			return strings.TrimSpace(rendered)
+	// Process [PROG] markers before glamour
+	lines := strings.Split(content, "\n")
+	var processed []string
+	var markdownBuffer []string
+
+	flushMarkdown := func() {
+		if len(markdownBuffer) > 0 {
+			md := strings.Join(markdownBuffer, "\n")
+			if m.renderer != nil {
+				if rendered, err := m.renderer.Render(md); err == nil {
+					processed = append(processed, strings.TrimSpace(rendered))
+				} else {
+					processed = append(processed, md)
+				}
+			} else {
+				processed = append(processed, md)
+			}
+			markdownBuffer = nil
 		}
 	}
 
-	return content
+	for _, line := range lines {
+		if strings.HasPrefix(line, "[PROG]") {
+			flushMarkdown()
+			msg := strings.TrimPrefix(line, "[PROG]")
+			styled := progPrefixStyle.Render("▶ programmator: ") + progMsgStyle.Render(msg)
+			processed = append(processed, styled)
+		} else {
+			markdownBuffer = append(markdownBuffer, line)
+		}
+	}
+	flushMarkdown()
+
+	return strings.Join(processed, "\n")
 }
 
 func getGitInfo(workingDir string) (branch string, dirty bool) {

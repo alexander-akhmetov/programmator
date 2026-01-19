@@ -320,6 +320,17 @@ func (l *Loop) processTextOutput(stdout io.Reader) string {
 	return output.String()
 }
 
+type messageUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+}
+
+func (u messageUsage) TotalInputTokens() int {
+	return u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+}
+
 type modelUsageStats struct {
 	InputTokens              int `json:"inputTokens"`
 	OutputTokens             int `json:"outputTokens"`
@@ -341,7 +352,7 @@ type streamEvent struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
-		Usage modelUsageStats `json:"usage"`
+		Usage messageUsage `json:"usage"`
 	} `json:"message"`
 	ModelUsage map[string]modelUsageStats `json:"modelUsage"`
 	Result     string                     `json:"result"`
@@ -449,13 +460,14 @@ func (l *Loop) IsPaused() bool {
 
 func (l *Loop) log(message string) {
 	if l.onOutput != nil {
-		l.onOutput(fmt.Sprintf("**▶ programmator:** %s\n", message))
+		// [PROG] marker for TUI to detect and style with lipgloss
+		l.onOutput(fmt.Sprintf("\n[PROG]%s\n", message))
 	}
 }
 
 func (l *Loop) logIterationSeparator(iteration, maxIterations int) {
 	if l.onOutput != nil {
-		separator := fmt.Sprintf("\n---\n\n### 🔄 Iteration %d/%d\n\n", iteration, maxIterations)
+		separator := fmt.Sprintf("\n\n---\n\n### 🔄 Iteration %d/%d\n\n", iteration, maxIterations)
 		l.onOutput(separator)
 	}
 }
