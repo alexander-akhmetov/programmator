@@ -80,7 +80,6 @@ func NewState() *State {
 }
 
 func (s *State) RecordIteration(filesChanged []string, err string) {
-	s.Iteration++
 	s.FilesChangedHistory = append(s.FilesChangedHistory, filesChanged)
 
 	if len(filesChanged) > 0 {
@@ -112,7 +111,7 @@ type CheckResult struct {
 }
 
 func Check(cfg Config, state *State) CheckResult {
-	if state.Iteration >= cfg.MaxIterations {
+	if state.Iteration > cfg.MaxIterations {
 		return CheckResult{
 			ShouldExit: true,
 			Reason:     ExitReasonMaxIterations,

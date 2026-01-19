@@ -92,6 +92,13 @@ func parseTicket(id string, content string) (*Ticket, error) {
 		}
 	}
 
+	// If no title in frontmatter, extract from first # heading
+	if ticket.Title == "" {
+		if matches := titleRegex.FindStringSubmatch(content); len(matches) > 1 {
+			ticket.Title = strings.TrimSpace(matches[1])
+		}
+	}
+
 	// Parse phases from checkboxes
 	ticket.Phases = parsePhases(content)
 
@@ -99,6 +106,7 @@ func parseTicket(id string, content string) (*Ticket, error) {
 }
 
 var phaseRegex = regexp.MustCompile(`- \[([ xX])\] (.+)`)
+var titleRegex = regexp.MustCompile(`(?m)^# (.+)$`)
 
 func parsePhases(content string) []Phase {
 	matches := phaseRegex.FindAllStringSubmatch(content, -1)

@@ -101,7 +101,7 @@ func TestParseTicket(t *testing.T) {
 			name:           "simple ticket without frontmatter",
 			id:             "test-1",
 			content:        "# Test Ticket\n\nSome content",
-			expectedTitle:  "",
+			expectedTitle:  "Test Ticket",
 			expectedStatus: "",
 			expectedPhases: 0,
 		},

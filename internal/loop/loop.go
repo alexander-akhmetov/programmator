@@ -124,6 +124,8 @@ func (l *Loop) Run(ticketID string) (*Result, error) {
 			return result, nil
 		}
 
+		state.Iteration++
+
 		checkResult := safety.Check(l.config, state)
 		if checkResult.ShouldExit {
 			l.log(fmt.Sprintf("Safety exit: %s", checkResult.Reason))
@@ -134,7 +136,7 @@ func (l *Loop) Run(ticketID string) (*Result, error) {
 		}
 
 		currentPhase := t.CurrentPhase()
-		l.log(fmt.Sprintf("Iteration %d/%d", state.Iteration+1, l.config.MaxIterations))
+		l.log(fmt.Sprintf("Iteration %d/%d", state.Iteration, l.config.MaxIterations))
 		if currentPhase != nil {
 			l.log(fmt.Sprintf("Current phase: %s", currentPhase.Name))
 		}

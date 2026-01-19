@@ -70,9 +70,7 @@ func TestState_RecordIteration_WithFiles(t *testing.T) {
 	state := NewState()
 	state.RecordIteration([]string{"file1.go", "file2.go"}, "")
 
-	if state.Iteration != 1 {
-		t.Errorf("Iteration = %d, want 1", state.Iteration)
-	}
+	// Iteration is managed by the loop, not RecordIteration
 	if state.ConsecutiveNoChanges != 0 {
 		t.Errorf("ConsecutiveNoChanges = %d, want 0", state.ConsecutiveNoChanges)
 	}
@@ -132,7 +130,7 @@ func TestState_RecordIteration_ConsecutiveErrors(t *testing.T) {
 func TestCheck_MaxIterations(t *testing.T) {
 	cfg := Config{MaxIterations: 5, StagnationLimit: 3}
 	state := NewState()
-	state.Iteration = 5
+	state.Iteration = 6 // Must be > MaxIterations to trigger exit
 
 	result := Check(cfg, state)
 
