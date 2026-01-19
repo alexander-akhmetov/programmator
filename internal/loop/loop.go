@@ -372,15 +372,8 @@ func (l *Loop) processStreamingOutput(stdout io.Reader) string {
 				}
 			}
 		case "assistant":
-			if l.currentState != nil {
-				l.currentState.UpdateTokens(
-					event.Message.Model,
-					event.Message.Usage.TotalInputTokens(),
-					event.Message.Usage.OutputTokens,
-				)
-				if l.onStateChange != nil && l.currentTicket != nil {
-					l.onStateChange(l.currentState, l.currentTicket, nil)
-				}
+			if l.currentState != nil && event.Message.Model != "" {
+				l.currentState.Model = event.Message.Model
 			}
 			for _, block := range event.Message.Content {
 				if block.Type == "text" && block.Text != "" {
@@ -391,6 +384,16 @@ func (l *Loop) processStreamingOutput(stdout io.Reader) string {
 				}
 			}
 		case "result":
+			if l.currentState != nil {
+				l.currentState.UpdateTokens(
+					"",
+					event.Usage.TotalInputTokens(),
+					event.Usage.OutputTokens,
+				)
+				if l.onStateChange != nil && l.currentTicket != nil {
+					l.onStateChange(l.currentState, l.currentTicket, nil)
+				}
+			}
 			if event.Result != "" && fullOutput.Len() == 0 {
 				fullOutput.WriteString(event.Result)
 			}
