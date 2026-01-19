@@ -59,8 +59,75 @@ func (c *CLIClient) Get(id string) (*Ticket, error) {
 }
 
 func (c *CLIClient) UpdatePhase(id string, phaseName string) error {
-	_, err := exec.Command("ticket", "check", id, phaseName).Output()
-	return err
+	// Find the ticket file
+	filePath, err := c.findTicketFile(id)
+	if err != nil {
+		return err
+	}
+
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("read ticket file: %w", err)
+	}
+
+	// Find and check the matching phase
+	lines := strings.Split(string(content), "\n")
+	found := false
+	normalizedPhase := normalizePhase(phaseName)
+
+	for i, line := range lines {
+		if match := phaseRegex.FindStringSubmatch(line); match != nil {
+			if match[1] == " " { // unchecked
+				existingPhase := normalizePhase(match[2])
+				if existingPhase == normalizedPhase || strings.Contains(existingPhase, normalizedPhase) || strings.Contains(normalizedPhase, existingPhase) {
+					lines[i] = strings.Replace(line, "- [ ]", "- [x]", 1)
+					found = true
+					break
+				}
+			}
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("phase not found or already completed: %s", phaseName)
+	}
+
+	return os.WriteFile(filePath, []byte(strings.Join(lines, "\n")), 0644)
+}
+
+func (c *CLIClient) findTicketFile(id string) (string, error) {
+	entries, err := os.ReadDir(c.ticketsDir)
+	if err != nil {
+		return "", fmt.Errorf("read tickets dir: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, id) || strings.Contains(name, "-"+id) || strings.HasPrefix(name, id[:min(len(id), 4)]) {
+			return filepath.Join(c.ticketsDir, name), nil
+		}
+	}
+
+	// Try with common prefixes
+	for _, entry := range entries {
+		name := strings.TrimSuffix(entry.Name(), ".md")
+		if strings.HasSuffix(name, id) || strings.Contains(name, id) {
+			return filepath.Join(c.ticketsDir, entry.Name()), nil
+		}
+	}
+
+	return "", fmt.Errorf("ticket file not found for id: %s", id)
+}
+
+func normalizePhase(s string) string {
+	s = strings.ToLower(s)
+	s = strings.TrimSpace(s)
+	// Remove common prefixes like "Phase 1:", "Step 2:", etc.
+	s = regexp.MustCompile(`^(phase|step)\s*\d+[:.]\s*`).ReplaceAllString(s, "")
+	return s
 }
 
 func (c *CLIClient) AddNote(id string, note string) error {

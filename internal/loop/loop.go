@@ -210,7 +210,9 @@ func (l *Loop) Run(ticketID string) (*Result, error) {
 
 		if status.PhaseCompleted != "" {
 			l.log(fmt.Sprintf("Phase completed: %s", status.PhaseCompleted))
-			_ = client.UpdatePhase(ticketID, status.PhaseCompleted)
+			if err := client.UpdatePhase(ticketID, status.PhaseCompleted); err != nil {
+				l.log(fmt.Sprintf("Warning: failed to update phase '%s': %v", status.PhaseCompleted, err))
+			}
 			progressNotes = append(progressNotes, fmt.Sprintf("[iter %d] Completed: %s", state.Iteration, status.PhaseCompleted))
 			_ = client.AddNote(ticketID, fmt.Sprintf("progress: [iter %d] Completed %s", state.Iteration, status.PhaseCompleted))
 		} else {

@@ -29,9 +29,15 @@ type Request struct {
 
 type Response struct {
 	Decision Decision `json:"decision"`
+	Pattern  string   `json:"pattern,omitempty"` // Custom pattern override
 }
 
-type RequestHandler func(req *Request) Decision
+type HandlerResponse struct {
+	Decision Decision
+	Pattern  string // If set, use this pattern instead of auto-generated one
+}
+
+type RequestHandler func(req *Request) HandlerResponse
 
 type Server struct {
 	socketPath      string
@@ -149,24 +155,30 @@ func (s *Server) processRequest(req *Request) Decision {
 
 	req.Description = toolInput
 
-	decision := s.handler(req)
+	resp := s.handler(req)
 
-	switch decision {
+	// Use custom pattern if provided, otherwise use auto-generated
+	savePattern := pattern
+	if resp.Pattern != "" {
+		savePattern = resp.Pattern
+	}
+
+	switch resp.Decision {
 	case DecisionAllow:
-		s.addSessionPermission(req.SessionID, pattern)
+		s.addSessionPermission(req.SessionID, savePattern)
 	case DecisionAllowProject:
-		if err := s.settings.AddPermission(req.ToolName, toolInput, ScopeProject); err == nil {
-			decision = DecisionAllow
+		if err := s.settings.AddPatternToFile(s.settings.projectPath, savePattern); err == nil {
+			return DecisionAllow
 		}
 	case DecisionAllowGlobal:
-		if err := s.settings.AddPermission(req.ToolName, toolInput, ScopeGlobal); err == nil {
-			decision = DecisionAllow
+		if err := s.settings.AddPatternToFile(s.settings.globalPath, savePattern); err == nil {
+			return DecisionAllow
 		}
 	case DecisionDeny:
 		// No action needed for deny
 	}
 
-	return decision
+	return resp.Decision
 }
 
 func (s *Server) isSessionAllowed(sessionID, pattern string) bool {

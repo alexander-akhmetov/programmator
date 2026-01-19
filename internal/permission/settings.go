@@ -78,7 +78,7 @@ func (s *Settings) AddPermission(toolName, toolInput string, scope Scope) error 
 		return fmt.Errorf("session scope cannot be persisted to file")
 	}
 
-	return s.addPatternToFile(path, pattern)
+	return s.AddPatternToFile(path, pattern)
 }
 
 func (s *Settings) loadAllowList(path string) []string {
@@ -103,7 +103,7 @@ func (s *Settings) loadAllowList(path string) []string {
 	return settings.Permissions.Allow
 }
 
-func (s *Settings) addPatternToFile(path, pattern string) error {
+func (s *Settings) AddPatternToFile(path, pattern string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("create directory: %w", err)
 	}

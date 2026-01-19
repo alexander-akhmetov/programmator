@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -13,8 +15,7 @@ var (
 	dialogBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.DoubleBorder()).
 			BorderForeground(lipgloss.Color("205")).
-			Padding(1, 2).
-			Align(lipgloss.Center)
+			Padding(1, 2)
 
 	dialogTitleStyle = lipgloss.NewStyle().
 				Bold(true).
@@ -25,131 +26,297 @@ var (
 			Foreground(lipgloss.Color("117"))
 
 	toolInputStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("255")).
-			Width(60)
+			Foreground(lipgloss.Color("255"))
 
-	optionStyle = lipgloss.NewStyle().
+	permLabelStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241"))
 
-	selectedOptionStyle = lipgloss.NewStyle().
+	optionActiveStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(lipgloss.Color("42"))
 
-	keyStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("205"))
+	optionInactiveStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("241"))
+
+	keyHintStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("205")).
+			Bold(true)
+)
+
+type scopeType int
+
+const (
+	scopeSession scopeType = iota
+	scopeProject
+	scopeGlobal
 )
 
 type PermissionDialog struct {
 	request      *permission.Request
-	selectedIdx  int
-	responseChan chan<- permission.Decision
+	responseChan chan<- permission.HandlerResponse
+
+	allowOptions []allowOption
+	allowIdx     int
+	scope        scopeType
+
+	repoRoot string // detected git repo root
 }
 
-type dialogOption struct {
-	key      string
-	label    string
-	decision permission.Decision
+type allowOption struct {
+	label   string
+	pattern string
 }
 
-var dialogOptions = []dialogOption{
-	{key: "a", label: "Allow once", decision: permission.DecisionAllow},
-	{key: "p", label: "Allow for project", decision: permission.DecisionAllowProject},
-	{key: "g", label: "Allow globally", decision: permission.DecisionAllowGlobal},
-	{key: "d", label: "Deny", decision: permission.DecisionDeny},
-}
-
-func NewPermissionDialog(req *permission.Request, respChan chan<- permission.Decision) *PermissionDialog {
-	return &PermissionDialog{
+func NewPermissionDialog(req *permission.Request, respChan chan<- permission.HandlerResponse) *PermissionDialog {
+	d := &PermissionDialog{
 		request:      req,
-		selectedIdx:  0,
 		responseChan: respChan,
+		scope:        scopeSession,
 	}
+
+	d.repoRoot = detectGitRoot(req.Description)
+	d.allowOptions = d.buildAllowOptions()
+
+	return d
+}
+
+func (d *PermissionDialog) buildAllowOptions() []allowOption {
+	toolName := d.request.ToolName
+	input := d.request.Description
+
+	var options []allowOption
+
+	switch toolName {
+	case "Read", "Write", "Edit", "Glob", "Grep":
+		// File-based tools
+		options = append(options, allowOption{
+			label:   "This path",
+			pattern: fmt.Sprintf("%s(%s)", toolName, input),
+		})
+
+		if dir := filepath.Dir(input); dir != "" && dir != "." {
+			options = append(options, allowOption{
+				label:   fmt.Sprintf("Directory %s", abbreviatePath(dir)),
+				pattern: fmt.Sprintf("%s(%s:*)", toolName, dir),
+			})
+		}
+
+		if d.repoRoot != "" && strings.HasPrefix(input, d.repoRoot) {
+			options = append(options, allowOption{
+				label:   fmt.Sprintf("Entire repo %s", abbreviatePath(d.repoRoot)),
+				pattern: fmt.Sprintf("%s(%s:*)", toolName, d.repoRoot),
+			})
+		}
+
+		// Allow all for this tool
+		options = append(options, allowOption{
+			label:   fmt.Sprintf("All %s operations", toolName),
+			pattern: toolName,
+		})
+
+	case "Bash":
+		// Command-based
+		options = append(options, allowOption{
+			label:   "This exact command",
+			pattern: fmt.Sprintf("Bash(%s)", input),
+		})
+
+		// Extract command prefix (first word)
+		parts := strings.Fields(input)
+		if len(parts) > 0 {
+			cmd := parts[0]
+			options = append(options, allowOption{
+				label:   fmt.Sprintf("Commands starting with '%s'", cmd),
+				pattern: fmt.Sprintf("Bash(%s:*)", cmd),
+			})
+		}
+
+		// All Bash
+		options = append(options, allowOption{
+			label:   "All Bash commands",
+			pattern: "Bash",
+		})
+
+	default:
+		// Generic tool
+		options = append(options, allowOption{
+			label:   "This request",
+			pattern: permission.FormatPattern(toolName, input),
+		})
+		options = append(options, allowOption{
+			label:   fmt.Sprintf("All %s operations", toolName),
+			pattern: toolName,
+		})
+	}
+
+	return options
 }
 
 func (d *PermissionDialog) HandleKey(key string) bool {
 	switch key {
 	case "up", "k":
-		if d.selectedIdx > 0 {
-			d.selectedIdx--
+		if d.allowIdx > 0 {
+			d.allowIdx--
 		}
-		return true
+		return false
 	case "down", "j":
-		if d.selectedIdx < len(dialogOptions)-1 {
-			d.selectedIdx++
+		if d.allowIdx < len(d.allowOptions)-1 {
+			d.allowIdx++
 		}
-		return true
+		return false
+	case "tab", "left", "right":
+		// Cycle through scopes
+		d.scope = (d.scope + 1) % 3
+		return false
 	case "enter", " ":
-		d.respond(dialogOptions[d.selectedIdx].decision)
+		d.respond()
 		return true
-	case "a":
-		d.respond(permission.DecisionAllow)
-		return true
-	case "p":
-		d.respond(permission.DecisionAllowProject)
-		return true
-	case "g":
-		d.respond(permission.DecisionAllowGlobal)
-		return true
-	case "d", "n":
-		d.respond(permission.DecisionDeny)
+	case "d", "n", "escape":
+		d.respondDeny()
 		return true
 	}
 	return false
 }
 
-func (d *PermissionDialog) respond(decision permission.Decision) {
+func (d *PermissionDialog) respond() {
+	if d.responseChan == nil {
+		return
+	}
+
+	pattern := d.allowOptions[d.allowIdx].pattern
+
+	var decision permission.Decision
+	switch d.scope {
+	case scopeSession:
+		decision = permission.DecisionAllow
+	case scopeProject:
+		decision = permission.DecisionAllowProject
+	case scopeGlobal:
+		decision = permission.DecisionAllowGlobal
+	}
+
+	d.responseChan <- permission.HandlerResponse{
+		Decision: decision,
+		Pattern:  pattern,
+	}
+	d.responseChan = nil
+}
+
+func (d *PermissionDialog) respondDeny() {
 	if d.responseChan != nil {
-		d.responseChan <- decision
+		d.responseChan <- permission.HandlerResponse{Decision: permission.DecisionDeny}
 		d.responseChan = nil
 	}
 }
 
-func (d *PermissionDialog) View(width, height int) string {
+func (d *PermissionDialog) renderDialog(width int) string {
 	var b strings.Builder
 
 	b.WriteString(dialogTitleStyle.Render("🔐 PERMISSION REQUEST"))
 	b.WriteString("\n\n")
 
-	b.WriteString("Tool: ")
+	b.WriteString(permLabelStyle.Render("Tool: "))
 	b.WriteString(toolNameStyle.Render(d.request.ToolName))
-	b.WriteString("\n\n")
+	b.WriteString("\n")
 
 	if d.request.Description != "" {
-		inputDisplay := d.request.Description
-		if len(inputDisplay) > 80 {
-			inputDisplay = inputDisplay[:77] + "..."
+		desc := d.request.Description
+		if len(desc) > 60 {
+			desc = desc[:57] + "..."
 		}
-		b.WriteString(toolInputStyle.Render(inputDisplay))
-		b.WriteString("\n\n")
-	}
-
-	b.WriteString("─────────────────────────────────\n\n")
-
-	for i, opt := range dialogOptions {
-		style := optionStyle
-		marker := "  "
-		if i == d.selectedIdx {
-			style = selectedOptionStyle
-			marker = "▶ "
-		}
-
-		fmt.Fprintf(&b, "%s%s %s\n",
-			marker,
-			keyStyle.Render("["+opt.key+"]"),
-			style.Render(opt.label),
-		)
+		b.WriteString(toolInputStyle.Render(desc))
+		b.WriteString("\n")
 	}
 
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("↑/↓ or j/k to select • Enter to confirm • a/p/g/d for quick select"))
+	b.WriteString(strings.Repeat("─", 50))
+	b.WriteString("\n\n")
 
-	content := b.String()
+	// Allow options
+	b.WriteString(permLabelStyle.Render("Allow: "))
+	b.WriteString(keyHintStyle.Render("(↑/↓)"))
+	b.WriteString("\n")
+	for i, opt := range d.allowOptions {
+		style := optionInactiveStyle
+		marker := "  "
+		if i == d.allowIdx {
+			style = optionActiveStyle
+			marker = "▶ "
+		}
+		b.WriteString(marker)
+		b.WriteString(style.Render(opt.label))
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+
+	// Scope selector
+	b.WriteString(permLabelStyle.Render("Scope: "))
+	b.WriteString(keyHintStyle.Render("(Tab)"))
+	b.WriteString("  ")
+
+	scopes := []string{"Session", "Project", "Global"}
+	for i, s := range scopes {
+		style := optionInactiveStyle
+		if scopeType(i) == d.scope {
+			style = optionActiveStyle
+			b.WriteString(style.Render("▶ " + s))
+		} else {
+			b.WriteString(style.Render("  " + s))
+		}
+		if i < len(scopes)-1 {
+			b.WriteString("  ")
+		}
+	}
+	b.WriteString("\n\n")
+
+	// Help
+	b.WriteString(permLabelStyle.Render("Enter: Confirm • d: Deny"))
+
 	dialogWidth := min(70, width-4)
-	dialog := dialogBoxStyle.Width(dialogWidth).Render(content)
+	return dialogBoxStyle.Width(dialogWidth).Render(b.String())
+}
 
-	padTop := max(0, (height-lipgloss.Height(dialog))/2)
-	padLeft := max(0, (width-lipgloss.Width(dialog))/2)
+func (d *PermissionDialog) View(width, height int) string {
+	dialog := d.renderDialog(width)
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, dialog)
+}
 
-	return strings.Repeat("\n", padTop) + strings.Repeat(" ", padLeft) + dialog
+func (d *PermissionDialog) ViewWithBackground(width, height int, _ string) string {
+	dialog := d.renderDialog(width)
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, dialog)
+}
+
+// GetSelectedPattern returns the currently selected permission pattern
+func (d *PermissionDialog) GetSelectedPattern() string {
+	if d.allowIdx < len(d.allowOptions) {
+		return d.allowOptions[d.allowIdx].pattern
+	}
+	return ""
+}
+
+func detectGitRoot(path string) string {
+	if path == "" {
+		return ""
+	}
+
+	// Start from the path and go up
+	dir := path
+	if !filepath.IsAbs(dir) {
+		return ""
+	}
+
+	// Check if it's a file, get directory
+	dir = filepath.Dir(dir)
+
+	for dir != "/" && dir != "." {
+		cmd := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel")
+		out, err := cmd.Output()
+		if err == nil {
+			return strings.TrimSpace(string(out))
+		}
+		dir = filepath.Dir(dir)
+	}
+
+	return ""
 }

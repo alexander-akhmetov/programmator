@@ -37,9 +37,9 @@ func TestServerAllowFromSettings(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(settingsDir, "settings.local.json"), data, 0644))
 
 	handlerCalled := false
-	server, err := NewServer(tmpDir, func(_ *Request) Decision {
+	server, err := NewServer(tmpDir, func(_ *Request) HandlerResponse {
 		handlerCalled = true
-		return DecisionDeny
+		return HandlerResponse{Decision: DecisionDeny}
 	})
 	require.NoError(t, err)
 	defer server.Close()
@@ -73,9 +73,9 @@ func TestServerDenyWhenNotAllowed(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	handlerCalled := false
-	server, err := NewServer(tmpDir, func(_ *Request) Decision {
+	server, err := NewServer(tmpDir, func(_ *Request) HandlerResponse {
 		handlerCalled = true
-		return DecisionDeny
+		return HandlerResponse{Decision: DecisionDeny}
 	})
 	require.NoError(t, err)
 	defer server.Close()
@@ -109,9 +109,9 @@ func TestServerSessionPermission(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	callCount := 0
-	server, err := NewServer(tmpDir, func(_ *Request) Decision {
+	server, err := NewServer(tmpDir, func(_ *Request) HandlerResponse {
 		callCount++
-		return DecisionAllow
+		return HandlerResponse{Decision: DecisionAllow}
 	})
 	require.NoError(t, err)
 	defer server.Close()
@@ -153,9 +153,9 @@ func TestServerPreAllowed(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	handlerCalled := false
-	server, err := NewServer(tmpDir, func(_ *Request) Decision {
+	server, err := NewServer(tmpDir, func(_ *Request) HandlerResponse {
 		handlerCalled = true
-		return DecisionDeny
+		return HandlerResponse{Decision: DecisionDeny}
 	})
 	require.NoError(t, err)
 	defer server.Close()

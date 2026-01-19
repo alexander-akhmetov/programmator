@@ -143,7 +143,7 @@ type rendererReadyMsg struct {
 
 type PermissionRequestMsg struct {
 	Request      *permission.Request
-	ResponseChan chan<- permission.Decision
+	ResponseChan chan<- permission.HandlerResponse
 }
 
 func createRendererCmd(width int) tea.Cmd {
@@ -310,12 +310,13 @@ func (m Model) View() string {
 
 	// Join horizontally
 	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebarBox, logsBox)
+	fullView := main + "\n" + m.renderHelp()
 
 	if m.permissionDialog != nil {
-		return m.permissionDialog.View(m.width, m.height)
+		return m.permissionDialog.ViewWithBackground(m.width, m.height, fullView)
 	}
 
-	return main + "\n" + m.renderHelp()
+	return fullView
 }
 
 // wrapText wraps text to fit within width, with optional indent for continuation lines.
@@ -756,8 +757,8 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 	var permServer *permission.Server
 	if t.interactivePermissions {
 		var err error
-		permServer, err = permission.NewServer(workingDir, func(req *permission.Request) permission.Decision {
-			respChan := make(chan permission.Decision, 1)
+		permServer, err = permission.NewServer(workingDir, func(req *permission.Request) permission.HandlerResponse {
+			respChan := make(chan permission.HandlerResponse, 1)
 			permissionChan <- PermissionRequestMsg{Request: req, ResponseChan: respChan}
 			return <-respChan
 		})
