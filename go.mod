@@ -1,6 +1,6 @@
 module github.com/alexanderzobnin/programmator
 
-go 1.23.0
+go 1.25.6
 
 require (
 	github.com/charmbracelet/bubbles v0.21.0

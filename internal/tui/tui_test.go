@@ -343,7 +343,7 @@ func TestLogsTrimming(t *testing.T) {
 	model.height = 24
 	model.ready = true
 
-	for i := 0; i < 5100; i++ {
+	for range 5100 {
 		model.logs = append(model.logs, "log entry")
 	}
 

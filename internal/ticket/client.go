@@ -101,8 +101,8 @@ func parseTicket(id string, content string) (*Ticket, error) {
 var phaseRegex = regexp.MustCompile(`- \[([ xX])\] (.+)`)
 
 func parsePhases(content string) []Phase {
-	var phases []Phase
 	matches := phaseRegex.FindAllStringSubmatch(content, -1)
+	phases := make([]Phase, 0, len(matches))
 	for _, match := range matches {
 		phases = append(phases, Phase{
 			Name:      strings.TrimSpace(match[2]),

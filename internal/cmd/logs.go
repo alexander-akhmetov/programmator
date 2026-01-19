@@ -33,7 +33,7 @@ func init() {
 	logsCmd.Flags().BoolVarP(&logsAll, "all", "a", false, "Show all notes, not just progress/error")
 }
 
-func runLogs(cmd *cobra.Command, args []string) error {
+func runLogs(_ *cobra.Command, args []string) error {
 	ticketID := args[0]
 
 	out, err := exec.Command("ticket", "show", ticketID).Output()
@@ -52,8 +52,7 @@ func runLogs(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Logs for ticket %s:\n", ticketID)
 	fmt.Println(strings.Repeat("-", 40))
 
-	lines := strings.Split(notesSection, "\n")
-	for _, line := range lines {
+	for line := range strings.SplitSeq(notesSection, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || line == "## Notes" {
 			continue

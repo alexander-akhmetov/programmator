@@ -51,7 +51,7 @@ func init() {
 	startCmd.Flags().IntVar(&timeout, "timeout", 0, "Timeout per Claude invocation in seconds (overrides PROGRAMMATOR_TIMEOUT)")
 }
 
-func runStart(cmd *cobra.Command, args []string) error {
+func runStart(_ *cobra.Command, args []string) error {
 	ticketID := args[0]
 
 	config := safety.ConfigFromEnv()

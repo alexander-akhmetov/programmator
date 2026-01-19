@@ -30,7 +30,7 @@ Displays information about the currently running loop including:
 	RunE: runStatus,
 }
 
-func runStatus(cmd *cobra.Command, args []string) error {
+func runStatus(_ *cobra.Command, _ []string) error {
 	path := sessionFilePath()
 
 	data, err := os.ReadFile(path)

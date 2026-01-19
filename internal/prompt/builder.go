@@ -66,7 +66,7 @@ func Build(t *ticket.Ticket, notes []string) string {
 
 	notesStr := "(No previous notes)"
 	if len(notes) > 0 {
-		var noteLines []string
+		noteLines := make([]string, 0, len(notes))
 		for _, note := range notes {
 			noteLines = append(noteLines, fmt.Sprintf("- %s", note))
 		}
@@ -85,7 +85,7 @@ func Build(t *ticket.Ticket, notes []string) string {
 }
 
 func BuildPhaseList(phases []ticket.Phase) string {
-	var lines []string
+	lines := make([]string, 0, len(phases))
 	for _, p := range phases {
 		checkbox := "[ ]"
 		if p.Completed {

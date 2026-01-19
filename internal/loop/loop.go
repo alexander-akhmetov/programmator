@@ -254,7 +254,7 @@ func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string
 
 	go func() {
 		defer stdin.Close()
-		io.WriteString(stdin, promptText)
+		_, _ = io.WriteString(stdin, promptText)
 	}()
 
 	var output string

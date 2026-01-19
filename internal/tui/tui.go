@@ -168,10 +168,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		logHeight := m.height - 18
-		if logHeight < 5 {
-			logHeight = 5
-		}
+		logHeight := max(m.height-18, 5)
 
 		if !m.ready {
 			m.logViewport = viewport.New(msg.Width-6, logHeight)
@@ -222,17 +219,11 @@ func (m Model) View() string {
 	b.WriteString("\n")
 
 	statusContent := m.renderStatus()
-	statusWidth := m.width - 4
-	if statusWidth < 40 {
-		statusWidth = 40
-	}
+	statusWidth := max(m.width-4, 40)
 	b.WriteString(statusBoxStyle.Width(statusWidth).Render(statusContent))
 	b.WriteString("\n\n")
 
-	logHeight := m.height - 18
-	if logHeight < 5 {
-		logHeight = 5
-	}
+	logHeight := max(m.height-18, 5)
 
 	logHeader := "─ Logs "
 	if m.logViewport.TotalLineCount() > 0 {
@@ -327,14 +318,13 @@ func (m Model) renderStatus() string {
 func (m Model) renderHelp() string {
 	var parts []string
 
-	if m.runState == stateRunning {
-		parts = append(parts, "p: pause")
-	} else if m.runState == statePaused {
-		parts = append(parts, "p: resume")
-	}
-
-	if m.runState != stateStopped && m.runState != stateComplete {
-		parts = append(parts, "s: stop")
+	switch m.runState {
+	case stateRunning:
+		parts = append(parts, "p: pause", "s: stop")
+	case statePaused:
+		parts = append(parts, "p: resume", "s: stop")
+	case stateStopped, stateComplete:
+		// No controls needed for stopped/complete states
 	}
 
 	parts = append(parts, "↑/↓: scroll", "q: quit")

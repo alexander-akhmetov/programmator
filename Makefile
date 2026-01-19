@@ -10,11 +10,10 @@ test-race:
 	go test -race ./...
 
 lint:
-	gofmt -l .
-	go vet ./...
+	golangci-lint run
 
 fmt:
-	gofmt -w .
+	golangci-lint fmt
 
 install:
 	go install ./cmd/programmator

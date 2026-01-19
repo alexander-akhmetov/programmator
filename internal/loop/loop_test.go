@@ -170,7 +170,7 @@ func TestStateCallback(t *testing.T) {
 	var receivedState *safety.State
 	var receivedTicket *ticket.Ticket
 
-	stateCallback := func(state *safety.State, tk *ticket.Ticket, files []string) {
+	stateCallback := func(state *safety.State, tk *ticket.Ticket, _ []string) {
 		callbackCalled = true
 		receivedState = state
 		receivedTicket = tk
@@ -218,7 +218,7 @@ func TestLoopLog(t *testing.T) {
 	}
 }
 
-func TestLoopLogNoCallback(t *testing.T) {
+func TestLoopLogNoCallback(_ *testing.T) {
 	config := safety.Config{}
 	l := New(config, "", nil, nil, false)
 
