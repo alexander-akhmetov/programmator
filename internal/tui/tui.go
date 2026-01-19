@@ -96,6 +96,8 @@ type Model struct {
 	workingDir   string
 	gitBranch    string
 	gitDirty     bool
+	claudePID    int
+	claudeMemKB  int64
 }
 
 func NewModel(config safety.Config) Model {
@@ -125,6 +127,11 @@ type LogMsg struct {
 type LoopDoneMsg struct {
 	Result *loop.Result
 	Err    error
+}
+
+type ProcessStatsMsg struct {
+	PID      int
+	MemoryKB int64
 }
 
 type rendererReadyMsg struct {
@@ -237,6 +244,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.logViewport.SetContent(m.wrapLogs())
 		m.logViewport.GotoBottom()
+
+	case ProcessStatsMsg:
+		m.claudePID = msg.PID
+		m.claudeMemKB = msg.MemoryKB
 
 	case LoopDoneMsg:
 		m.result = msg.Result
@@ -383,7 +394,13 @@ func (m Model) renderSidebar(width int, height int) string {
 	} else {
 		b.WriteString(stateIndicator)
 	}
-	b.WriteString("\n\n")
+	b.WriteString("\n")
+
+	if m.claudePID > 0 && m.runState == stateRunning {
+		b.WriteString(labelStyle.Render(fmt.Sprintf("    pid %d • %s", m.claudePID, formatMemory(m.claudeMemKB))))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 
 	// Ticket section
 	b.WriteString(sectionHeader("Ticket", width))
@@ -658,6 +675,16 @@ func formatTokens(n int) string {
 	return fmt.Sprintf("%d", n)
 }
 
+func formatMemory(kb int64) string {
+	if kb >= 1024*1024 {
+		return fmt.Sprintf("%.1fGB", float64(kb)/(1024*1024))
+	}
+	if kb >= 1024 {
+		return fmt.Sprintf("%.0fMB", float64(kb)/1024)
+	}
+	return fmt.Sprintf("%dKB", kb)
+}
+
 func shortenModelName(model string) string {
 	// claude-opus-4-5-20251101 -> opus-4-5
 	// claude-sonnet-4-5-20250514 -> sonnet-4-5
@@ -691,6 +718,7 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 	outputChan := make(chan string, 100)
 	stateChan := make(chan TicketUpdateMsg, 10)
 	doneChan := make(chan LoopDoneMsg, 1)
+	processStatsChan := make(chan ProcessStatsMsg, 10)
 
 	timing.Log("TUI.Run: channels created")
 	l := loop.New(
@@ -714,6 +742,12 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 		},
 		true,
 	)
+	l.SetProcessStatsCallback(func(pid int, memoryKB int64) {
+		select {
+		case processStatsChan <- ProcessStatsMsg{PID: pid, MemoryKB: memoryKB}:
+		default:
+		}
+	})
 
 	t.model.SetLoop(l)
 	timing.Log("TUI.Run: loop created")
@@ -734,6 +768,8 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 				t.program.Send(LogMsg{Text: text})
 			case update := <-stateChan:
 				t.program.Send(update)
+			case stats := <-processStatsChan:
+				t.program.Send(stats)
 			case done := <-doneChan:
 				t.program.Send(done)
 				return

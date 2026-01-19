@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,17 +30,19 @@ type Result struct {
 
 type OutputCallback func(text string)
 type StateCallback func(state *safety.State, ticket *ticket.Ticket, filesChanged []string)
+type ProcessStatsCallback func(pid int, memoryKB int64)
 type ClaudeInvoker func(ctx context.Context, promptText string) (string, error)
 
 type Loop struct {
-	config        safety.Config
-	workingDir    string
-	onOutput      OutputCallback
-	onStateChange StateCallback
-	streaming     bool
-	cancelFunc    context.CancelFunc
-	client        ticket.Client
-	claudeInvoker ClaudeInvoker
+	config         safety.Config
+	workingDir     string
+	onOutput       OutputCallback
+	onStateChange  StateCallback
+	onProcessStats ProcessStatsCallback
+	streaming      bool
+	cancelFunc     context.CancelFunc
+	client         ticket.Client
+	claudeInvoker  ClaudeInvoker
 
 	mu            sync.Mutex
 	paused        bool
@@ -282,6 +285,11 @@ func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string
 		return "", err
 	}
 
+	stopStats := make(chan struct{})
+	if l.onProcessStats != nil {
+		go l.pollProcessStats(cmd.Process.Pid, stopStats)
+	}
+
 	go func() {
 		defer stdin.Close()
 		_, _ = io.WriteString(stdin, promptText)
@@ -294,7 +302,12 @@ func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string
 		output = l.processTextOutput(stdout)
 	}
 
-	if err := cmd.Wait(); err != nil {
+	err = cmd.Wait()
+	close(stopStats)
+	if l.onProcessStats != nil {
+		l.onProcessStats(0, 0) // Signal process ended
+	}
+	if err != nil {
 		if timeoutCtx.Err() == context.DeadlineExceeded {
 			return timeoutBlockedStatus(), nil
 		}
@@ -476,6 +489,40 @@ func (r *Result) FilesChangedList() []string {
 	return r.TotalFilesChanged
 }
 
+func (l *Loop) pollProcessStats(pid int, stop <-chan struct{}) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			memKB := getProcessMemory(pid)
+			if l.onProcessStats != nil {
+				l.onProcessStats(pid, memKB)
+			}
+		}
+	}
+}
+
+func getProcessMemory(pid int) int64 {
+	cmd := exec.Command("ps", "-o", "rss=", "-p", strconv.Itoa(pid))
+	out, err := cmd.Output()
+	if err != nil {
+		return 0
+	}
+	rss, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return rss
+}
+
 func (l *Loop) SetClaudeInvoker(invoker ClaudeInvoker) {
 	l.claudeInvoker = invoker
+}
+
+func (l *Loop) SetProcessStatsCallback(cb ProcessStatsCallback) {
+	l.onProcessStats = cb
 }

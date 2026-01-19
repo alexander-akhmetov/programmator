@@ -2,6 +2,14 @@
 
 Ticket-driven autonomous Claude Code loop orchestrator.
 
+> **Note:** Programmator requires the `ticket` CLI to be installed and configured first:
+> ```bash
+> brew tap alexander-akhmetov/tools git@github.com:alexander-akhmetov/homebrew-tools.git
+> brew install alexander-akhmetov/tools/ticket
+> ```
+> Programmator works only with tickets.
+> For more info, see https://github.com/alexander-akhmetov/dotfiles/tree/main/claude/skills
+
 ## Overview
 
 Programmator uses your existing ticket system as its backbone for orchestrating autonomous Claude Code sessions. A ticket defines the work, phases track progress, and the loop continues until all phases are complete.
