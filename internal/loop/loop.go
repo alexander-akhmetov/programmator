@@ -320,14 +320,14 @@ func (l *Loop) processTextOutput(stdout io.Reader) string {
 	return output.String()
 }
 
-type streamUsage struct {
-	InputTokens              int `json:"input_tokens"`
-	OutputTokens             int `json:"output_tokens"`
-	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+type modelUsageStats struct {
+	InputTokens              int `json:"inputTokens"`
+	OutputTokens             int `json:"outputTokens"`
+	CacheCreationInputTokens int `json:"cacheCreationInputTokens"`
+	CacheReadInputTokens     int `json:"cacheReadInputTokens"`
 }
 
-func (u streamUsage) TotalInputTokens() int {
+func (u modelUsageStats) TotalInputTokens() int {
 	return u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
 }
 
@@ -341,10 +341,9 @@ type streamEvent struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
-		Usage streamUsage `json:"usage"`
 	} `json:"message"`
-	Usage  streamUsage `json:"usage"`
-	Result string      `json:"result"`
+	ModelUsage map[string]modelUsageStats `json:"modelUsage"`
+	Result     string                     `json:"result"`
 }
 
 func (l *Loop) processStreamingOutput(stdout io.Reader) string {
@@ -372,9 +371,6 @@ func (l *Loop) processStreamingOutput(stdout io.Reader) string {
 				}
 			}
 		case "assistant":
-			if l.currentState != nil && event.Message.Model != "" {
-				l.currentState.Model = event.Message.Model
-			}
 			for _, block := range event.Message.Content {
 				if block.Type == "text" && block.Text != "" {
 					fullOutput.WriteString(block.Text)
@@ -384,12 +380,14 @@ func (l *Loop) processStreamingOutput(stdout io.Reader) string {
 				}
 			}
 		case "result":
-			if l.currentState != nil {
-				l.currentState.UpdateTokens(
-					"",
-					event.Usage.TotalInputTokens(),
-					event.Usage.OutputTokens,
-				)
+			if l.currentState != nil && len(event.ModelUsage) > 0 {
+				for model, usage := range event.ModelUsage {
+					l.currentState.UpdateTokens(
+						model,
+						usage.TotalInputTokens(),
+						usage.OutputTokens,
+					)
+				}
 				if l.onStateChange != nil && l.currentTicket != nil {
 					l.onStateChange(l.currentState, l.currentTicket, nil)
 				}
