@@ -62,6 +62,25 @@ Environment variables:
 
 ## How It Works
 
+```mermaid
+flowchart TD
+    A[programmator start ticket-id] --> B[Fetch ticket & parse phases]
+    B --> C{Find uncompleted phase}
+    C -->|Found| D[Build prompt with ticket context]
+    C -->|All done| K[Exit: COMPLETE]
+    D --> E[Invoke Claude Code]
+    E --> F[Parse PROGRAMMATOR_STATUS block]
+    F --> G{Status?}
+    G -->|CONTINUE| H[Update ticket notes]
+    G -->|DONE| I[Mark phase complete]
+    G -->|BLOCKED| J[Exit: BLOCKED]
+    H --> L{Safety check}
+    I --> L
+    L -->|OK| B
+    L -->|Max iterations| M[Exit: MAX_ITERATIONS]
+    L -->|No changes| N[Exit: STAGNATION]
+```
+
 1. Programmator reads the ticket and finds the first uncompleted phase
 2. Builds a prompt with ticket context and instructions
 3. Invokes Claude Code in autonomous mode
