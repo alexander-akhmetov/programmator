@@ -172,11 +172,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if !m.ready {
 			m.logViewport = viewport.New(msg.Width-6, logHeight)
-			m.logViewport.SetContent(strings.Join(m.logs, ""))
+			m.logViewport.SetContent(m.wrapLogs())
 			m.ready = true
 		} else {
 			m.logViewport.Width = msg.Width - 6
 			m.logViewport.Height = logHeight
+			m.logViewport.SetContent(m.wrapLogs())
 		}
 
 	case TicketUpdateMsg:
@@ -189,7 +190,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.logs) > 5000 {
 			m.logs = m.logs[len(m.logs)-5000:]
 		}
-		m.logViewport.SetContent(strings.Join(m.logs, ""))
+		m.logViewport.SetContent(m.wrapLogs())
 		m.logViewport.GotoBottom()
 
 	case LoopDoneMsg:
@@ -334,6 +335,35 @@ func (m Model) renderHelp() string {
 
 func (m *Model) SetLoop(l *loop.Loop) {
 	m.loop = l
+}
+
+func (m Model) wrapLogs() string {
+	if m.logViewport.Width <= 0 {
+		return strings.Join(m.logs, "")
+	}
+
+	var wrapped strings.Builder
+	wrapWidth := m.logViewport.Width
+
+	for _, log := range m.logs {
+		lines := strings.Split(log, "\n")
+		for i, line := range lines {
+			if len(line) <= wrapWidth {
+				wrapped.WriteString(line)
+			} else {
+				for len(line) > wrapWidth {
+					wrapped.WriteString(line[:wrapWidth])
+					wrapped.WriteString("\n")
+					line = line[wrapWidth:]
+				}
+				wrapped.WriteString(line)
+			}
+			if i < len(lines)-1 {
+				wrapped.WriteString("\n")
+			}
+		}
+	}
+	return wrapped.String()
 }
 
 type TUI struct {
