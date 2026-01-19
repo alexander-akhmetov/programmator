@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/pretty"
 	"github.com/tidwall/sjson"
 )
 
@@ -125,12 +126,19 @@ func (s *Settings) AddPatternToFile(path, pattern string) error {
 		}
 	}
 
-	// Append pattern to the allow list using sjson
-	// "-1" index means append to array
+	// Use sjson to append to the allow array
 	data, err = sjson.SetBytes(data, "permissions.allow.-1", pattern)
 	if err != nil {
 		return fmt.Errorf("update settings: %w", err)
 	}
+
+	// Pretty-print to fix indentation (preserves key order)
+	data = pretty.PrettyOptions(data, &pretty.Options{
+		Width:    80,
+		Prefix:   "",
+		Indent:   "    ",
+		SortKeys: false,
+	})
 
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("write settings: %w", err)
