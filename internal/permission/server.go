@@ -185,12 +185,20 @@ func (s *Server) processRequest(req *Request) Decision {
 	return resp.Decision
 }
 
-func (s *Server) isSessionAllowed(sessionID, pattern string) bool {
+func (s *Server) isSessionAllowed(sessionID, target string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if perms, ok := s.sessions[sessionID]; ok {
-		return perms[pattern]
+	perms, ok := s.sessions[sessionID]
+	if !ok {
+		return false
+	}
+
+	// Check if any stored pattern matches the target
+	for pattern := range perms {
+		if MatchPattern(pattern, target) {
+			return true
+		}
 	}
 	return false
 }

@@ -149,6 +149,63 @@ func TestServerSessionPermission(t *testing.T) {
 	assert.Equal(t, 1, callCount, "handler not called second time - session cached")
 }
 
+func TestServerSessionPermissionWildcard(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	callCount := 0
+	server, err := NewServer(tmpDir, func(_ *Request) HandlerResponse {
+		callCount++
+		// Return a wildcard pattern (like "Commands starting with 'yarn'")
+		return HandlerResponse{Decision: DecisionAllow, Pattern: "Bash(yarn:*)"}
+	})
+	require.NoError(t, err)
+	defer server.Close()
+
+	ctx := t.Context()
+
+	go func() { _ = server.Serve(ctx) }()
+	time.Sleep(50 * time.Millisecond)
+
+	makeRequest := func(cmd string) Response {
+		conn, err := net.Dial("unix", server.SocketPath())
+		require.NoError(t, err)
+		defer conn.Close()
+
+		req := Request{
+			SessionID: "test-session",
+			ToolName:  "Bash",
+			ToolInput: map[string]any{"command": cmd},
+		}
+		encoder := json.NewEncoder(conn)
+		require.NoError(t, encoder.Encode(req))
+
+		var resp Response
+		decoder := json.NewDecoder(conn)
+		require.NoError(t, decoder.Decode(&resp))
+		return resp
+	}
+
+	// First yarn command - should call handler
+	resp1 := makeRequest("yarn install")
+	assert.Equal(t, DecisionAllow, resp1.Decision)
+	assert.Equal(t, 1, callCount, "handler called first time")
+
+	// Second yarn command (different) - should be cached via wildcard
+	resp2 := makeRequest("yarn test")
+	assert.Equal(t, DecisionAllow, resp2.Decision)
+	assert.Equal(t, 1, callCount, "handler not called - wildcard pattern matched")
+
+	// Third yarn command (different) - should still be cached
+	resp3 := makeRequest("yarn build --production")
+	assert.Equal(t, DecisionAllow, resp3.Decision)
+	assert.Equal(t, 1, callCount, "handler not called - wildcard pattern matched")
+
+	// Non-yarn command - should call handler
+	resp4 := makeRequest("npm install")
+	assert.Equal(t, DecisionAllow, resp4.Decision)
+	assert.Equal(t, 2, callCount, "handler called for different command")
+}
+
 func TestServerPreAllowed(t *testing.T) {
 	tmpDir := t.TempDir()
 
