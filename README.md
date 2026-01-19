@@ -1,5 +1,8 @@
 # Programmator
 
+> [!WARNING]
+> YOLO alert! By default, Programmator runs Claude Code with `--dangerously-skip-permissions`, which allows autonomous file modifications without confirmation prompts. Review the `PROGRAMMATOR_CLAUDE_FLAGS` environment variable to customize this behavior.
+
 Ticket-driven autonomous Claude Code loop orchestrator.
 
 > **Note:** Programmator requires the `ticket` CLI to be installed and configured first:
