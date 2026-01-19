@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, ClassVar
 
 from textual.app import App, ComposeResult
@@ -10,6 +11,7 @@ from textual.containers import Horizontal
 from textual.widgets import Footer, RichLog, Static
 
 if TYPE_CHECKING:
+    from .loop import Loop
     from .safety import SafetyConfig, SafetyState
     from .ticket_client import Ticket
 
@@ -23,6 +25,8 @@ class StatusPanel(Static):
         self._state: SafetyState | None = None
         self._config: SafetyConfig | None = None
         self._files_changed: list[str] = []
+        self._start_time: float = time.time()
+        self._paused: bool = False
 
     def update_status(
         self,
@@ -30,6 +34,7 @@ class StatusPanel(Static):
         state: SafetyState | None = None,
         config: SafetyConfig | None = None,
         files_changed: list[str] | None = None,
+        paused: bool | None = None,
     ) -> None:
         if ticket is not None:
             self._ticket = ticket
@@ -39,12 +44,28 @@ class StatusPanel(Static):
             self._config = config
         if files_changed is not None:
             self._files_changed = files_changed
+        if paused is not None:
+            self._paused = paused
         self._render_status()
+
+    def _format_elapsed(self) -> str:
+        elapsed = int(time.time() - self._start_time)
+        mins, secs = divmod(elapsed, 60)
+        hours, mins = divmod(mins, 60)
+        if hours:
+            return f"{hours}h {mins}m"
+        elif mins:
+            return f"{mins}m {secs}s"
+        return f"{secs}s"
 
     def _render_status(self) -> None:
         lines = []
 
-        lines.append("[bold cyan]PROGRAMMATOR[/]")
+        header = "[bold cyan]PROGRAMMATOR[/]"
+        if self._paused:
+            header += " [yellow][PAUSED][/]"
+        lines.append(header)
+        lines.append(f"[dim]Elapsed: {self._format_elapsed()}[/]")
         lines.append("")
 
         if self._ticket:
@@ -103,6 +124,7 @@ class ProgrammatorTUI(App):
     BINDINGS: ClassVar[list[BindingType]] = [
         ("q", "quit", "Quit"),
         ("ctrl+c", "quit", "Quit"),
+        ("p", "toggle_pause", "Pause"),
         ("j", "scroll_down", "Down"),
         ("k", "scroll_up", "Up"),
         ("ctrl+d", "page_down", "Page Down"),
@@ -110,6 +132,13 @@ class ProgrammatorTUI(App):
         ("g", "scroll_top", "Top"),
         ("G", "scroll_bottom", "Bottom"),
     ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._loop: Loop | None = None
+
+    def set_loop(self, loop: Loop) -> None:
+        self._loop = loop
 
     def compose(self) -> ComposeResult:
         with Horizontal():
@@ -119,6 +148,10 @@ class ProgrammatorTUI(App):
 
     def on_mount(self) -> None:
         self.query_one("#status", StatusPanel).update_status()
+        self.set_interval(1, self._refresh_elapsed)
+
+    def _refresh_elapsed(self) -> None:
+        self.query_one("#status", StatusPanel)._render_status()
 
     def update_status(
         self,
@@ -141,6 +174,13 @@ class ProgrammatorTUI(App):
 
     async def action_quit(self) -> None:
         self.exit()
+
+    def action_toggle_pause(self) -> None:
+        if self._loop:
+            paused = self._loop.toggle_pause()
+            self.query_one("#status", StatusPanel).update_status(paused=paused)
+            status = "paused" if paused else "resumed"
+            self.query_one("#logs", RichLog).write(f"[yellow]>>> Loop {status}[/]")
 
     def action_scroll_down(self) -> None:
         self.query_one("#logs", RichLog).scroll_relative(y=1)

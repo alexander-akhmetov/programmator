@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -40,9 +41,19 @@ class Loop:
         self.streaming = streaming
         self.state = SafetyState()
         self._stop_requested = False
+        self._paused = False
 
     def request_stop(self) -> None:
         self._stop_requested = True
+
+    def toggle_pause(self) -> bool:
+        """Toggle pause state. Returns new paused state."""
+        self._paused = not self._paused
+        return self._paused
+
+    @property
+    def is_paused(self) -> bool:
+        return self._paused
 
     def _notify_state_change(self, ticket: Ticket, files_changed: list[str]) -> None:
         if self.on_state_change:
@@ -59,6 +70,9 @@ class Loop:
         self._notify_state_change(ticket, all_files_changed)
 
         while not self._stop_requested:
+            while self._paused and not self._stop_requested:
+                time.sleep(0.1)
+
             ticket = self.ticket_client.get(ticket_id)
 
             if ticket.all_phases_complete:

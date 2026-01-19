@@ -46,6 +46,7 @@ def _run_tui(ticket_id: str, config: SafetyConfig, working_dir: str | None) -> i
         on_state_change=on_state_change,
         streaming=True,
     )
+    app.set_loop(loop)
 
     def run_loop() -> None:
         try:
