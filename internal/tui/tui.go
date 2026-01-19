@@ -338,14 +338,19 @@ func wrapText(text string, width int, indent string, maxLines int) string {
 	return strings.Join(lines, "\n")
 }
 
+func sectionHeader(title string, width int) string {
+	padding := max(1, (width-len(title)-2)/2)
+	line := strings.Repeat("─", padding)
+	return labelStyle.Render(line+" ") + valueStyle.Render(title) + labelStyle.Render(" "+line)
+}
+
 func (m Model) renderSidebar(width int, height int) string {
 	var b strings.Builder
 
-	// Title
+	// Title and state
 	b.WriteString(titleStyle.Render("⚡ PROGRAMMATOR"))
 	b.WriteString("\n\n")
 
-	// State indicator with elapsed time
 	var stateIndicator string
 	switch m.runState {
 	case stateRunning:
@@ -358,7 +363,6 @@ func (m Model) renderSidebar(width int, height int) string {
 		stateIndicator = runningStyle.Render("✓ COMPLETE")
 	}
 
-	// Add elapsed time on the same line
 	if m.state != nil && !m.state.StartTime.IsZero() {
 		elapsed := formatDuration(time.Since(m.state.StartTime))
 		padding := width - lipgloss.Width(stateIndicator) - len(elapsed) - 2
@@ -376,50 +380,46 @@ func (m Model) renderSidebar(width int, height int) string {
 	}
 	b.WriteString("\n\n")
 
-	// Ticket info
+	// Ticket section
+	b.WriteString(sectionHeader("Ticket", width))
+	b.WriteString("\n")
 	if m.ticket != nil {
-		b.WriteString(labelStyle.Render("Ticket: "))
 		b.WriteString(valueStyle.Render(m.ticket.ID))
 		b.WriteString("\n")
-
 		wrappedTitle := wrapText(m.ticket.Title, width, "", 2)
-		b.WriteString(valueStyle.Render(wrappedTitle))
+		b.WriteString(labelStyle.Render(wrappedTitle))
 		b.WriteString("\n")
 	} else {
-		b.WriteString(labelStyle.Render("Ticket: "))
 		b.WriteString(valueStyle.Render("-"))
 		b.WriteString("\n")
 	}
 
-	b.WriteString("\n")
-
-	// Working directory and git info
-	if m.workingDir != "" {
-		b.WriteString(labelStyle.Render("Dir: "))
-		b.WriteString(valueStyle.Render(abbreviatePath(m.workingDir)))
+	// Environment section
+	if m.workingDir != "" || m.gitBranch != "" {
 		b.WriteString("\n")
-	}
-	if m.gitBranch != "" {
-		b.WriteString(labelStyle.Render("Git: "))
-		branchStr := m.gitBranch
-		if m.gitDirty {
-			branchStr += " *"
+		b.WriteString(sectionHeader("Environment", width))
+		b.WriteString("\n")
+		if m.workingDir != "" {
+			b.WriteString(labelStyle.Render("Dir: "))
+			b.WriteString(valueStyle.Render(abbreviatePath(m.workingDir)))
+			b.WriteString("\n")
 		}
-		b.WriteString(valueStyle.Render(branchStr))
-		b.WriteString("\n")
+		if m.gitBranch != "" {
+			b.WriteString(labelStyle.Render("Git: "))
+			branchStr := m.gitBranch
+			if m.gitDirty {
+				branchStr += " *"
+			}
+			b.WriteString(valueStyle.Render(branchStr))
+			b.WriteString("\n")
+		}
 	}
 
-	// Model info
-	if m.state != nil && m.state.Model != "" {
-		b.WriteString(labelStyle.Render("Model: "))
-		b.WriteString(valueStyle.Render(m.state.Model))
-		b.WriteString("\n")
-	}
-
-	b.WriteString("\n")
-
-	// Iteration stats
+	// Progress section
 	if m.state != nil {
+		b.WriteString("\n")
+		b.WriteString(sectionHeader("Progress", width))
+		b.WriteString("\n")
 		b.WriteString(labelStyle.Render("Iter: "))
 		b.WriteString(valueStyle.Render(fmt.Sprintf("%d/%d", m.state.Iteration, m.config.MaxIterations)))
 		b.WriteString(labelStyle.Render("  Stag: "))
@@ -428,21 +428,29 @@ func (m Model) renderSidebar(width int, height int) string {
 		b.WriteString(labelStyle.Render("Files: "))
 		b.WriteString(valueStyle.Render(fmt.Sprintf("%d changed", len(m.state.TotalFilesChanged))))
 		b.WriteString("\n")
+	}
 
-		// Token usage
-		totalIn := m.state.TotalInputTokens + m.state.InputTokens
-		totalOut := m.state.TotalOutputTokens + m.state.OutputTokens
-		if totalIn > 0 || totalOut > 0 {
-			b.WriteString(labelStyle.Render("Tokens: "))
-			b.WriteString(valueStyle.Render(fmt.Sprintf("%s in / %s out", formatTokens(totalIn), formatTokens(totalOut))))
+	// Usage section
+	if m.state != nil && len(m.state.TokensByModel) > 0 {
+		b.WriteString("\n")
+		b.WriteString(sectionHeader("Usage", width))
+		b.WriteString("\n")
+		for model, tokens := range m.state.TokensByModel {
+			shortModel := shortenModelName(model)
+			b.WriteString(valueStyle.Render(shortModel))
+			b.WriteString("\n")
+			b.WriteString(labelStyle.Render("  "))
+			b.WriteString(valueStyle.Render(fmt.Sprintf("%s in / %s out", formatTokens(tokens.InputTokens), formatTokens(tokens.OutputTokens))))
 			b.WriteString("\n")
 		}
 	}
 
-	// Phases
-	if m.ticket != nil {
+	// Phases section
+	if m.ticket != nil && len(m.ticket.Phases) > 0 {
 		b.WriteString("\n")
-		b.WriteString(m.renderPhases(width, height))
+		b.WriteString(sectionHeader("Phases", width))
+		b.WriteString("\n")
+		b.WriteString(m.renderPhasesContent(width, height))
 	}
 
 	// Exit info
@@ -460,16 +468,8 @@ func (m Model) renderSidebar(width int, height int) string {
 	return b.String()
 }
 
-func (m Model) renderPhases(width int, height int) string {
+func (m Model) renderPhasesContent(width int, height int) string {
 	var b strings.Builder
-	b.WriteString(labelStyle.Render("Phases:"))
-	b.WriteString("\n")
-
-	if len(m.ticket.Phases) == 0 {
-		b.WriteString(labelStyle.Render("  (none)"))
-		b.WriteString("\n")
-		return b.String()
-	}
 
 	currentPhase := m.ticket.CurrentPhase()
 	currentIdx := -1
@@ -605,6 +605,16 @@ func formatTokens(n int) string {
 		return fmt.Sprintf("%.1fk", float64(n)/1000)
 	}
 	return fmt.Sprintf("%d", n)
+}
+
+func shortenModelName(model string) string {
+	// claude-opus-4-5-20251101 -> opus-4-5
+	// claude-sonnet-4-5-20250514 -> sonnet-4-5
+	model = strings.TrimPrefix(model, "claude-")
+	if idx := strings.LastIndex(model, "-20"); idx > 0 {
+		model = model[:idx]
+	}
+	return model
 }
 
 type TUI struct {

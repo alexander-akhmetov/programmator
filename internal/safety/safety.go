@@ -64,6 +64,11 @@ func ConfigFromEnv() Config {
 	return cfg
 }
 
+type ModelTokens struct {
+	InputTokens  int
+	OutputTokens int
+}
+
 type State struct {
 	Iteration            int
 	ConsecutiveNoChanges int
@@ -73,10 +78,7 @@ type State struct {
 	TotalFilesChanged    map[string]struct{}
 	StartTime            time.Time
 	Model                string
-	InputTokens          int
-	OutputTokens         int
-	TotalInputTokens     int
-	TotalOutputTokens    int
+	TokensByModel        map[string]*ModelTokens
 }
 
 func NewState() *State {
@@ -84,6 +86,7 @@ func NewState() *State {
 		FilesChangedHistory: make([][]string, 0),
 		TotalFilesChanged:   make(map[string]struct{}),
 		StartTime:           time.Now(),
+		TokensByModel:       make(map[string]*ModelTokens),
 	}
 }
 
@@ -110,23 +113,32 @@ func (s *State) RecordIteration(filesChanged []string, err string) {
 		s.ConsecutiveErrors = 0
 		s.LastError = ""
 	}
-
-	s.TotalInputTokens += s.InputTokens
-	s.TotalOutputTokens += s.OutputTokens
-	s.InputTokens = 0
-	s.OutputTokens = 0
 }
 
 func (s *State) UpdateTokens(model string, inputTokens, outputTokens int) {
 	if model != "" {
 		s.Model = model
 	}
+	if s.Model == "" {
+		return
+	}
+	if s.TokensByModel[s.Model] == nil {
+		s.TokensByModel[s.Model] = &ModelTokens{}
+	}
 	if inputTokens > 0 {
-		s.InputTokens = inputTokens
+		s.TokensByModel[s.Model].InputTokens += inputTokens
 	}
 	if outputTokens > 0 {
-		s.OutputTokens = outputTokens
+		s.TokensByModel[s.Model].OutputTokens += outputTokens
 	}
+}
+
+func (s *State) TotalTokens() (input, output int) {
+	for _, t := range s.TokensByModel {
+		input += t.InputTokens
+		output += t.OutputTokens
+	}
+	return
 }
 
 type CheckResult struct {

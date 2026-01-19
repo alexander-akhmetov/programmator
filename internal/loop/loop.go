@@ -322,6 +322,8 @@ func (l *Loop) processTextOutput(stdout io.Reader) string {
 
 type streamEvent struct {
 	Type    string `json:"type"`
+	Subtype string `json:"subtype"`
+	Model   string `json:"model"`
 	Message struct {
 		Model   string `json:"model"`
 		Content []struct {
@@ -333,10 +335,8 @@ type streamEvent struct {
 			OutputTokens int `json:"output_tokens"`
 		} `json:"usage"`
 	} `json:"message"`
-	Delta struct {
-		StopReason string `json:"stop_reason"`
-	} `json:"delta"`
 	Usage struct {
+		InputTokens  int `json:"input_tokens"`
 		OutputTokens int `json:"output_tokens"`
 	} `json:"usage"`
 	Result string `json:"result"`
@@ -359,25 +359,24 @@ func (l *Loop) processStreamingOutput(stdout io.Reader) string {
 		}
 
 		switch event.Type {
-		case "message_start":
-			if l.currentState != nil {
-				l.currentState.UpdateTokens(
-					event.Message.Model,
-					event.Message.Usage.InputTokens,
-					0,
-				)
-				if l.onStateChange != nil && l.currentTicket != nil {
-					l.onStateChange(l.currentState, l.currentTicket, nil)
-				}
-			}
-		case "message_delta":
-			if l.currentState != nil && event.Usage.OutputTokens > 0 {
-				l.currentState.UpdateTokens("", 0, event.Usage.OutputTokens)
+		case "system":
+			if event.Subtype == "init" && event.Model != "" && l.currentState != nil {
+				l.currentState.UpdateTokens(event.Model, 0, 0)
 				if l.onStateChange != nil && l.currentTicket != nil {
 					l.onStateChange(l.currentState, l.currentTicket, nil)
 				}
 			}
 		case "assistant":
+			if l.currentState != nil {
+				l.currentState.UpdateTokens(
+					event.Message.Model,
+					event.Message.Usage.InputTokens,
+					event.Message.Usage.OutputTokens,
+				)
+				if l.onStateChange != nil && l.currentTicket != nil {
+					l.onStateChange(l.currentState, l.currentTicket, nil)
+				}
+			}
 			for _, block := range event.Message.Content {
 				if block.Type == "text" && block.Text != "" {
 					fullOutput.WriteString(block.Text)
