@@ -4,6 +4,7 @@ package safety
 import (
 	"os"
 	"strconv"
+	"time"
 )
 
 const (
@@ -70,12 +71,19 @@ type State struct {
 	ConsecutiveErrors    int
 	FilesChangedHistory  [][]string
 	TotalFilesChanged    map[string]struct{}
+	StartTime            time.Time
+	Model                string
+	InputTokens          int
+	OutputTokens         int
+	TotalInputTokens     int
+	TotalOutputTokens    int
 }
 
 func NewState() *State {
 	return &State{
 		FilesChangedHistory: make([][]string, 0),
 		TotalFilesChanged:   make(map[string]struct{}),
+		StartTime:           time.Now(),
 	}
 }
 
@@ -101,6 +109,23 @@ func (s *State) RecordIteration(filesChanged []string, err string) {
 	} else {
 		s.ConsecutiveErrors = 0
 		s.LastError = ""
+	}
+
+	s.TotalInputTokens += s.InputTokens
+	s.TotalOutputTokens += s.OutputTokens
+	s.InputTokens = 0
+	s.OutputTokens = 0
+}
+
+func (s *State) UpdateTokens(model string, inputTokens, outputTokens int) {
+	if model != "" {
+		s.Model = model
+	}
+	if inputTokens > 0 {
+		s.InputTokens = inputTokens
+	}
+	if outputTokens > 0 {
+		s.OutputTokens = outputTokens
 	}
 }
 

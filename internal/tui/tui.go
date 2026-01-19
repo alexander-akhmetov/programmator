@@ -2,8 +2,13 @@
 package tui
 
 import (
+	"bytes"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -83,6 +88,9 @@ type Model struct {
 	result       *loop.Result
 	err          error
 	renderer     *glamour.TermRenderer
+	workingDir   string
+	gitBranch    string
+	gitDirty     bool
 }
 
 func NewModel(config safety.Config) Model {
@@ -337,7 +345,7 @@ func (m Model) renderSidebar(width int, height int) string {
 	b.WriteString(titleStyle.Render("⚡ PROGRAMMATOR"))
 	b.WriteString("\n\n")
 
-	// State indicator
+	// State indicator with elapsed time
 	var stateIndicator string
 	switch m.runState {
 	case stateRunning:
@@ -350,7 +358,22 @@ func (m Model) renderSidebar(width int, height int) string {
 		stateIndicator = runningStyle.Render("✓ COMPLETE")
 	}
 
-	b.WriteString(stateIndicator)
+	// Add elapsed time on the same line
+	if m.state != nil && !m.state.StartTime.IsZero() {
+		elapsed := formatDuration(time.Since(m.state.StartTime))
+		padding := width - lipgloss.Width(stateIndicator) - len(elapsed) - 2
+		if padding > 0 {
+			b.WriteString(stateIndicator)
+			b.WriteString(strings.Repeat(" ", padding))
+			b.WriteString(valueStyle.Render(elapsed))
+		} else {
+			b.WriteString(stateIndicator)
+			b.WriteString("  ")
+			b.WriteString(valueStyle.Render(elapsed))
+		}
+	} else {
+		b.WriteString(stateIndicator)
+	}
 	b.WriteString("\n\n")
 
 	// Ticket info
@@ -370,6 +393,31 @@ func (m Model) renderSidebar(width int, height int) string {
 
 	b.WriteString("\n")
 
+	// Working directory and git info
+	if m.workingDir != "" {
+		b.WriteString(labelStyle.Render("Dir: "))
+		b.WriteString(valueStyle.Render(abbreviatePath(m.workingDir)))
+		b.WriteString("\n")
+	}
+	if m.gitBranch != "" {
+		b.WriteString(labelStyle.Render("Git: "))
+		branchStr := m.gitBranch
+		if m.gitDirty {
+			branchStr += " *"
+		}
+		b.WriteString(valueStyle.Render(branchStr))
+		b.WriteString("\n")
+	}
+
+	// Model info
+	if m.state != nil && m.state.Model != "" {
+		b.WriteString(labelStyle.Render("Model: "))
+		b.WriteString(valueStyle.Render(m.state.Model))
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+
 	// Iteration stats
 	if m.state != nil {
 		b.WriteString(labelStyle.Render("Iter: "))
@@ -380,67 +428,21 @@ func (m Model) renderSidebar(width int, height int) string {
 		b.WriteString(labelStyle.Render("Files: "))
 		b.WriteString(valueStyle.Render(fmt.Sprintf("%d changed", len(m.state.TotalFilesChanged))))
 		b.WriteString("\n")
+
+		// Token usage
+		totalIn := m.state.TotalInputTokens + m.state.InputTokens
+		totalOut := m.state.TotalOutputTokens + m.state.OutputTokens
+		if totalIn > 0 || totalOut > 0 {
+			b.WriteString(labelStyle.Render("Tokens: "))
+			b.WriteString(valueStyle.Render(fmt.Sprintf("%s in / %s out", formatTokens(totalIn), formatTokens(totalOut))))
+			b.WriteString("\n")
+		}
 	}
 
 	// Phases
 	if m.ticket != nil {
 		b.WriteString("\n")
-		b.WriteString(labelStyle.Render("Phases:"))
-		b.WriteString("\n")
-		if len(m.ticket.Phases) == 0 {
-			b.WriteString(labelStyle.Render("  (none)"))
-			b.WriteString("\n")
-		} else {
-			currentPhase := m.ticket.CurrentPhase()
-			currentIdx := -1
-			for i, phase := range m.ticket.Phases {
-				if currentPhase != nil && phase.Name == currentPhase.Name {
-					currentIdx = i
-					break
-				}
-			}
-
-			// Calculate how many phases we can show based on available height
-			// Header takes ~8 lines, each phase takes 1 line
-			usedLines := 8
-			availableForPhases := max(5, height-usedLines)
-
-			contextSize := max(2, (availableForPhases-2)/2) // -2 for "more above/below" lines
-
-			showFrom := 0
-			showTo := len(m.ticket.Phases) - 1
-
-			if len(m.ticket.Phases) > availableForPhases && currentIdx >= 0 {
-				showFrom = max(0, currentIdx-contextSize)
-				showTo = min(len(m.ticket.Phases)-1, currentIdx+contextSize)
-			}
-
-			if showFrom > 0 {
-				b.WriteString(labelStyle.Render(fmt.Sprintf("  ↑ %d more\n", showFrom)))
-			}
-
-			phaseWidth := width - 4 // room for "  ✓ "
-
-			for i := showFrom; i <= showTo; i++ {
-				phase := m.ticket.Phases[i]
-				wrappedName := wrapText(phase.Name, phaseWidth, "    ", 2)
-				if phase.Completed {
-					b.WriteString(runningStyle.Render("  ✓ "))
-					b.WriteString(labelStyle.Render(wrappedName))
-				} else if currentPhase != nil && phase.Name == currentPhase.Name {
-					b.WriteString(phaseStyle.Render("  → "))
-					b.WriteString(phaseStyle.Render(wrappedName))
-				} else {
-					b.WriteString(labelStyle.Render("  ○ "))
-					b.WriteString(labelStyle.Render(wrappedName))
-				}
-				b.WriteString("\n")
-			}
-
-			if showTo < len(m.ticket.Phases)-1 {
-				b.WriteString(labelStyle.Render(fmt.Sprintf("  ↓ %d more\n", len(m.ticket.Phases)-1-showTo)))
-			}
-		}
+		b.WriteString(m.renderPhases(width, height))
 	}
 
 	// Exit info
@@ -453,6 +455,66 @@ func (m Model) renderSidebar(width int, height int) string {
 	if m.err != nil {
 		b.WriteString("\n")
 		b.WriteString(stoppedStyle.Render(fmt.Sprintf("Error: %v", m.err)))
+	}
+
+	return b.String()
+}
+
+func (m Model) renderPhases(width int, height int) string {
+	var b strings.Builder
+	b.WriteString(labelStyle.Render("Phases:"))
+	b.WriteString("\n")
+
+	if len(m.ticket.Phases) == 0 {
+		b.WriteString(labelStyle.Render("  (none)"))
+		b.WriteString("\n")
+		return b.String()
+	}
+
+	currentPhase := m.ticket.CurrentPhase()
+	currentIdx := -1
+	for i, phase := range m.ticket.Phases {
+		if currentPhase != nil && phase.Name == currentPhase.Name {
+			currentIdx = i
+			break
+		}
+	}
+
+	usedLines := 8
+	availableForPhases := max(5, height-usedLines)
+	contextSize := max(2, (availableForPhases-2)/2)
+
+	showFrom := 0
+	showTo := len(m.ticket.Phases) - 1
+
+	if len(m.ticket.Phases) > availableForPhases && currentIdx >= 0 {
+		showFrom = max(0, currentIdx-contextSize)
+		showTo = min(len(m.ticket.Phases)-1, currentIdx+contextSize)
+	}
+
+	if showFrom > 0 {
+		b.WriteString(labelStyle.Render(fmt.Sprintf("  ↑ %d more\n", showFrom)))
+	}
+
+	phaseWidth := width - 4
+	for i := showFrom; i <= showTo; i++ {
+		phase := m.ticket.Phases[i]
+		wrappedName := wrapText(phase.Name, phaseWidth, "    ", 2)
+		if phase.Completed {
+			b.WriteString(runningStyle.Render("  ✓ "))
+			b.WriteString(labelStyle.Render(wrappedName))
+		} else if currentPhase != nil && phase.Name == currentPhase.Name {
+			b.WriteString(phaseStyle.Render("  → "))
+			b.WriteString(phaseStyle.Render(wrappedName))
+		} else {
+			b.WriteString(labelStyle.Render("  ○ "))
+			b.WriteString(labelStyle.Render(wrappedName))
+		}
+		b.WriteString("\n")
+	}
+
+	if showTo < len(m.ticket.Phases)-1 {
+		b.WriteString(labelStyle.Render(fmt.Sprintf("  ↓ %d more\n", len(m.ticket.Phases)-1-showTo)))
 	}
 
 	return b.String()
@@ -495,6 +557,56 @@ func (m Model) wrapLogs() string {
 	return content
 }
 
+func getGitInfo(workingDir string) (branch string, dirty bool) {
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = workingDir
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		return "", false
+	}
+	branch = strings.TrimSpace(out.String())
+
+	cmd = exec.Command("git", "status", "--porcelain")
+	cmd.Dir = workingDir
+	out.Reset()
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		return branch, false
+	}
+	dirty = len(strings.TrimSpace(out.String())) > 0
+	return branch, dirty
+}
+
+func abbreviatePath(path string) string {
+	home, err := os.UserHomeDir()
+	if err == nil && strings.HasPrefix(path, home) {
+		path = "~" + path[len(home):]
+	}
+	parts := strings.Split(path, string(filepath.Separator))
+	if len(parts) > 3 {
+		return filepath.Join(parts[len(parts)-3:]...)
+	}
+	return path
+}
+
+func formatDuration(d time.Duration) string {
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+	if h > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
+	}
+	return fmt.Sprintf("%02d:%02d", m, s)
+}
+
+func formatTokens(n int) string {
+	if n >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	}
+	return fmt.Sprintf("%d", n)
+}
+
 type TUI struct {
 	program *tea.Program
 	model   Model
@@ -511,6 +623,10 @@ func New(config safety.Config) *TUI {
 
 func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 	timing.Log("TUI.Run: start")
+
+	t.model.workingDir = workingDir
+	t.model.gitBranch, t.model.gitDirty = getGitInfo(workingDir)
+
 	outputChan := make(chan string, 100)
 	stateChan := make(chan TicketUpdateMsg, 10)
 	doneChan := make(chan LoopDoneMsg, 1)

@@ -45,6 +45,9 @@ type Loop struct {
 	paused        bool
 	stopRequested bool
 	pauseCond     *sync.Cond
+
+	currentState  *safety.State
+	currentTicket *ticket.Ticket
 }
 
 func New(config safety.Config, workingDir string, onOutput OutputCallback, onStateChange StateCallback, streaming bool) *Loop {
@@ -160,6 +163,9 @@ func (l *Loop) Run(ticketID string) (*Result, error) {
 		}
 
 		promptText := prompt.Build(t, progressNotes)
+
+		l.currentState = state
+		l.currentTicket = t
 
 		if l.onStateChange != nil {
 			l.onStateChange(state, t, result.TotalFilesChanged)
@@ -317,11 +323,22 @@ func (l *Loop) processTextOutput(stdout io.Reader) string {
 type streamEvent struct {
 	Type    string `json:"type"`
 	Message struct {
+		Model   string `json:"model"`
 		Content []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
+		Usage struct {
+			InputTokens  int `json:"input_tokens"`
+			OutputTokens int `json:"output_tokens"`
+		} `json:"usage"`
 	} `json:"message"`
+	Delta struct {
+		StopReason string `json:"stop_reason"`
+	} `json:"delta"`
+	Usage struct {
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage"`
 	Result string `json:"result"`
 }
 
@@ -342,6 +359,24 @@ func (l *Loop) processStreamingOutput(stdout io.Reader) string {
 		}
 
 		switch event.Type {
+		case "message_start":
+			if l.currentState != nil {
+				l.currentState.UpdateTokens(
+					event.Message.Model,
+					event.Message.Usage.InputTokens,
+					0,
+				)
+				if l.onStateChange != nil && l.currentTicket != nil {
+					l.onStateChange(l.currentState, l.currentTicket, nil)
+				}
+			}
+		case "message_delta":
+			if l.currentState != nil && event.Usage.OutputTokens > 0 {
+				l.currentState.UpdateTokens("", 0, event.Usage.OutputTokens)
+				if l.onStateChange != nil && l.currentTicket != nil {
+					l.onStateChange(l.currentState, l.currentTicket, nil)
+				}
+			}
 		case "assistant":
 			for _, block := range event.Message.Content {
 				if block.Type == "text" && block.Text != "" {
