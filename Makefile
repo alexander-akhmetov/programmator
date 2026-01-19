@@ -1,30 +1,29 @@
-.PHONY: test tests run install uninstall dev clean lint fmt
+.PHONY: build test lint fmt install clean
 
-test tests:
-	uv run pytest -v
+build:
+	go build ./...
+
+test:
+	go test ./...
+
+test-race:
+	go test -race ./...
 
 lint:
-	uv run ruff format --check src tests
-	uv run ruff check src tests
-	uv run ty check src tests
+	gofmt -l .
+	go vet ./...
 
 fmt:
-	uv run ruff format src tests
-	uv run ruff check --fix src tests
-
-run:
-	@echo "Usage: make run TICKET=<ticket-id> [DIR=/path/to/project]"
-	@test -n "$(TICKET)" || (echo "Error: TICKET is required" && exit 1)
-	uv run programmator start $(TICKET) $(if $(DIR),-d $(DIR))
+	gofmt -w .
 
 install:
-	uv tool install -e .
+	go install ./cmd/programmator
 
-uninstall:
-	uv tool uninstall programmator
-
-dev:
-	uv sync
+run:
+	@echo "Usage: make run TICKET=<ticket-id>"
+	@test -n "$(TICKET)" || (echo "Error: TICKET is required" && exit 1)
+	go run ./cmd/programmator start $(TICKET)
 
 clean:
-	rm -rf .pytest_cache __pycache__ src/__pycache__ tests/__pycache__ .venv
+	go clean ./...
+	rm -rf .pytest_cache .ruff_cache
