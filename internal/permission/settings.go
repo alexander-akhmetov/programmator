@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 )
 
@@ -108,7 +107,8 @@ func (s *Settings) AddPatternToFile(path, pattern string) error {
 		return fmt.Errorf("create directory: %w", err)
 	}
 
-	var settings claudeSettings
+	// Use map to preserve all existing fields in the settings file
+	var settings map[string]any
 
 	data, err := os.ReadFile(path)
 	if err == nil {
@@ -116,16 +116,30 @@ func (s *Settings) AddPatternToFile(path, pattern string) error {
 			return fmt.Errorf("parse settings: %w", err)
 		}
 	}
-
-	if settings.Permissions == nil {
-		settings.Permissions = &permissionsBlock{}
+	if settings == nil {
+		settings = make(map[string]any)
 	}
 
-	if slices.Contains(settings.Permissions.Allow, pattern) {
-		return nil
+	// Get or create permissions block
+	perms, _ := settings["permissions"].(map[string]any)
+	if perms == nil {
+		perms = make(map[string]any)
+		settings["permissions"] = perms
 	}
 
-	settings.Permissions.Allow = append(settings.Permissions.Allow, pattern)
+	// Get or create allow list
+	allowList, _ := perms["allow"].([]any)
+
+	// Check if pattern already exists
+	for _, p := range allowList {
+		if p == pattern {
+			return nil
+		}
+	}
+
+	// Append the new pattern
+	allowList = append(allowList, pattern)
+	perms["allow"] = allowList
 
 	data, err = json.MarshalIndent(settings, "", "  ")
 	if err != nil {

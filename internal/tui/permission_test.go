@@ -196,11 +196,13 @@ func TestHandleKey_ScopeToggle(t *testing.T) {
 	dialog.HandleKey("tab")
 	assert.Equal(t, scopeOnce, dialog.scope, "should wrap around")
 
+	// Left goes backward: Once -> Global
 	dialog.HandleKey("left")
-	assert.Equal(t, scopeSession, dialog.scope)
+	assert.Equal(t, scopeGlobal, dialog.scope)
 
+	// Right goes forward: Global -> Once
 	dialog.HandleKey("right")
-	assert.Equal(t, scopeProject, dialog.scope)
+	assert.Equal(t, scopeOnce, dialog.scope)
 }
 
 func TestHandleKey_Respond(t *testing.T) {

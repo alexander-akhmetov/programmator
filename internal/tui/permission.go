@@ -165,9 +165,17 @@ func (d *PermissionDialog) HandleKey(key string) bool {
 			d.allowIdx++
 		}
 		return false
-	case "tab", "left", "right":
-		// Cycle through scopes (Once, Session, Project, Global)
+	case "tab", "right":
+		// Cycle forward through scopes (Once, Session, Project, Global)
 		d.scope = (d.scope + 1) % 4
+		return false
+	case "left":
+		// Cycle backward through scopes
+		if d.scope == 0 {
+			d.scope = 3
+		} else {
+			d.scope--
+		}
 		return false
 	case "enter", " ":
 		d.respond()
