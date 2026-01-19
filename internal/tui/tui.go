@@ -187,14 +187,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		logHeight := max(m.height-18, 5)
-		viewportWidth := msg.Width - 6
+		// Calculate dimensions matching View()
+		sidebarWidth := max(30, min(40, m.width*30/100))
+		mainWidth := m.width - sidebarWidth - 4
+		contentHeight := m.height - 3
+
+		// Viewport dimensions (account for header line and box padding)
+		viewportWidth := mainWidth - 4
+		logHeight := contentHeight - 4
 
 		if !m.ready {
 			m.logViewport = viewport.New(viewportWidth, logHeight)
 			m.logViewport.SetContent(m.wrapLogs())
 			m.ready = true
-			cmds = append(cmds, createRendererCmd(msg.Width))
+			cmds = append(cmds, createRendererCmd(mainWidth))
 		} else {
 			m.logViewport.Width = viewportWidth
 			m.logViewport.Height = logHeight
@@ -241,36 +247,45 @@ func (m Model) View() string {
 		return "Initializing..."
 	}
 
-	var b strings.Builder
+	// Sidebar width: fixed at 40 chars or 30% of screen, whichever is smaller
+	sidebarWidth := max(30, min(40, m.width*30/100))
 
-	b.WriteString(titleStyle.Render("⚡ PROGRAMMATOR"))
-	b.WriteString("\n")
+	// Main content area width
+	mainWidth := m.width - sidebarWidth - 4 // 4 for borders/padding
 
-	statusContent := m.renderStatus()
-	statusWidth := max(m.width-4, 40)
-	b.WriteString(statusBoxStyle.Width(statusWidth).Render(statusContent))
-	b.WriteString("\n\n")
+	// Height for content (leave room for help line)
+	contentHeight := m.height - 3
 
-	logHeight := max(m.height-18, 5)
+	// Build sidebar
+	sidebar := m.renderSidebar(sidebarWidth-4, contentHeight-2) // -4 for border padding
+	sidebarBox := statusBoxStyle.Width(sidebarWidth).Height(contentHeight).Render(sidebar)
 
-	logHeader := "─ Logs "
+	// Build logs panel
+	logHeader := "Logs"
 	if m.logViewport.TotalLineCount() > 0 {
-		logHeader += fmt.Sprintf("(%d lines, %d%% scrolled) ", m.logViewport.TotalLineCount(), int(m.logViewport.ScrollPercent()*100))
+		logHeader = fmt.Sprintf("Logs (%d lines, %d%%)", m.logViewport.TotalLineCount(), int(m.logViewport.ScrollPercent()*100))
 	}
 
-	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(logHeader))
-	b.WriteString("\n")
-	b.WriteString(logBoxStyle.Width(statusWidth).Height(logHeight).Render(m.logViewport.View()))
-	b.WriteString("\n\n")
+	logsContent := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("241")).
+		Render(logHeader) + "\n" + m.logViewport.View()
 
-	b.WriteString(m.renderHelp())
+	logsBox := logBoxStyle.Width(mainWidth).Height(contentHeight).Render(logsContent)
 
-	return b.String()
+	// Join horizontally
+	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebarBox, logsBox)
+
+	return main + "\n" + m.renderHelp()
 }
 
-func (m Model) renderStatus() string {
+func (m Model) renderSidebar(width int, height int) string {
 	var b strings.Builder
 
+	// Title
+	b.WriteString(titleStyle.Render("⚡ PROGRAMMATOR"))
+	b.WriteString("\n\n")
+
+	// State indicator
 	var stateIndicator string
 	switch m.runState {
 	case stateRunning:
@@ -286,14 +301,16 @@ func (m Model) renderStatus() string {
 	b.WriteString(stateIndicator)
 	b.WriteString("\n\n")
 
+	// Ticket info
 	if m.ticket != nil {
 		b.WriteString(labelStyle.Render("Ticket: "))
 		b.WriteString(valueStyle.Render(m.ticket.ID))
 		b.WriteString("\n")
-		b.WriteString(labelStyle.Render("Title:  "))
+
 		title := m.ticket.Title
-		if len(title) > 50 {
-			title = title[:47] + "..."
+		maxTitleLen := max(10, width-2)
+		if len(title) > maxTitleLen {
+			title = title[:maxTitleLen-3] + "..."
 		}
 		b.WriteString(valueStyle.Render(title))
 		b.WriteString("\n")
@@ -305,24 +322,25 @@ func (m Model) renderStatus() string {
 
 	b.WriteString("\n")
 
+	// Iteration stats
 	if m.state != nil {
-		b.WriteString(labelStyle.Render("Iteration:  "))
+		b.WriteString(labelStyle.Render("Iter: "))
 		b.WriteString(valueStyle.Render(fmt.Sprintf("%d/%d", m.state.Iteration, m.config.MaxIterations)))
-		b.WriteString("\n")
-		b.WriteString(labelStyle.Render("Stagnation: "))
+		b.WriteString(labelStyle.Render("  Stag: "))
 		b.WriteString(valueStyle.Render(fmt.Sprintf("%d/%d", m.state.ConsecutiveNoChanges, m.config.StagnationLimit)))
 		b.WriteString("\n")
-		b.WriteString(labelStyle.Render("Files:      "))
+		b.WriteString(labelStyle.Render("Files: "))
 		b.WriteString(valueStyle.Render(fmt.Sprintf("%d changed", len(m.state.TotalFilesChanged))))
 		b.WriteString("\n")
 	}
 
+	// Phases
 	if m.ticket != nil {
 		b.WriteString("\n")
 		b.WriteString(labelStyle.Render("Phases:"))
 		b.WriteString("\n")
 		if len(m.ticket.Phases) == 0 {
-			b.WriteString(labelStyle.Render("  (not found in ticket)"))
+			b.WriteString(labelStyle.Render("  (none)"))
 			b.WriteString("\n")
 		} else {
 			currentPhase := m.ticket.CurrentPhase()
@@ -334,24 +352,32 @@ func (m Model) renderStatus() string {
 				}
 			}
 
-			const contextSize = 3
+			// Calculate how many phases we can show based on available height
+			// Header takes ~8 lines, each phase takes 1 line
+			usedLines := 8
+			availableForPhases := max(5, height-usedLines)
+
+			contextSize := max(2, (availableForPhases-2)/2) // -2 for "more above/below" lines
+
 			showFrom := 0
 			showTo := len(m.ticket.Phases) - 1
 
-			if len(m.ticket.Phases) > contextSize*2+1 && currentIdx >= 0 {
+			if len(m.ticket.Phases) > availableForPhases && currentIdx >= 0 {
 				showFrom = max(0, currentIdx-contextSize)
 				showTo = min(len(m.ticket.Phases)-1, currentIdx+contextSize)
 			}
 
 			if showFrom > 0 {
-				b.WriteString(labelStyle.Render(fmt.Sprintf("  ... (%d more above)\n", showFrom)))
+				b.WriteString(labelStyle.Render(fmt.Sprintf("  ↑ %d more\n", showFrom)))
 			}
+
+			maxPhaseLen := max(15, width-4) // room for "  ✓ "
 
 			for i := showFrom; i <= showTo; i++ {
 				phase := m.ticket.Phases[i]
 				name := phase.Name
-				if len(name) > 40 {
-					name = name[:37] + "..."
+				if len(name) > maxPhaseLen {
+					name = name[:maxPhaseLen-3] + "..."
 				}
 				if phase.Completed {
 					b.WriteString(runningStyle.Render("  ✓ "))
@@ -367,13 +393,14 @@ func (m Model) renderStatus() string {
 			}
 
 			if showTo < len(m.ticket.Phases)-1 {
-				b.WriteString(labelStyle.Render(fmt.Sprintf("  ... (%d more below)\n", len(m.ticket.Phases)-1-showTo)))
+				b.WriteString(labelStyle.Render(fmt.Sprintf("  ↓ %d more\n", len(m.ticket.Phases)-1-showTo)))
 			}
 		}
 	}
 
+	// Exit info
 	if m.result != nil && m.runState == stateComplete {
-		b.WriteString("\n\n")
+		b.WriteString("\n")
 		b.WriteString(labelStyle.Render("Exit: "))
 		b.WriteString(valueStyle.Render(string(m.result.ExitReason)))
 	}

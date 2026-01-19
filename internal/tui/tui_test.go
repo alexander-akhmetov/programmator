@@ -222,38 +222,38 @@ func TestModelView(t *testing.T) {
 	}
 }
 
-func TestModelRenderStatus(t *testing.T) {
+func TestModelRenderSidebar(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3}
 	model := NewModel(config)
 	model.width = 80
 	model.height = 24
 
 	model.runState = stateRunning
-	status := model.renderStatus()
+	status := model.renderSidebar(36, 20)
 	if status == "" {
-		t.Error("renderStatus() should not return empty string")
+		t.Error("renderSidebar() should not return empty string")
 	}
 
 	model.runState = statePaused
-	status = model.renderStatus()
+	status = model.renderSidebar(36, 20)
 	if status == "" {
-		t.Error("renderStatus() should not return empty string when paused")
+		t.Error("renderSidebar() should not return empty string when paused")
 	}
 
 	model.runState = stateStopped
-	status = model.renderStatus()
+	status = model.renderSidebar(36, 20)
 	if status == "" {
-		t.Error("renderStatus() should not return empty string when stopped")
+		t.Error("renderSidebar() should not return empty string when stopped")
 	}
 
 	model.runState = stateComplete
-	status = model.renderStatus()
+	status = model.renderSidebar(36, 20)
 	if status == "" {
-		t.Error("renderStatus() should not return empty string when complete")
+		t.Error("renderSidebar() should not return empty string when complete")
 	}
 }
 
-func TestModelRenderStatusWithTicket(t *testing.T) {
+func TestModelRenderSidebarWithTicket(t *testing.T) {
 	model := NewModel(safety.Config{MaxIterations: 10, StagnationLimit: 3})
 	model.ticket = &ticket.Ticket{
 		ID:    "t-123",
@@ -266,10 +266,10 @@ func TestModelRenderStatusWithTicket(t *testing.T) {
 	model.state = safety.NewState()
 	model.state.Iteration = 5
 
-	status := model.renderStatus()
+	status := model.renderSidebar(36, 20)
 
 	if status == "" {
-		t.Error("renderStatus() should not return empty string with ticket")
+		t.Error("renderSidebar() should not return empty string with ticket")
 	}
 }
 
@@ -419,16 +419,16 @@ func TestModelUpdateLoopDoneMsgWhenStopped(t *testing.T) {
 	require.Equal(t, stateStopped, m.runState)
 }
 
-func TestModelRenderStatusWithError(t *testing.T) {
+func TestModelRenderSidebarWithError(t *testing.T) {
 	model := NewModel(safety.Config{MaxIterations: 10, StagnationLimit: 3})
 	model.err = fmt.Errorf("test error")
 
-	status := model.renderStatus()
+	status := model.renderSidebar(36, 20)
 
 	require.NotEmpty(t, status)
 }
 
-func TestModelRenderStatusWithResult(t *testing.T) {
+func TestModelRenderSidebarWithResult(t *testing.T) {
 	model := NewModel(safety.Config{MaxIterations: 10, StagnationLimit: 3})
 	model.runState = stateComplete
 	model.result = &loop.Result{
@@ -436,24 +436,24 @@ func TestModelRenderStatusWithResult(t *testing.T) {
 		Iterations: 5,
 	}
 
-	status := model.renderStatus()
+	status := model.renderSidebar(36, 20)
 
 	require.NotEmpty(t, status)
 }
 
-func TestModelRenderStatusTruncatedTitle(t *testing.T) {
+func TestModelRenderSidebarTruncatedTitle(t *testing.T) {
 	model := NewModel(safety.Config{MaxIterations: 10, StagnationLimit: 3})
 	model.ticket = &ticket.Ticket{
 		ID:    "t-123",
 		Title: "This is a very long ticket title that should be truncated because it exceeds 50 characters",
 	}
 
-	status := model.renderStatus()
+	status := model.renderSidebar(36, 20)
 
 	require.NotEmpty(t, status)
 }
 
-func TestModelRenderStatusAllPhasesComplete(t *testing.T) {
+func TestModelRenderSidebarAllPhasesComplete(t *testing.T) {
 	model := NewModel(safety.Config{MaxIterations: 10, StagnationLimit: 3})
 	model.ticket = &ticket.Ticket{
 		ID:    "t-123",
@@ -464,7 +464,7 @@ func TestModelRenderStatusAllPhasesComplete(t *testing.T) {
 		},
 	}
 
-	status := model.renderStatus()
+	status := model.renderSidebar(36, 20)
 
 	require.NotEmpty(t, status)
 }
