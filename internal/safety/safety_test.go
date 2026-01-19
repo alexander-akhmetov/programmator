@@ -18,8 +18,8 @@ func TestConfigFromEnv_Defaults(t *testing.T) {
 	if cfg.Timeout != DefaultTimeout {
 		t.Errorf("Timeout = %d, want %d", cfg.Timeout, DefaultTimeout)
 	}
-	if cfg.ClaudeFlags != "--dangerously-skip-permissions" {
-		t.Errorf("ClaudeFlags = %q, want %q", cfg.ClaudeFlags, "--dangerously-skip-permissions")
+	if cfg.ClaudeFlags != "" {
+		t.Errorf("ClaudeFlags = %q, want %q", cfg.ClaudeFlags, "")
 	}
 }
 

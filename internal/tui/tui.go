@@ -3,6 +3,7 @@ package tui
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -18,6 +19,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/alexander-akhmetov/programmator/internal/loop"
+	"github.com/alexander-akhmetov/programmator/internal/permission"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
 	"github.com/alexander-akhmetov/programmator/internal/ticket"
 	"github.com/alexander-akhmetov/programmator/internal/timing"
@@ -78,26 +80,27 @@ const (
 )
 
 type Model struct {
-	ticket       *ticket.Ticket
-	state        *safety.State
-	config       safety.Config
-	filesChanged []string
-	logs         []string
-	logViewport  viewport.Model
-	spinner      spinner.Model
-	width        int
-	height       int
-	runState     runState
-	loop         *loop.Loop
-	ready        bool
-	result       *loop.Result
-	err          error
-	renderer     *glamour.TermRenderer
-	workingDir   string
-	gitBranch    string
-	gitDirty     bool
-	claudePID    int
-	claudeMemKB  int64
+	ticket           *ticket.Ticket
+	state            *safety.State
+	config           safety.Config
+	filesChanged     []string
+	logs             []string
+	logViewport      viewport.Model
+	spinner          spinner.Model
+	width            int
+	height           int
+	runState         runState
+	loop             *loop.Loop
+	ready            bool
+	result           *loop.Result
+	err              error
+	renderer         *glamour.TermRenderer
+	workingDir       string
+	gitBranch        string
+	gitDirty         bool
+	claudePID        int
+	claudeMemKB      int64
+	permissionDialog *PermissionDialog
 }
 
 func NewModel(config safety.Config) Model {
@@ -138,6 +141,11 @@ type rendererReadyMsg struct {
 	renderer *glamour.TermRenderer
 }
 
+type PermissionRequestMsg struct {
+	Request      *permission.Request
+	ResponseChan chan<- permission.Decision
+}
+
 func createRendererCmd(width int) tea.Cmd {
 	return func() tea.Msg {
 		viewportWidth := max(width-6, 40)
@@ -153,54 +161,58 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(m.spinner.Tick, tea.WindowSize())
 }
 
+func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.permissionDialog != nil {
+		if m.permissionDialog.HandleKey(msg.String()) {
+			m.permissionDialog = nil
+		}
+		return m, nil
+	}
+
+	var cmds []tea.Cmd
+
+	switch msg.String() {
+	case "q", "ctrl+c":
+		if m.loop != nil && m.runState == stateRunning {
+			m.loop.Stop()
+		}
+		return m, tea.Quit
+
+	case "p":
+		if m.loop != nil && (m.runState == stateRunning || m.runState == statePaused) {
+			paused := m.loop.TogglePause()
+			if paused {
+				m.runState = statePaused
+			} else {
+				m.runState = stateRunning
+			}
+		}
+
+	case "s":
+		if m.loop != nil && m.runState != stateStopped && m.runState != stateComplete {
+			m.loop.Stop()
+			m.runState = stateStopped
+		}
+
+	case "up", "k", "down", "j", "pgup", "ctrl+u", "pgdown", "ctrl+d":
+		var cmd tea.Cmd
+		m.logViewport, cmd = m.logViewport.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+
+	return m, tea.Batch(cmds...)
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "ctrl+c":
-			if m.loop != nil && m.runState == stateRunning {
-				m.loop.Stop()
-			}
-			return m, tea.Quit
+		return m.handleKeyMsg(msg)
 
-		case "p":
-			if m.loop != nil && (m.runState == stateRunning || m.runState == statePaused) {
-				paused := m.loop.TogglePause()
-				if paused {
-					m.runState = statePaused
-				} else {
-					m.runState = stateRunning
-				}
-			}
-
-		case "s":
-			if m.loop != nil && m.runState != stateStopped && m.runState != stateComplete {
-				m.loop.Stop()
-				m.runState = stateStopped
-			}
-
-		case "up", "k":
-			var cmd tea.Cmd
-			m.logViewport, cmd = m.logViewport.Update(msg)
-			cmds = append(cmds, cmd)
-
-		case "down", "j":
-			var cmd tea.Cmd
-			m.logViewport, cmd = m.logViewport.Update(msg)
-			cmds = append(cmds, cmd)
-
-		case "pgup", "ctrl+u":
-			var cmd tea.Cmd
-			m.logViewport, cmd = m.logViewport.Update(msg)
-			cmds = append(cmds, cmd)
-
-		case "pgdown", "ctrl+d":
-			var cmd tea.Cmd
-			m.logViewport, cmd = m.logViewport.Update(msg)
-			cmds = append(cmds, cmd)
-		}
+	case PermissionRequestMsg:
+		m.permissionDialog = NewPermissionDialog(msg.Request, msg.ResponseChan)
+		return m, nil
 
 	case tea.WindowSizeMsg:
 		timing.Log("Update: WindowSizeMsg received")
@@ -298,6 +310,10 @@ func (m Model) View() string {
 
 	// Join horizontally
 	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebarBox, logsBox)
+
+	if m.permissionDialog != nil {
+		return m.permissionDialog.View(m.width, m.height)
+	}
 
 	return main + "\n" + m.renderHelp()
 }
@@ -696,8 +712,10 @@ func shortenModelName(model string) string {
 }
 
 type TUI struct {
-	program *tea.Program
-	model   Model
+	program                *tea.Program
+	model                  Model
+	interactivePermissions bool
+	allowPatterns          []string
 }
 
 func New(config safety.Config) *TUI {
@@ -705,8 +723,17 @@ func New(config safety.Config) *TUI {
 	model := NewModel(config)
 	timing.Log("TUI.New: model created")
 	return &TUI{
-		model: model,
+		model:                  model,
+		interactivePermissions: true,
 	}
+}
+
+func (t *TUI) SetInteractivePermissions(enabled bool) {
+	t.interactivePermissions = enabled
+}
+
+func (t *TUI) SetAllowPatterns(patterns []string) {
+	t.allowPatterns = patterns
 }
 
 func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
@@ -719,8 +746,34 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 	stateChan := make(chan TicketUpdateMsg, 10)
 	doneChan := make(chan LoopDoneMsg, 1)
 	processStatsChan := make(chan ProcessStatsMsg, 10)
+	permissionChan := make(chan PermissionRequestMsg, 1)
 
 	timing.Log("TUI.Run: channels created")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var permServer *permission.Server
+	if t.interactivePermissions {
+		var err error
+		permServer, err = permission.NewServer(workingDir, func(req *permission.Request) permission.Decision {
+			respChan := make(chan permission.Decision, 1)
+			permissionChan <- PermissionRequestMsg{Request: req, ResponseChan: respChan}
+			return <-respChan
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to start permission server: %w", err)
+		}
+		defer permServer.Close()
+
+		if len(t.allowPatterns) > 0 {
+			permServer.SetPreAllowed(t.allowPatterns)
+		}
+
+		go func() { _ = permServer.Serve(ctx) }()
+		timing.Log("TUI.Run: permission server started")
+	}
+
 	l := loop.New(
 		t.model.config,
 		workingDir,
@@ -748,6 +801,9 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 		default:
 		}
 	})
+	if permServer != nil {
+		l.SetPermissionSocketPath(permServer.SocketPath())
+	}
 
 	t.model.SetLoop(l)
 	timing.Log("TUI.Run: loop created")
@@ -770,6 +826,8 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 				t.program.Send(update)
 			case stats := <-processStatsChan:
 				t.program.Send(stats)
+			case perm := <-permissionChan:
+				t.program.Send(perm)
 			case done := <-doneChan:
 				t.program.Send(done)
 				return

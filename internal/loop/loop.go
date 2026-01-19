@@ -34,15 +34,16 @@ type ProcessStatsCallback func(pid int, memoryKB int64)
 type ClaudeInvoker func(ctx context.Context, promptText string) (string, error)
 
 type Loop struct {
-	config         safety.Config
-	workingDir     string
-	onOutput       OutputCallback
-	onStateChange  StateCallback
-	onProcessStats ProcessStatsCallback
-	streaming      bool
-	cancelFunc     context.CancelFunc
-	client         ticket.Client
-	claudeInvoker  ClaudeInvoker
+	config               safety.Config
+	workingDir           string
+	onOutput             OutputCallback
+	onStateChange        StateCallback
+	onProcessStats       ProcessStatsCallback
+	streaming            bool
+	cancelFunc           context.CancelFunc
+	client               ticket.Client
+	claudeInvoker        ClaudeInvoker
+	permissionSocketPath string
 
 	mu            sync.Mutex
 	paused        bool
@@ -261,6 +262,11 @@ func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string
 
 	if l.streaming {
 		args = append(args, "--output-format", "stream-json", "--verbose")
+	}
+
+	if l.permissionSocketPath != "" {
+		hookSettings := l.buildHookSettings()
+		args = append(args, "--settings", hookSettings)
 	}
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(l.config.Timeout)*time.Second)
@@ -525,4 +531,31 @@ func (l *Loop) SetClaudeInvoker(invoker ClaudeInvoker) {
 
 func (l *Loop) SetProcessStatsCallback(cb ProcessStatsCallback) {
 	l.onProcessStats = cb
+}
+
+func (l *Loop) SetPermissionSocketPath(path string) {
+	l.permissionSocketPath = path
+}
+
+func (l *Loop) buildHookSettings() string {
+	hookCmd := fmt.Sprintf("programmator hook --socket %s", l.permissionSocketPath)
+
+	settings := map[string]any{
+		"hooks": map[string]any{
+			"PreToolUse": []map[string]any{
+				{
+					"matcher": "",
+					"hooks": []map[string]any{
+						{
+							"type":    "command",
+							"command": hookCmd,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	data, _ := json.Marshal(settings)
+	return string(data)
 }

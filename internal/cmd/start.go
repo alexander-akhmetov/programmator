@@ -21,6 +21,8 @@ var (
 	maxIterations   int
 	stagnationLimit int
 	timeout         int
+	skipPermissions bool
+	allowPatterns   []string
 )
 
 var startCmd = &cobra.Command{
@@ -53,6 +55,8 @@ func init() {
 	startCmd.Flags().IntVarP(&maxIterations, "max-iterations", "n", 0, "Maximum iterations (overrides PROGRAMMATOR_MAX_ITERATIONS)")
 	startCmd.Flags().IntVar(&stagnationLimit, "stagnation-limit", 0, "Stagnation limit (overrides PROGRAMMATOR_STAGNATION_LIMIT)")
 	startCmd.Flags().IntVar(&timeout, "timeout", 0, "Timeout per Claude invocation in seconds (overrides PROGRAMMATOR_TIMEOUT)")
+	startCmd.Flags().BoolVar(&skipPermissions, "skip-permissions", false, "Skip interactive permission dialogs (dangerous: grants all permissions)")
+	startCmd.Flags().StringArrayVar(&allowPatterns, "allow", nil, "Pre-allow permission patterns (e.g., 'Bash(git:*)', 'Read')")
 }
 
 func runStart(_ *cobra.Command, args []string) error {
@@ -87,9 +91,19 @@ func runStart(_ *cobra.Command, args []string) error {
 	defer removeSessionFile()
 	timing.Log("runStart: session file written")
 
+	if skipPermissions {
+		if config.ClaudeFlags == "" {
+			config.ClaudeFlags = "--dangerously-skip-permissions"
+		} else {
+			config.ClaudeFlags += " --dangerously-skip-permissions"
+		}
+	}
+
 	timing.Log("runStart: creating TUI")
 	t := tui.New(config)
-	timing.Log("runStart: TUI created, calling Run")
+	t.SetInteractivePermissions(!skipPermissions)
+	t.SetAllowPatterns(allowPatterns)
+	timing.Log("TUI created, calling Run")
 	result, err := t.Run(ticketID, wd)
 	timing.Log("runStart: TUI.Run returned")
 

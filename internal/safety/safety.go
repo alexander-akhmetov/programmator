@@ -36,7 +36,7 @@ func ConfigFromEnv() Config {
 		MaxIterations:   DefaultMaxIterations,
 		StagnationLimit: DefaultStagnationLimit,
 		Timeout:         DefaultTimeout,
-		ClaudeFlags:     "--dangerously-skip-permissions",
+		ClaudeFlags:     "",
 	}
 
 	if v := os.Getenv("PROGRAMMATOR_MAX_ITERATIONS"); v != "" {
