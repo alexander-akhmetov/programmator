@@ -14,6 +14,7 @@ import (
 	"github.com/alexander-akhmetov/programmator/internal/loop"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
 	"github.com/alexander-akhmetov/programmator/internal/ticket"
+	"github.com/alexander-akhmetov/programmator/internal/timing"
 )
 
 var (
@@ -113,8 +114,23 @@ type LoopDoneMsg struct {
 	Err    error
 }
 
+type rendererReadyMsg struct {
+	renderer *glamour.TermRenderer
+}
+
+func createRendererCmd(width int) tea.Cmd {
+	return func() tea.Msg {
+		viewportWidth := max(width-6, 40)
+		renderer, _ := glamour.NewTermRenderer(
+			glamour.WithStylePath("dark"),
+			glamour.WithWordWrap(viewportWidth),
+		)
+		return rendererReadyMsg{renderer: renderer}
+	}
+}
+
 func (m Model) Init() tea.Cmd {
-	return m.spinner.Tick
+	return tea.Batch(m.spinner.Tick, tea.WindowSize())
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -155,39 +171,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.logViewport, cmd = m.logViewport.Update(msg)
 			cmds = append(cmds, cmd)
 
-		case "pgup":
+		case "pgup", "ctrl+u":
 			var cmd tea.Cmd
 			m.logViewport, cmd = m.logViewport.Update(msg)
 			cmds = append(cmds, cmd)
 
-		case "pgdown":
+		case "pgdown", "ctrl+d":
 			var cmd tea.Cmd
 			m.logViewport, cmd = m.logViewport.Update(msg)
 			cmds = append(cmds, cmd)
 		}
 
 	case tea.WindowSizeMsg:
+		timing.Log("Update: WindowSizeMsg received")
 		m.width = msg.Width
 		m.height = msg.Height
 
 		logHeight := max(m.height-18, 5)
 		viewportWidth := msg.Width - 6
 
-		renderer, _ := glamour.NewTermRenderer(
-			glamour.WithAutoStyle(),
-			glamour.WithWordWrap(viewportWidth),
-		)
-		m.renderer = renderer
-
 		if !m.ready {
 			m.logViewport = viewport.New(viewportWidth, logHeight)
 			m.logViewport.SetContent(m.wrapLogs())
 			m.ready = true
+			cmds = append(cmds, createRendererCmd(msg.Width))
 		} else {
 			m.logViewport.Width = viewportWidth
 			m.logViewport.Height = logHeight
 			m.logViewport.SetContent(m.wrapLogs())
 		}
+
+	case rendererReadyMsg:
+		timing.Log("Update: rendererReadyMsg received")
+		m.renderer = msg.renderer
+		m.logViewport.SetContent(m.wrapLogs())
 
 	case TicketUpdateMsg:
 		m.ticket = msg.Ticket
@@ -386,17 +403,21 @@ type TUI struct {
 }
 
 func New(config safety.Config) *TUI {
+	timing.Log("TUI.New: start")
 	model := NewModel(config)
+	timing.Log("TUI.New: model created")
 	return &TUI{
 		model: model,
 	}
 }
 
 func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
+	timing.Log("TUI.Run: start")
 	outputChan := make(chan string, 100)
 	stateChan := make(chan TicketUpdateMsg, 10)
 	doneChan := make(chan LoopDoneMsg, 1)
 
+	timing.Log("TUI.Run: channels created")
 	l := loop.New(
 		t.model.config,
 		workingDir,
@@ -420,10 +441,13 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 	)
 
 	t.model.SetLoop(l)
+	timing.Log("TUI.Run: loop created")
 
 	t.program = tea.NewProgram(t.model, tea.WithAltScreen())
+	timing.Log("TUI.Run: tea.Program created")
 
 	go func() {
+		timing.Log("TUI.Run: loop goroutine started")
 		result, err := l.Run(ticketID)
 		doneChan <- LoopDoneMsg{Result: result, Err: err}
 	}()
@@ -442,7 +466,9 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 		}
 	}()
 
+	timing.Log("TUI.Run: starting tea.Program.Run")
 	finalModel, err := t.program.Run()
+	timing.Log("TUI.Run: tea.Program.Run returned")
 	if err != nil {
 		return nil, err
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/alexander-akhmetov/programmator/internal/prompt"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
 	"github.com/alexander-akhmetov/programmator/internal/ticket"
+	"github.com/alexander-akhmetov/programmator/internal/timing"
 )
 
 type Result struct {
@@ -64,15 +65,18 @@ func NewWithClient(config safety.Config, workingDir string, onOutput OutputCallb
 }
 
 func (l *Loop) Run(ticketID string) (*Result, error) {
+	timing.Log("Loop.Run: start")
 	startTime := time.Now()
 	ctx, cancel := context.WithCancel(context.Background())
 	l.cancelFunc = cancel
 	defer cancel()
 
+	timing.Log("Loop.Run: creating ticket client")
 	client := l.client
 	if client == nil {
 		client = ticket.NewClient()
 	}
+	timing.Log("Loop.Run: ticket client created")
 	state := safety.NewState()
 
 	result := &Result{
@@ -81,7 +85,9 @@ func (l *Loop) Run(ticketID string) (*Result, error) {
 	}
 	defer func() { result.Duration = time.Since(startTime) }()
 
+	timing.Log("Loop.Run: fetching ticket")
 	t, err := client.Get(ticketID)
+	timing.Log("Loop.Run: ticket fetched")
 	if err != nil {
 		result.ExitReason = safety.ExitReasonError
 		return result, err

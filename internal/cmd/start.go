@@ -12,6 +12,7 @@ import (
 
 	"github.com/alexander-akhmetov/programmator/internal/loop"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
+	"github.com/alexander-akhmetov/programmator/internal/timing"
 	"github.com/alexander-akhmetov/programmator/internal/tui"
 )
 
@@ -55,8 +56,11 @@ func init() {
 }
 
 func runStart(_ *cobra.Command, args []string) error {
+	timing.Start()
+	timing.Log("runStart: begin")
 	ticketID := args[0]
 
+	timing.Log("runStart: loading config")
 	config := safety.ConfigFromEnv()
 	if maxIterations > 0 {
 		config.MaxIterations = maxIterations
@@ -81,9 +85,13 @@ func runStart(_ *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "Warning: could not write session file: %v\n", err)
 	}
 	defer removeSessionFile()
+	timing.Log("runStart: session file written")
 
+	timing.Log("runStart: creating TUI")
 	t := tui.New(config)
+	timing.Log("runStart: TUI created, calling Run")
 	result, err := t.Run(ticketID, wd)
+	timing.Log("runStart: TUI.Run returned")
 
 	if err != nil {
 		return fmt.Errorf("loop error: %w", err)
