@@ -53,11 +53,8 @@ var (
 			Foreground(lipgloss.Color("241"))
 
 	progPrefixStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#E67E22")).
+			Foreground(lipgloss.Color("#e67e22")).
 			Bold(true)
-
-	progMsgStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#F39C12"))
 
 	pausedStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("208")).
@@ -428,9 +425,10 @@ func (m Model) renderSidebar(width int, height int) string {
 		b.WriteString("\n")
 		b.WriteString(sectionHeader("Progress", width))
 		b.WriteString("\n")
-		b.WriteString(labelStyle.Render("Iter: "))
+		b.WriteString(labelStyle.Render("Iteration: "))
 		b.WriteString(valueStyle.Render(fmt.Sprintf("%d/%d", m.state.Iteration, m.config.MaxIterations)))
-		b.WriteString(labelStyle.Render("  Stag: "))
+		b.WriteString("\n")
+		b.WriteString(labelStyle.Render("Stagnation: "))
 		b.WriteString(valueStyle.Render(fmt.Sprintf("%d/%d", m.state.ConsecutiveNoChanges, m.config.StagnationLimit)))
 		b.WriteString("\n")
 		b.WriteString(labelStyle.Render("Files: "))
@@ -599,7 +597,7 @@ func (m Model) wrapLogs() string {
 		if strings.HasPrefix(line, "[PROG]") {
 			flushMarkdown()
 			msg := strings.TrimPrefix(line, "[PROG]")
-			styled := progPrefixStyle.Render("▶ programmator: ") + progMsgStyle.Render(msg)
+			styled := progPrefixStyle.Render("▶ programmator:") + " " + msg
 			processed = append(processed, styled)
 		} else {
 			markdownBuffer = append(markdownBuffer, line)
