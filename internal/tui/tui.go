@@ -773,9 +773,9 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 		// Auto-allow read-only access to the current repo
 		if repoRoot := getGitRoot(workingDir); repoRoot != "" {
 			preAllowed = append(preAllowed,
-				fmt.Sprintf("Read(%s:*)", repoRoot),
-				fmt.Sprintf("Glob(%s:*)", repoRoot),
-				fmt.Sprintf("Grep(%s:*)", repoRoot),
+				fmt.Sprintf("Read(%s/**)", repoRoot),
+				fmt.Sprintf("Glob(%s/**)", repoRoot),
+				fmt.Sprintf("Grep(%s/**)", repoRoot),
 			)
 		}
 
