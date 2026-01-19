@@ -208,6 +208,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.runState != stateStopped {
 			m.runState = stateComplete
 		}
+		return m, tea.Quit
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -299,27 +300,32 @@ func (m Model) renderStatus() string {
 		b.WriteString("\n")
 	}
 
-	if m.ticket != nil && len(m.ticket.Phases) > 0 {
+	if m.ticket != nil {
 		b.WriteString("\n")
 		b.WriteString(labelStyle.Render("Phases:"))
 		b.WriteString("\n")
-		currentPhase := m.ticket.CurrentPhase()
-		for _, phase := range m.ticket.Phases {
-			name := phase.Name
-			if len(name) > 40 {
-				name = name[:37] + "..."
-			}
-			if phase.Completed {
-				b.WriteString(runningStyle.Render("  ✓ "))
-				b.WriteString(labelStyle.Render(name))
-			} else if currentPhase != nil && phase.Name == currentPhase.Name {
-				b.WriteString(phaseStyle.Render("  → "))
-				b.WriteString(phaseStyle.Render(name))
-			} else {
-				b.WriteString(labelStyle.Render("  ○ "))
-				b.WriteString(labelStyle.Render(name))
-			}
+		if len(m.ticket.Phases) == 0 {
+			b.WriteString(labelStyle.Render("  (not found in ticket)"))
 			b.WriteString("\n")
+		} else {
+			currentPhase := m.ticket.CurrentPhase()
+			for _, phase := range m.ticket.Phases {
+				name := phase.Name
+				if len(name) > 40 {
+					name = name[:37] + "..."
+				}
+				if phase.Completed {
+					b.WriteString(runningStyle.Render("  ✓ "))
+					b.WriteString(labelStyle.Render(name))
+				} else if currentPhase != nil && phase.Name == currentPhase.Name {
+					b.WriteString(phaseStyle.Render("  → "))
+					b.WriteString(phaseStyle.Render(name))
+				} else {
+					b.WriteString(labelStyle.Render("  ○ "))
+					b.WriteString(labelStyle.Render(name))
+				}
+				b.WriteString("\n")
+			}
 		}
 	}
 

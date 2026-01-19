@@ -4,10 +4,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
+	"github.com/alexander-akhmetov/programmator/internal/loop"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
 	"github.com/alexander-akhmetov/programmator/internal/tui"
 )
@@ -87,10 +90,7 @@ func runStart(_ *cobra.Command, args []string) error {
 	}
 
 	if result != nil {
-		fmt.Printf("\nResult: %s after %d iterations (%s)\n", result.ExitReason, result.Iterations, formatDuration(result.Duration))
-		if len(result.TotalFilesChanged) > 0 {
-			fmt.Printf("Files changed: %d\n", len(result.TotalFilesChanged))
-		}
+		printSummary(ticketID, result)
 	}
 
 	return nil
@@ -119,6 +119,73 @@ func writeSessionFile(ticketID, workingDir string) error {
 
 func removeSessionFile() {
 	os.Remove(sessionFilePath())
+}
+
+var (
+	summaryBorder = lipgloss.NewStyle().
+			Border(lipgloss.DoubleBorder()).
+			BorderForeground(lipgloss.Color("205")).
+			Padding(0, 2)
+
+	summaryTitle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("205")).
+			Align(lipgloss.Center)
+
+	summaryLabel = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("241"))
+
+	summaryValue = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("255"))
+
+	summarySuccess = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("42")).
+			Bold(true)
+
+	summaryWarning = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("208"))
+
+	summaryError = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("196")).
+			Bold(true)
+
+	summaryFile = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("117"))
+)
+
+func printSummary(ticketID string, result *loop.Result) {
+	var b strings.Builder
+
+	b.WriteString(summaryTitle.Render("PROGRAMMATOR COMPLETE") + "\n\n")
+	b.WriteString(summaryLabel.Render("Ticket:     ") + summaryValue.Render(ticketID) + "\n")
+
+	exitStyle := summaryValue
+	switch result.ExitReason {
+	case safety.ExitReasonComplete:
+		exitStyle = summarySuccess
+	case safety.ExitReasonBlocked, safety.ExitReasonError:
+		exitStyle = summaryError
+	case safety.ExitReasonMaxIterations, safety.ExitReasonStagnation, safety.ExitReasonUserInterrupt:
+		exitStyle = summaryWarning
+	}
+	b.WriteString(summaryLabel.Render("Exit:       ") + exitStyle.Render(string(result.ExitReason)) + "\n")
+
+	b.WriteString(summaryLabel.Render("Iterations: ") + summaryValue.Render(fmt.Sprintf("%d", result.Iterations)) + "\n")
+	b.WriteString(summaryLabel.Render("Duration:   ") + summaryValue.Render(formatDuration(result.Duration)) + "\n")
+
+	if result.FinalStatus != nil && result.FinalStatus.Summary != "" {
+		b.WriteString(summaryLabel.Render("Summary:    ") + summaryValue.Render(result.FinalStatus.Summary) + "\n")
+	}
+
+	if len(result.TotalFilesChanged) > 0 {
+		b.WriteString("\n" + summaryLabel.Render(fmt.Sprintf("Files changed (%d):", len(result.TotalFilesChanged))) + "\n")
+		for _, f := range result.TotalFilesChanged {
+			b.WriteString("  " + summaryFile.Render("• "+f) + "\n")
+		}
+	}
+
+	fmt.Println()
+	fmt.Println(summaryBorder.Render(b.String()))
 }
 
 func formatDuration(d time.Duration) string {
