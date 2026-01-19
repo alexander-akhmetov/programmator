@@ -52,13 +52,6 @@ const (
 	scopeGlobal
 )
 
-type focusField int
-
-const (
-	focusAllow focusField = iota
-	focusScope
-)
-
 type PermissionDialog struct {
 	request      *permission.Request
 	responseChan chan<- permission.HandlerResponse
@@ -66,7 +59,6 @@ type PermissionDialog struct {
 	allowOptions []allowOption
 	allowIdx     int
 	scope        scopeType
-	focus        focusField // which row is focused
 
 	repoRoot string // detected git repo root
 }
@@ -133,10 +125,12 @@ func (d *PermissionDialog) buildAllowOptions() []allowOption {
 		// Extract command parts and build prefix patterns
 		parts := strings.Fields(input)
 
-		// Find how many consecutive subcommands (non-flags) we have
+		// Find how many consecutive subcommands (non-flags, non-paths) we have
 		subcommandDepth := 1                       // at least the base command
 		for i := 1; i < len(parts) && i < 4; i++ { // limit to 4 levels
-			if strings.HasPrefix(parts[i], "-") || strings.HasPrefix(parts[i], "/") || strings.HasPrefix(parts[i], ".") {
+			p := parts[i]
+			// Stop at flags, paths, or path-like arguments
+			if strings.HasPrefix(p, "-") || strings.HasPrefix(p, "/") || strings.HasPrefix(p, ".") || strings.Contains(p, "/") {
 				break
 			}
 			subcommandDepth++
@@ -182,52 +176,34 @@ func (d *PermissionDialog) buildAllowOptions() []allowOption {
 
 func (d *PermissionDialog) HandleKey(key string) bool {
 	switch key {
-	case "tab":
-		// Cycle focus forward
-		d.focus = (d.focus + 1) % 2
-		return false
-	case "shift+tab", "backtab":
-		// Cycle focus backward
-		if d.focus == 0 {
-			d.focus = 1
-		} else {
-			d.focus--
-		}
-		return false
 	case "up", "k":
-		// Move focus up
-		if d.focus > 0 {
-			d.focus--
+		// Navigate Allow options up
+		if d.allowIdx > 0 {
+			d.allowIdx--
 		}
 		return false
 	case "down", "j":
-		// Move focus down
-		if d.focus < 1 {
-			d.focus++
+		// Navigate Allow options down
+		if d.allowIdx < len(d.allowOptions)-1 {
+			d.allowIdx++
 		}
 		return false
 	case "left", "h":
-		// Navigate within focused field
-		if d.focus == focusAllow {
-			if d.allowIdx > 0 {
-				d.allowIdx--
-			}
-		} else {
-			if d.scope > 0 {
-				d.scope--
-			}
+		// Navigate Scope left
+		if d.scope > 0 {
+			d.scope--
 		}
 		return false
-	case "right", "l":
-		// Navigate within focused field
-		if d.focus == focusAllow {
-			if d.allowIdx < len(d.allowOptions)-1 {
-				d.allowIdx++
-			}
-		} else {
-			if d.scope < 3 {
-				d.scope++
-			}
+	case "right", "l", "tab":
+		// Navigate Scope right
+		if d.scope < 3 {
+			d.scope++
+		}
+		return false
+	case "shift+tab", "backtab":
+		// Navigate Scope left
+		if d.scope > 0 {
+			d.scope--
 		}
 		return false
 	case "enter", " ":
@@ -296,60 +272,67 @@ func (d *PermissionDialog) renderDialog(width int) string {
 	b.WriteString(strings.Repeat("─", 50))
 	b.WriteString("\n\n")
 
-	// Allow options (horizontal)
-	labelStyle := permLabelStyle
-	if d.focus == focusAllow {
-		labelStyle = optionActiveStyle
-	}
-	b.WriteString(labelStyle.Render("Allow: "))
-	b.WriteString(keyHintStyle.Render("(←/→)"))
+	// Allow options (vertical list with checkboxes)
+	b.WriteString(permLabelStyle.Render("Allow: "))
+	b.WriteString(keyHintStyle.Render("(↑/↓)"))
 	b.WriteString("\n")
 
 	for i, opt := range d.allowOptions {
 		style := optionInactiveStyle
 		label := abbreviateLabel(opt.label)
+		checkbox := "[ ] "
 		if i == d.allowIdx {
-			if d.focus == focusAllow {
-				style = optionActiveStyle
-				b.WriteString(style.Render("▶ " + label))
-			} else {
-				b.WriteString(style.Render("● " + label))
-			}
-		} else {
-			b.WriteString(style.Render("  " + label))
+			style = optionActiveStyle
+			checkbox = "[x] "
 		}
-		b.WriteString("  ")
+		b.WriteString(style.Render(checkbox + label))
+		b.WriteString("\n")
 	}
-	b.WriteString("\n\n")
 
-	// Scope selector (horizontal)
-	labelStyle = permLabelStyle
-	if d.focus == focusScope {
-		labelStyle = optionActiveStyle
-	}
-	b.WriteString(labelStyle.Render("Scope: "))
+	b.WriteString("\n")
+
+	// Scope selector (horizontal with checkboxes)
+	b.WriteString(permLabelStyle.Render("Scope: "))
 	b.WriteString(keyHintStyle.Render("(←/→)"))
 	b.WriteString("  ")
 
 	scopes := []string{"Once", "Session", "Project", "Global"}
 	for i, s := range scopes {
 		style := optionInactiveStyle
+		checkbox := "[ ]"
 		if scopeType(i) == d.scope {
-			if d.focus == focusScope {
-				style = optionActiveStyle
-				b.WriteString(style.Render("▶ " + s))
-			} else {
-				b.WriteString(style.Render("● " + s))
-			}
-		} else {
-			b.WriteString(style.Render("  " + s))
+			style = optionActiveStyle
+			checkbox = "[x]"
 		}
+		b.WriteString(style.Render(checkbox + " " + s))
 		b.WriteString("  ")
 	}
 	b.WriteString("\n\n")
 
+	// Show full command and pattern being approved
+	b.WriteString(strings.Repeat("─", 50))
+	b.WriteString("\n")
+
+	// Full command
+	cmd := d.request.Description
+	if len(cmd) > 60 {
+		cmd = cmd[:57] + "..."
+	}
+	b.WriteString(permLabelStyle.Render("Command: "))
+	b.WriteString(toolInputStyle.Render(cmd))
+	b.WriteString("\n")
+
+	// Pattern being approved
+	pattern := d.allowOptions[d.allowIdx].pattern
+	if len(pattern) > 60 {
+		pattern = pattern[:57] + "..."
+	}
+	b.WriteString(permLabelStyle.Render("Pattern: "))
+	b.WriteString(toolInputStyle.Render(pattern))
+	b.WriteString("\n\n")
+
 	// Help
-	b.WriteString(permLabelStyle.Render("Tab: Switch • ←/→: Select • Enter: Confirm • d: Deny"))
+	b.WriteString(permLabelStyle.Render("↑/↓: Allow • ←/→: Scope • Enter: Confirm • d: Deny"))
 
 	dialogWidth := min(70, width-4)
 	return dialogBoxStyle.Width(dialogWidth).Render(b.String())
@@ -374,48 +357,66 @@ func (d *PermissionDialog) GetSelectedPattern() string {
 }
 
 func abbreviateLabel(label string) string {
-	// Shorten long labels for horizontal display
-	if len(label) <= 20 {
-		return label
-	}
+	var result string
 
 	// Handle specific patterns
 	switch {
 	case label == "This exact command":
-		return "Exact"
+		result = "Exact"
 	case label == "This path":
-		return "Path"
+		result = "Path"
 	case label == "This request":
-		return "This"
+		result = "This"
 	case strings.HasPrefix(label, "All Bash"):
-		return "All Bash"
+		result = "All Bash"
 	case strings.HasPrefix(label, "All '"):
 		// "All 'yarn' commands" -> "yarn:*"
 		start := strings.Index(label, "'") + 1
 		end := strings.LastIndex(label, "'")
 		if start > 0 && end > start {
-			return label[start:end] + ":*"
+			result = label[start:end] + ":*"
 		}
 	case strings.HasPrefix(label, "'"):
-		// "'yarn portal ...' commands" -> "yarn portal:*"
+		// "'yarn portal test path/to/file ...' commands" -> extract just command words
 		end := strings.Index(label, " ...")
 		if end > 1 {
-			return label[1:end] + ":*"
+			content := label[1:end] // remove leading '
+			// Only keep command words (before any path-like content)
+			parts := strings.Fields(content)
+			var cmdParts []string
+			for _, p := range parts {
+				if strings.Contains(p, "/") || strings.HasPrefix(p, ".") || strings.HasPrefix(p, "-") {
+					break
+				}
+				cmdParts = append(cmdParts, p)
+			}
+			if len(cmdParts) > 0 {
+				result = strings.Join(cmdParts, " ") + ":*"
+			} else {
+				result = content + ":*"
+			}
 		}
 	case strings.HasPrefix(label, "Directory"):
-		return "Dir"
+		result = "Dir"
 	case strings.HasPrefix(label, "Entire repo"):
-		return "Repo"
+		result = "Repo"
 	case strings.HasPrefix(label, "All "):
-		// "All Read operations" -> "All"
-		return "All"
+		// "All Read operations" -> "All Read"
+		parts := strings.Fields(label)
+		if len(parts) >= 2 {
+			result = parts[0] + " " + parts[1]
+		} else {
+			result = "All"
+		}
+	default:
+		result = label
 	}
 
-	// Fallback: truncate
-	if len(label) > 18 {
-		return label[:15] + "..."
+	// Truncate if still too long
+	if len(result) > 18 {
+		return result[:15] + "..."
 	}
-	return label
+	return result
 }
 
 func detectGitRoot(path string) string {

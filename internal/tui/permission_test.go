@@ -162,46 +162,40 @@ func TestHandleKey_Navigation(t *testing.T) {
 	respChan := make(chan permission.HandlerResponse, 1)
 	dialog := NewPermissionDialog(req, respChan)
 
-	// Default: focusAllow, allowIdx=0
-	assert.Equal(t, focusAllow, dialog.focus)
+	// Default: allowIdx=0, scope=Once
 	assert.Equal(t, 0, dialog.allowIdx)
+	assert.Equal(t, scopeOnce, dialog.scope)
 
-	// Right arrow moves allowIdx forward
-	closed := dialog.HandleKey("right")
+	// Down arrow moves allowIdx forward
+	closed := dialog.HandleKey("down")
 	assert.False(t, closed)
 	assert.Equal(t, 1, dialog.allowIdx)
 
-	closed = dialog.HandleKey("l")
+	closed = dialog.HandleKey("j")
 	assert.False(t, closed)
 	assert.Equal(t, 2, dialog.allowIdx)
 
-	// Left arrow moves allowIdx backward
-	closed = dialog.HandleKey("left")
+	// Up arrow moves allowIdx backward
+	closed = dialog.HandleKey("up")
 	assert.False(t, closed)
 	assert.Equal(t, 1, dialog.allowIdx)
 
-	closed = dialog.HandleKey("h")
+	closed = dialog.HandleKey("k")
 	assert.False(t, closed)
 	assert.Equal(t, 0, dialog.allowIdx)
 
 	// Can't go below 0
-	closed = dialog.HandleKey("left")
+	closed = dialog.HandleKey("up")
 	assert.False(t, closed)
 	assert.Equal(t, 0, dialog.allowIdx, "should not go below 0")
 
-	// Down moves focus to scope
-	closed = dialog.HandleKey("down")
-	assert.False(t, closed)
-	assert.Equal(t, focusScope, dialog.focus)
-
-	// Now left/right affect scope
-	assert.Equal(t, scopeOnce, dialog.scope)
+	// Right moves scope forward
 	dialog.HandleKey("right")
 	assert.Equal(t, scopeSession, dialog.scope)
 
-	// Up moves focus back to allow
-	dialog.HandleKey("up")
-	assert.Equal(t, focusAllow, dialog.focus)
+	// Left moves scope backward
+	dialog.HandleKey("left")
+	assert.Equal(t, scopeOnce, dialog.scope)
 }
 
 func TestHandleKey_ScopeToggle(t *testing.T) {
@@ -212,44 +206,31 @@ func TestHandleKey_ScopeToggle(t *testing.T) {
 	respChan := make(chan permission.HandlerResponse, 1)
 	dialog := NewPermissionDialog(req, respChan)
 
-	// Default is focusAllow, scopeOnce
-	assert.Equal(t, focusAllow, dialog.focus)
+	// Default is scopeOnce
 	assert.Equal(t, scopeOnce, dialog.scope)
 
-	// Tab cycles focus: Allow -> Scope
-	dialog.HandleKey("tab")
-	assert.Equal(t, focusScope, dialog.focus)
-
-	// Tab cycles focus: Scope -> Allow
-	dialog.HandleKey("tab")
-	assert.Equal(t, focusAllow, dialog.focus)
-
-	// Move to scope focus and test left/right
-	dialog.HandleKey("tab")
-	assert.Equal(t, focusScope, dialog.focus)
-
-	// Right cycles scope forward
+	// Right/Tab cycles scope forward
 	dialog.HandleKey("right")
 	assert.Equal(t, scopeSession, dialog.scope)
 
-	dialog.HandleKey("right")
+	dialog.HandleKey("tab")
 	assert.Equal(t, scopeProject, dialog.scope)
 
-	dialog.HandleKey("right")
+	dialog.HandleKey("l")
 	assert.Equal(t, scopeGlobal, dialog.scope)
 
 	// Can't go past Global
 	dialog.HandleKey("right")
 	assert.Equal(t, scopeGlobal, dialog.scope, "should not go past Global")
 
-	// Left goes backward
+	// Left/h/shift+tab goes backward
 	dialog.HandleKey("left")
 	assert.Equal(t, scopeProject, dialog.scope)
 
-	dialog.HandleKey("left")
+	dialog.HandleKey("h")
 	assert.Equal(t, scopeSession, dialog.scope)
 
-	dialog.HandleKey("left")
+	dialog.HandleKey("shift+tab")
 	assert.Equal(t, scopeOnce, dialog.scope)
 
 	// Can't go before Once
