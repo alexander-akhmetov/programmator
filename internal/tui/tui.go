@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/alexander-akhmetov/programmator/internal/loop"
@@ -80,6 +81,7 @@ type Model struct {
 	ready        bool
 	result       *loop.Result
 	err          error
+	renderer     *glamour.TermRenderer
 }
 
 func NewModel(config safety.Config) Model {
@@ -169,13 +171,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 		logHeight := max(m.height-18, 5)
+		viewportWidth := msg.Width - 6
+
+		renderer, _ := glamour.NewTermRenderer(
+			glamour.WithAutoStyle(),
+			glamour.WithWordWrap(viewportWidth),
+		)
+		m.renderer = renderer
 
 		if !m.ready {
-			m.logViewport = viewport.New(msg.Width-6, logHeight)
+			m.logViewport = viewport.New(viewportWidth, logHeight)
 			m.logViewport.SetContent(m.wrapLogs())
 			m.ready = true
 		} else {
-			m.logViewport.Width = msg.Width - 6
+			m.logViewport.Width = viewportWidth
 			m.logViewport.Height = logHeight
 			m.logViewport.SetContent(m.wrapLogs())
 		}
@@ -338,32 +347,19 @@ func (m *Model) SetLoop(l *loop.Loop) {
 }
 
 func (m Model) wrapLogs() string {
-	if m.logViewport.Width <= 0 {
-		return strings.Join(m.logs, "")
+	content := strings.Join(m.logs, "")
+	if content == "" {
+		return ""
 	}
 
-	var wrapped strings.Builder
-	wrapWidth := m.logViewport.Width
-
-	for _, log := range m.logs {
-		lines := strings.Split(log, "\n")
-		for i, line := range lines {
-			if len(line) <= wrapWidth {
-				wrapped.WriteString(line)
-			} else {
-				for len(line) > wrapWidth {
-					wrapped.WriteString(line[:wrapWidth])
-					wrapped.WriteString("\n")
-					line = line[wrapWidth:]
-				}
-				wrapped.WriteString(line)
-			}
-			if i < len(lines)-1 {
-				wrapped.WriteString("\n")
-			}
+	if m.renderer != nil {
+		rendered, err := m.renderer.Render(content)
+		if err == nil {
+			return strings.TrimSpace(rendered)
 		}
 	}
-	return wrapped.String()
+
+	return content
 }
 
 type TUI struct {

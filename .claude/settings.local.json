@@ -17,7 +17,8 @@
       "Bash(go test:*)",
       "Bash(go vet:*)",
       "Bash(gofmt:*)",
-      "Bash(golangci-lint run:*)"
+      "Bash(golangci-lint run:*)",
+      "Bash(go get:*)"
     ]
   }
 }
