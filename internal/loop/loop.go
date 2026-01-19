@@ -147,6 +147,7 @@ func (l *Loop) Run(ticketID string) (*Result, error) {
 		}
 
 		currentPhase := t.CurrentPhase()
+		l.logIterationSeparator(state.Iteration, l.config.MaxIterations)
 		l.log(fmt.Sprintf("Iteration %d/%d", state.Iteration, l.config.MaxIterations))
 		if currentPhase != nil {
 			l.log(fmt.Sprintf("Current phase: %s", currentPhase.Name))
@@ -392,7 +393,14 @@ func (l *Loop) IsPaused() bool {
 
 func (l *Loop) log(message string) {
 	if l.onOutput != nil {
-		l.onOutput(fmt.Sprintf("[programmator] %s\n", message))
+		l.onOutput(fmt.Sprintf("**▶ programmator:** %s\n", message))
+	}
+}
+
+func (l *Loop) logIterationSeparator(iteration, maxIterations int) {
+	if l.onOutput != nil {
+		separator := fmt.Sprintf("\n---\n\n### 🔄 Iteration %d/%d\n\n", iteration, maxIterations)
+		l.onOutput(separator)
 	}
 }
 
