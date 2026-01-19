@@ -85,24 +85,36 @@ func TestBuildAllowOptions_Bash(t *testing.T) {
 		wantPattern string
 	}{
 		{
-			name:        "git command",
+			name:        "git command with subcommand",
 			description: "git status",
 			wantLabels: []string{
 				"This exact command",
-				"Commands starting with 'git'",
+				"'git status ...' commands",
+				"All 'git' commands",
 				"All Bash commands",
 			},
 			wantPattern: "Bash(git status)",
 		},
 		{
-			name:        "npm command",
+			name:        "npm command with subcommand",
 			description: "npm install lodash",
 			wantLabels: []string{
 				"This exact command",
-				"Commands starting with 'npm'",
+				"'npm install ...' commands",
+				"All 'npm' commands",
 				"All Bash commands",
 			},
 			wantPattern: "Bash(npm install lodash)",
+		},
+		{
+			name:        "command with flag (no subcommand option)",
+			description: "ls -la",
+			wantLabels: []string{
+				"This exact command",
+				"All 'ls' commands",
+				"All Bash commands",
+			},
+			wantPattern: "Bash(ls -la)",
 		},
 	}
 
@@ -282,12 +294,19 @@ func TestGetSelectedPattern(t *testing.T) {
 	respChan := make(chan permission.HandlerResponse, 1)
 	dialog := NewPermissionDialog(req, respChan)
 
+	// idx 0: exact command
 	assert.Equal(t, "Bash(git status)", dialog.GetSelectedPattern())
 
+	// idx 1: subcommand pattern (git status:*)
 	dialog.allowIdx = 1
+	assert.Equal(t, "Bash(git status:*)", dialog.GetSelectedPattern())
+
+	// idx 2: base command pattern (git:*)
+	dialog.allowIdx = 2
 	assert.Equal(t, "Bash(git:*)", dialog.GetSelectedPattern())
 
-	dialog.allowIdx = 2
+	// idx 3: all Bash
+	dialog.allowIdx = 3
 	assert.Equal(t, "Bash", dialog.GetSelectedPattern())
 }
 

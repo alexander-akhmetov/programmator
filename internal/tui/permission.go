@@ -122,12 +122,21 @@ func (d *PermissionDialog) buildAllowOptions() []allowOption {
 			pattern: fmt.Sprintf("Bash(%s)", input),
 		})
 
-		// Extract command prefix (first word)
+		// Extract command prefix
 		parts := strings.Fields(input)
-		if len(parts) > 0 {
+		if len(parts) >= 2 && !strings.HasPrefix(parts[1], "-") {
+			// Second word is a subcommand (not a flag), e.g., "yarn test", "go build"
+			cmdWithSub := parts[0] + " " + parts[1]
+			options = append(options, allowOption{
+				label:   fmt.Sprintf("'%s ...' commands", cmdWithSub),
+				pattern: fmt.Sprintf("Bash(%s:*)", cmdWithSub),
+			})
+		}
+		if len(parts) >= 1 {
+			// Also offer just the base command
 			cmd := parts[0]
 			options = append(options, allowOption{
-				label:   fmt.Sprintf("Commands starting with '%s'", cmd),
+				label:   fmt.Sprintf("All '%s' commands", cmd),
 				pattern: fmt.Sprintf("Bash(%s:*)", cmd),
 			})
 		}
