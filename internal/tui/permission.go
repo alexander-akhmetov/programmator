@@ -122,23 +122,33 @@ func (d *PermissionDialog) buildAllowOptions() []allowOption {
 			pattern: fmt.Sprintf("Bash(%s)", input),
 		})
 
-		// Extract command prefix
+		// Extract command parts and build prefix patterns
 		parts := strings.Fields(input)
-		if len(parts) >= 2 && !strings.HasPrefix(parts[1], "-") {
-			// Second word is a subcommand (not a flag), e.g., "yarn test", "go build"
-			cmdWithSub := parts[0] + " " + parts[1]
-			options = append(options, allowOption{
-				label:   fmt.Sprintf("'%s ...' commands", cmdWithSub),
-				pattern: fmt.Sprintf("Bash(%s:*)", cmdWithSub),
-			})
+
+		// Find how many consecutive subcommands (non-flags) we have
+		subcommandDepth := 1                       // at least the base command
+		for i := 1; i < len(parts) && i < 4; i++ { // limit to 4 levels
+			if strings.HasPrefix(parts[i], "-") || strings.HasPrefix(parts[i], "/") || strings.HasPrefix(parts[i], ".") {
+				break
+			}
+			subcommandDepth++
 		}
-		if len(parts) >= 1 {
-			// Also offer just the base command
-			cmd := parts[0]
-			options = append(options, allowOption{
-				label:   fmt.Sprintf("All '%s' commands", cmd),
-				pattern: fmt.Sprintf("Bash(%s:*)", cmd),
-			})
+
+		// Add patterns from most specific to least specific
+		// e.g., for "yarn portal test foo": yarn portal test, yarn portal, yarn
+		for depth := subcommandDepth; depth >= 1; depth-- {
+			prefix := strings.Join(parts[:depth], " ")
+			if depth == 1 {
+				options = append(options, allowOption{
+					label:   fmt.Sprintf("All '%s' commands", prefix),
+					pattern: fmt.Sprintf("Bash(%s:*)", prefix),
+				})
+			} else {
+				options = append(options, allowOption{
+					label:   fmt.Sprintf("'%s ...' commands", prefix),
+					pattern: fmt.Sprintf("Bash(%s:*)", prefix),
+				})
+			}
 		}
 
 		// All Bash
