@@ -29,14 +29,18 @@ var (
 			Foreground(lipgloss.Color("255"))
 
 	permLabelStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("255")).
+			Bold(true)
+
+	optionSelectedStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("42")).
+				Bold(true)
+
+	optionCursorStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("117"))
+
+	optionDimStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241"))
-
-	optionActiveStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("42"))
-
-	optionInactiveStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("241"))
 )
 
 type scopeType int
@@ -265,16 +269,25 @@ func (d *PermissionDialog) renderDialog(width int) string {
 
 	for i, opt := range d.allowOptions {
 		label := abbreviateLabel(opt.label)
+		isSelected := i == d.allowIdx
+		isCursor := d.cursor == i
+
 		checkbox := "[ ]"
-		if i == d.allowIdx {
+		style := optionDimStyle
+		if isSelected {
 			checkbox = "[x]"
+			style = optionSelectedStyle
+		}
+		if isCursor {
+			style = optionCursorStyle
+			if isSelected {
+				style = optionSelectedStyle
+			}
 		}
 
 		cursor := "  "
-		style := optionInactiveStyle
-		if d.cursor == i {
+		if isCursor {
 			cursor = "> "
-			style = optionActiveStyle
 		}
 		b.WriteString(cursor)
 		b.WriteString(style.Render(checkbox + " " + label))
@@ -289,17 +302,26 @@ func (d *PermissionDialog) renderDialog(width int) string {
 
 	scopes := []string{"Once", "Session", "Project", "Global"}
 	for i, s := range scopes {
+		isSelected := scopeType(i) == d.scope
+		cursorPos := len(d.allowOptions) + i
+		isCursor := d.cursor == cursorPos
+
 		checkbox := "[ ]"
-		if scopeType(i) == d.scope {
+		style := optionDimStyle
+		if isSelected {
 			checkbox = "[x]"
+			style = optionSelectedStyle
+		}
+		if isCursor {
+			style = optionCursorStyle
+			if isSelected {
+				style = optionSelectedStyle
+			}
 		}
 
-		cursorPos := len(d.allowOptions) + i
 		cursor := "  "
-		style := optionInactiveStyle
-		if d.cursor == cursorPos {
+		if isCursor {
 			cursor = "> "
-			style = optionActiveStyle
 		}
 		b.WriteString(cursor)
 		b.WriteString(style.Render(checkbox + " " + s))
