@@ -28,6 +28,7 @@ type Result struct {
 
 type OutputCallback func(text string)
 type StateCallback func(state *safety.State, ticket *ticket.Ticket, filesChanged []string)
+type ClaudeInvoker func(ctx context.Context, promptText string) (string, error)
 
 type Loop struct {
 	config        safety.Config
@@ -36,6 +37,8 @@ type Loop struct {
 	onStateChange StateCallback
 	streaming     bool
 	cancelFunc    context.CancelFunc
+	client        ticket.Client
+	claudeInvoker ClaudeInvoker
 
 	mu            sync.Mutex
 	paused        bool
@@ -44,12 +47,17 @@ type Loop struct {
 }
 
 func New(config safety.Config, workingDir string, onOutput OutputCallback, onStateChange StateCallback, streaming bool) *Loop {
+	return NewWithClient(config, workingDir, onOutput, onStateChange, streaming, nil)
+}
+
+func NewWithClient(config safety.Config, workingDir string, onOutput OutputCallback, onStateChange StateCallback, streaming bool, client ticket.Client) *Loop {
 	l := &Loop{
 		config:        config,
 		workingDir:    workingDir,
 		onOutput:      onOutput,
 		onStateChange: onStateChange,
 		streaming:     streaming,
+		client:        client,
 	}
 	l.pauseCond = sync.NewCond(&l.mu)
 	return l
@@ -61,7 +69,10 @@ func (l *Loop) Run(ticketID string) (*Result, error) {
 	l.cancelFunc = cancel
 	defer cancel()
 
-	client := ticket.NewClient()
+	client := l.client
+	if client == nil {
+		client = ticket.NewClient()
+	}
 	state := safety.NewState()
 
 	result := &Result{
@@ -149,7 +160,11 @@ func (l *Loop) Run(ticketID string) (*Result, error) {
 
 		l.log("Invoking Claude...")
 
-		output, err := l.invokeClaudePrint(ctx, promptText)
+		invoker := l.claudeInvoker
+		if invoker == nil {
+			invoker = l.invokeClaudePrint
+		}
+		output, err := invoker(ctx, promptText)
 		if err != nil {
 			result.ExitReason = safety.ExitReasonError
 			return result, err
@@ -383,4 +398,8 @@ func (l *Loop) log(message string) {
 
 func (r *Result) FilesChangedList() []string {
 	return r.TotalFilesChanged
+}
+
+func (l *Loop) SetClaudeInvoker(invoker ClaudeInvoker) {
+	l.claudeInvoker = invoker
 }

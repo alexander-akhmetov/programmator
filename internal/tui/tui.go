@@ -299,15 +299,27 @@ func (m Model) renderStatus() string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString("\n")
-
-	if m.ticket != nil {
-		phase := m.ticket.CurrentPhase()
-		b.WriteString(labelStyle.Render("Phase: "))
-		if phase != nil {
-			b.WriteString(phaseStyle.Render(phase.Name))
-		} else {
-			b.WriteString(runningStyle.Render("All complete!"))
+	if m.ticket != nil && len(m.ticket.Phases) > 0 {
+		b.WriteString("\n")
+		b.WriteString(labelStyle.Render("Phases:"))
+		b.WriteString("\n")
+		currentPhase := m.ticket.CurrentPhase()
+		for _, phase := range m.ticket.Phases {
+			name := phase.Name
+			if len(name) > 40 {
+				name = name[:37] + "..."
+			}
+			if phase.Completed {
+				b.WriteString(runningStyle.Render("  ✓ "))
+				b.WriteString(labelStyle.Render(name))
+			} else if currentPhase != nil && phase.Name == currentPhase.Name {
+				b.WriteString(phaseStyle.Render("  → "))
+				b.WriteString(phaseStyle.Render(name))
+			} else {
+				b.WriteString(labelStyle.Render("  ○ "))
+				b.WriteString(labelStyle.Render(name))
+			}
+			b.WriteString("\n")
 		}
 	}
 

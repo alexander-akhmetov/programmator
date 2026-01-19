@@ -1,7 +1,10 @@
 package ticket
 
 import (
+	"fmt"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestParsePhases(t *testing.T) {
@@ -281,4 +284,87 @@ func TestNewClient(t *testing.T) {
 	if client.ticketsDir == "" {
 		t.Error("expected non-empty tickets dir")
 	}
+}
+
+func TestMockClient(t *testing.T) {
+	t.Run("Get with default func", func(t *testing.T) {
+		mock := NewMockClient()
+		ticket, err := mock.Get("test-123")
+		require.NoError(t, err)
+		require.Equal(t, "test-123", ticket.ID)
+		require.Len(t, mock.GetCalls, 1)
+		require.Equal(t, "test-123", mock.GetCalls[0])
+	})
+
+	t.Run("Get with custom func", func(t *testing.T) {
+		mock := NewMockClient()
+		mock.GetFunc = func(id string) (*Ticket, error) {
+			return &Ticket{ID: id, Title: "Custom"}, nil
+		}
+		ticket, err := mock.Get("test-456")
+		require.NoError(t, err)
+		require.Equal(t, "Custom", ticket.Title)
+	})
+
+	t.Run("UpdatePhase with default func", func(t *testing.T) {
+		mock := NewMockClient()
+		err := mock.UpdatePhase("test-123", "Phase 1")
+		require.NoError(t, err)
+		require.Len(t, mock.UpdatePhaseCalls, 1)
+		require.Equal(t, "test-123", mock.UpdatePhaseCalls[0].ID)
+		require.Equal(t, "Phase 1", mock.UpdatePhaseCalls[0].PhaseName)
+	})
+
+	t.Run("UpdatePhase with custom func", func(t *testing.T) {
+		mock := NewMockClient()
+		customErr := fmt.Errorf("custom error")
+		mock.UpdatePhaseFunc = func(_, _ string) error {
+			return customErr
+		}
+		err := mock.UpdatePhase("test-123", "Phase 1")
+		require.ErrorIs(t, err, customErr)
+	})
+
+	t.Run("AddNote with default func", func(t *testing.T) {
+		mock := NewMockClient()
+		err := mock.AddNote("test-123", "some note")
+		require.NoError(t, err)
+		require.Len(t, mock.AddNoteCalls, 1)
+		require.Equal(t, "test-123", mock.AddNoteCalls[0].ID)
+		require.Equal(t, "some note", mock.AddNoteCalls[0].Note)
+	})
+
+	t.Run("AddNote with custom func", func(t *testing.T) {
+		mock := NewMockClient()
+		customErr := fmt.Errorf("add note error")
+		mock.AddNoteFunc = func(_, _ string) error {
+			return customErr
+		}
+		err := mock.AddNote("test-123", "note")
+		require.ErrorIs(t, err, customErr)
+	})
+
+	t.Run("SetStatus with default func", func(t *testing.T) {
+		mock := NewMockClient()
+		err := mock.SetStatus("test-123", "closed")
+		require.NoError(t, err)
+		require.Len(t, mock.SetStatusCalls, 1)
+		require.Equal(t, "test-123", mock.SetStatusCalls[0].ID)
+		require.Equal(t, "closed", mock.SetStatusCalls[0].Status)
+	})
+
+	t.Run("SetStatus with custom func", func(t *testing.T) {
+		mock := NewMockClient()
+		customErr := fmt.Errorf("set status error")
+		mock.SetStatusFunc = func(_, _ string) error {
+			return customErr
+		}
+		err := mock.SetStatus("test-123", "closed")
+		require.ErrorIs(t, err, customErr)
+	})
+}
+
+func TestMockClientImplementsInterface(_ *testing.T) {
+	var _ Client = (*MockClient)(nil)
+	var _ Client = (*CLIClient)(nil)
 }

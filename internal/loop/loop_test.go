@@ -1,9 +1,13 @@
 package loop
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/alexander-akhmetov/programmator/internal/parser"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
@@ -313,4 +317,427 @@ func TestResultWithFinalStatus(t *testing.T) {
 	if r.FinalStatus.PhaseCompleted != "Phase 1" {
 		t.Errorf("unexpected phase completed: %s", r.FinalStatus.PhaseCompleted)
 	}
+}
+
+func TestRunAllPhasesCompleteAtStart(t *testing.T) {
+	mock := ticket.NewMockClient()
+	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
+		return &ticket.Ticket{
+			ID:    "test-123",
+			Title: "Test Ticket",
+			Phases: []ticket.Phase{
+				{Name: "Phase 1", Completed: true},
+				{Name: "Phase 2", Completed: true},
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := NewWithClient(config, "", nil, nil, false, mock)
+
+	result, err := l.Run("test-123")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	require.Equal(t, 0, result.Iterations)
+	require.Len(t, mock.SetStatusCalls, 2)
+}
+
+func TestRunGetTicketError(t *testing.T) {
+	mock := ticket.NewMockClient()
+	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
+		return nil, fmt.Errorf("ticket not found")
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := NewWithClient(config, "", nil, nil, false, mock)
+
+	result, err := l.Run("nonexistent")
+
+	require.Error(t, err)
+	require.Equal(t, safety.ExitReasonError, result.ExitReason)
+}
+
+func TestRunStopRequested(t *testing.T) {
+	mock := ticket.NewMockClient()
+	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
+		return &ticket.Ticket{
+			ID:    "test-123",
+			Title: "Test Ticket",
+			Phases: []ticket.Phase{
+				{Name: "Phase 1", Completed: false},
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := NewWithClient(config, "", nil, nil, false, mock)
+
+	l.Stop()
+
+	result, err := l.Run("test-123")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonUserInterrupt, result.ExitReason)
+}
+
+func TestRunStateCallbackCalled(t *testing.T) {
+	mock := ticket.NewMockClient()
+	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
+		return &ticket.Ticket{
+			ID:    "test-123",
+			Title: "Test Ticket",
+			Phases: []ticket.Phase{
+				{Name: "Phase 1", Completed: true},
+			},
+		}, nil
+	}
+
+	var callbackInvoked bool
+	stateCallback := func(_ *safety.State, tkt *ticket.Ticket, _ []string) {
+		callbackInvoked = true
+		require.Equal(t, "test-123", tkt.ID)
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := NewWithClient(config, "", nil, stateCallback, false, mock)
+
+	_, err := l.Run("test-123")
+	require.NoError(t, err)
+	require.True(t, callbackInvoked, "state callback should have been called")
+}
+
+func TestNewWithClientNil(t *testing.T) {
+	config := safety.Config{MaxIterations: 10}
+	l := NewWithClient(config, "/tmp", nil, nil, false, nil)
+
+	require.NotNil(t, l)
+	require.Nil(t, l.client)
+}
+
+func TestRunWithMockInvokerDone(t *testing.T) {
+	mock := ticket.NewMockClient()
+	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
+		return &ticket.Ticket{
+			ID:    "test-123",
+			Title: "Test Ticket",
+			Phases: []ticket.Phase{
+				{Name: "Phase 1", Completed: false},
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := NewWithClient(config, "", nil, nil, false, mock)
+
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		return `Some output
+PROGRAMMATOR_STATUS:
+  phase_completed: "Phase 1"
+  status: DONE
+  files_changed: ["main.go"]
+  summary: "Completed the task"
+`, nil
+	})
+
+	result, err := l.Run("test-123")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	require.Equal(t, 1, result.Iterations)
+	require.NotNil(t, result.FinalStatus)
+	require.Equal(t, "Phase 1", result.FinalStatus.PhaseCompleted)
+}
+
+func TestRunWithMockInvokerBlocked(t *testing.T) {
+	mock := ticket.NewMockClient()
+	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
+		return &ticket.Ticket{
+			ID:    "test-123",
+			Title: "Test Ticket",
+			Phases: []ticket.Phase{
+				{Name: "Phase 1", Completed: false},
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := NewWithClient(config, "", nil, nil, false, mock)
+
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: BLOCKED
+  files_changed: []
+  summary: "Stuck on something"
+  error: "Cannot proceed"
+`, nil
+	})
+
+	result, err := l.Run("test-123")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonBlocked, result.ExitReason)
+}
+
+func TestRunWithMockInvokerNoStatus(t *testing.T) {
+	mock := ticket.NewMockClient()
+	callCount := 0
+	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
+		callCount++
+		if callCount >= 4 {
+			return &ticket.Ticket{
+				ID:    "test-123",
+				Title: "Test Ticket",
+				Phases: []ticket.Phase{
+					{Name: "Phase 1", Completed: true},
+				},
+			}, nil
+		}
+		return &ticket.Ticket{
+			ID:    "test-123",
+			Title: "Test Ticket",
+			Phases: []ticket.Phase{
+				{Name: "Phase 1", Completed: false},
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 5, Timeout: 60}
+	l := NewWithClient(config, "", nil, nil, false, mock)
+
+	invokeCount := 0
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		invokeCount++
+		return "Some output without status block", nil
+	})
+
+	result, err := l.Run("test-123")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	require.GreaterOrEqual(t, invokeCount, 2)
+}
+
+func TestRunWithMockInvokerError(t *testing.T) {
+	mock := ticket.NewMockClient()
+	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
+		return &ticket.Ticket{
+			ID:    "test-123",
+			Title: "Test Ticket",
+			Phases: []ticket.Phase{
+				{Name: "Phase 1", Completed: false},
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := NewWithClient(config, "", nil, nil, false, mock)
+
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		return "", fmt.Errorf("claude error")
+	})
+
+	result, err := l.Run("test-123")
+
+	require.Error(t, err)
+	require.Equal(t, safety.ExitReasonError, result.ExitReason)
+}
+
+func TestRunMaxIterations(t *testing.T) {
+	mock := ticket.NewMockClient()
+	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
+		return &ticket.Ticket{
+			ID:    "test-123",
+			Title: "Test Ticket",
+			Phases: []ticket.Phase{
+				{Name: "Phase 1", Completed: false},
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 3, StagnationLimit: 10, Timeout: 60}
+	l := NewWithClient(config, "", nil, nil, false, mock)
+
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: ["file.go"]
+  summary: "Working on it"
+`, nil
+	})
+
+	result, err := l.Run("test-123")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonMaxIterations, result.ExitReason)
+	require.Equal(t, 4, result.Iterations)
+}
+
+func TestRunStagnation(t *testing.T) {
+	mock := ticket.NewMockClient()
+	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
+		return &ticket.Ticket{
+			ID:    "test-123",
+			Title: "Test Ticket",
+			Phases: []ticket.Phase{
+				{Name: "Phase 1", Completed: false},
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 2, Timeout: 60}
+	l := NewWithClient(config, "", nil, nil, false, mock)
+
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: []
+  summary: "Thinking..."
+`, nil
+	})
+
+	result, err := l.Run("test-123")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonStagnation, result.ExitReason)
+}
+
+func TestRunFilesChanged(t *testing.T) {
+	mock := ticket.NewMockClient()
+	invocation := 0
+	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
+		return &ticket.Ticket{
+			ID:    "test-123",
+			Title: "Test Ticket",
+			Phases: []ticket.Phase{
+				{Name: "Phase 1", Completed: false},
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 3, StagnationLimit: 10, Timeout: 60}
+	l := NewWithClient(config, "", nil, nil, false, mock)
+
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		invocation++
+		files := fmt.Sprintf(`["file%d.go"]`, invocation)
+		if invocation == 2 {
+			files = `["file1.go", "file2.go"]`
+		}
+		return fmt.Sprintf(`PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: %s
+  summary: "Working"
+`, files), nil
+	})
+
+	result, err := l.Run("test-123")
+
+	require.NoError(t, err)
+	require.Len(t, result.TotalFilesChanged, 3)
+}
+
+func TestRunGetTicketErrorDuringLoop(t *testing.T) {
+	mock := ticket.NewMockClient()
+	callCount := 0
+	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
+		callCount++
+		if callCount > 1 {
+			return nil, fmt.Errorf("ticket fetch error")
+		}
+		return &ticket.Ticket{
+			ID:    "test-123",
+			Title: "Test Ticket",
+			Phases: []ticket.Phase{
+				{Name: "Phase 1", Completed: false},
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := NewWithClient(config, "", nil, nil, false, mock)
+
+	result, err := l.Run("test-123")
+
+	require.Error(t, err)
+	require.Equal(t, safety.ExitReasonError, result.ExitReason)
+}
+
+func TestSetClaudeInvoker(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+
+	require.Nil(t, l.claudeInvoker)
+
+	invoker := func(_ context.Context, _ string) (string, error) {
+		return "test", nil
+	}
+	l.SetClaudeInvoker(invoker)
+
+	require.NotNil(t, l.claudeInvoker)
+}
+
+func TestRunParseError(t *testing.T) {
+	mock := ticket.NewMockClient()
+	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
+		return &ticket.Ticket{
+			ID:    "test-123",
+			Title: "Test Ticket",
+			Phases: []ticket.Phase{
+				{Name: "Phase 1", Completed: false},
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := NewWithClient(config, "", nil, nil, false, mock)
+
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		return `PROGRAMMATOR_STATUS:
+  this is invalid yaml: [
+`, nil
+	})
+
+	result, err := l.Run("test-123")
+
+	require.Error(t, err)
+	require.Equal(t, safety.ExitReasonError, result.ExitReason)
+}
+
+func TestRunContextCancellation(t *testing.T) {
+	mock := ticket.NewMockClient()
+	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
+		return &ticket.Ticket{
+			ID:    "test-123",
+			Title: "Test Ticket",
+			Phases: []ticket.Phase{
+				{Name: "Phase 1", Completed: false},
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := NewWithClient(config, "", nil, nil, false, mock)
+
+	invocations := 0
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		invocations++
+		if invocations == 1 {
+			l.Stop()
+		}
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: ["a.go"]
+  summary: "Working"
+`, nil
+	})
+
+	result, err := l.Run("test-123")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonUserInterrupt, result.ExitReason)
 }

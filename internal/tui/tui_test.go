@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"fmt"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/stretchr/testify/require"
 
 	"github.com/alexander-akhmetov/programmator/internal/loop"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
@@ -369,4 +371,189 @@ func TestRunStateValues(t *testing.T) {
 	if stateComplete != 3 {
 		t.Errorf("stateComplete = %d, want 3", stateComplete)
 	}
+}
+
+func TestModelUpdateScrollKeys(t *testing.T) {
+	model := NewModel(safety.Config{})
+	model.width = 80
+	model.height = 24
+	model.ready = true
+	model.logs = []string{"line 1\n", "line 2\n", "line 3\n", "line 4\n", "line 5\n"}
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = updatedModel.(Model)
+
+	tests := []struct {
+		key string
+	}{
+		{"up"},
+		{"down"},
+		{"k"},
+		{"j"},
+		{"pgup"},
+		{"pgdown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.key, func(_ *testing.T) {
+			_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.key)})
+			_ = cmd
+		})
+	}
+}
+
+func TestModelUpdateLoopDoneMsgWhenStopped(t *testing.T) {
+	model := NewModel(safety.Config{})
+	model.runState = stateStopped
+
+	result := &loop.Result{
+		ExitReason: safety.ExitReasonUserInterrupt,
+		Iterations: 5,
+	}
+
+	msg := LoopDoneMsg{Result: result, Err: nil}
+
+	updatedModel, _ := model.Update(msg)
+	m := updatedModel.(Model)
+
+	require.Equal(t, stateStopped, m.runState)
+}
+
+func TestModelRenderStatusWithError(t *testing.T) {
+	model := NewModel(safety.Config{MaxIterations: 10, StagnationLimit: 3})
+	model.err = fmt.Errorf("test error")
+
+	status := model.renderStatus()
+
+	require.NotEmpty(t, status)
+}
+
+func TestModelRenderStatusWithResult(t *testing.T) {
+	model := NewModel(safety.Config{MaxIterations: 10, StagnationLimit: 3})
+	model.runState = stateComplete
+	model.result = &loop.Result{
+		ExitReason: safety.ExitReasonComplete,
+		Iterations: 5,
+	}
+
+	status := model.renderStatus()
+
+	require.NotEmpty(t, status)
+}
+
+func TestModelRenderStatusTruncatedTitle(t *testing.T) {
+	model := NewModel(safety.Config{MaxIterations: 10, StagnationLimit: 3})
+	model.ticket = &ticket.Ticket{
+		ID:    "t-123",
+		Title: "This is a very long ticket title that should be truncated because it exceeds 50 characters",
+	}
+
+	status := model.renderStatus()
+
+	require.NotEmpty(t, status)
+}
+
+func TestModelRenderStatusAllPhasesComplete(t *testing.T) {
+	model := NewModel(safety.Config{MaxIterations: 10, StagnationLimit: 3})
+	model.ticket = &ticket.Ticket{
+		ID:    "t-123",
+		Title: "Test Ticket",
+		Phases: []ticket.Phase{
+			{Name: "Phase 1", Completed: true},
+			{Name: "Phase 2", Completed: true},
+		},
+	}
+
+	status := model.renderStatus()
+
+	require.NotEmpty(t, status)
+}
+
+func TestWrapLogs(t *testing.T) {
+	tests := []struct {
+		name     string
+		logs     []string
+		renderer bool
+		expected string
+	}{
+		{
+			name:     "empty logs",
+			logs:     []string{},
+			renderer: false,
+			expected: "",
+		},
+		{
+			name:     "single log entry",
+			logs:     []string{"test log message"},
+			renderer: false,
+			expected: "test log message",
+		},
+		{
+			name:     "multiple log entries concatenated",
+			logs:     []string{"first", "second", "third"},
+			renderer: false,
+			expected: "firstsecondthird",
+		},
+		{
+			name:     "log entries with newlines",
+			logs:     []string{"line1\n", "line2\n"},
+			renderer: false,
+			expected: "line1\nline2\n",
+		},
+		{
+			name:     "empty string in logs",
+			logs:     []string{"", "content", ""},
+			renderer: false,
+			expected: "content",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel(safety.Config{})
+			model.logs = tt.logs
+			model.renderer = nil
+
+			result := model.wrapLogs()
+
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestWrapLogsWithRenderer(t *testing.T) {
+	model := NewModel(safety.Config{})
+	model.logs = []string{"**bold**"}
+	model.width = 80
+	model.height = 24
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m := updatedModel.(Model)
+
+	result := m.wrapLogs()
+	require.NotEmpty(t, result)
+}
+
+func TestModelViewWithLogs(t *testing.T) {
+	model := NewModel(safety.Config{MaxIterations: 10, StagnationLimit: 3})
+	model.width = 80
+	model.height = 40
+	model.ready = true
+	model.logs = []string{"Log line 1\n", "Log line 2\n"}
+	model.ticket = &ticket.Ticket{
+		ID:    "t-123",
+		Title: "Test",
+		Phases: []ticket.Phase{
+			{Name: "Phase 1", Completed: false},
+		},
+	}
+	model.state = safety.NewState()
+	model.state.Iteration = 2
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
+	m := updatedModel.(Model)
+
+	view := m.View()
+
+	require.NotEmpty(t, view)
 }

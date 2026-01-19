@@ -28,19 +28,28 @@ type Ticket struct {
 	RawContent  string
 }
 
-type Client struct {
+type Client interface {
+	Get(id string) (*Ticket, error)
+	UpdatePhase(id, phaseName string) error
+	AddNote(id, note string) error
+	SetStatus(id, status string) error
+}
+
+type CLIClient struct {
 	ticketsDir string
 }
 
-func NewClient() *Client {
+var _ Client = (*CLIClient)(nil)
+
+func NewClient() *CLIClient {
 	dir := os.Getenv("TICKETS_DIR")
 	if dir == "" {
 		dir = filepath.Join(os.Getenv("HOME"), ".tickets")
 	}
-	return &Client{ticketsDir: dir}
+	return &CLIClient{ticketsDir: dir}
 }
 
-func (c *Client) Get(id string) (*Ticket, error) {
+func (c *CLIClient) Get(id string) (*Ticket, error) {
 	out, err := exec.Command("ticket", "show", id).Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ticket %s: %w", id, err)
@@ -49,17 +58,17 @@ func (c *Client) Get(id string) (*Ticket, error) {
 	return parseTicket(id, string(out))
 }
 
-func (c *Client) UpdatePhase(id string, phaseName string) error {
+func (c *CLIClient) UpdatePhase(id string, phaseName string) error {
 	_, err := exec.Command("ticket", "check", id, phaseName).Output()
 	return err
 }
 
-func (c *Client) AddNote(id string, note string) error {
+func (c *CLIClient) AddNote(id string, note string) error {
 	_, err := exec.Command("ticket", "add-note", id, note).Output()
 	return err
 }
 
-func (c *Client) SetStatus(id string, status string) error {
+func (c *CLIClient) SetStatus(id string, status string) error {
 	_, err := exec.Command("ticket", "set-status", id, status).Output()
 	return err
 }
