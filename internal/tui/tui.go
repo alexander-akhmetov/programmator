@@ -122,7 +122,7 @@ func createRendererCmd(width int) tea.Cmd {
 	return func() tea.Msg {
 		viewportWidth := max(width-6, 40)
 		renderer, _ := glamour.NewTermRenderer(
-			glamour.WithStylePath("dark"),
+			glamour.WithStandardStyle("dark"),
 			glamour.WithWordWrap(viewportWidth),
 		)
 		return rendererReadyMsg{renderer: renderer}
