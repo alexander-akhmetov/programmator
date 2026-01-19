@@ -188,7 +188,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 		// Calculate dimensions matching View()
-		sidebarWidth := max(30, min(40, m.width*30/100))
+		sidebarWidth := max(45, min(60, m.width*40/100))
 		mainWidth := m.width - sidebarWidth - 4
 		contentHeight := m.height - 3
 
@@ -247,8 +247,8 @@ func (m Model) View() string {
 		return "Initializing..."
 	}
 
-	// Sidebar width: fixed at 40 chars or 30% of screen, whichever is smaller
-	sidebarWidth := max(30, min(40, m.width*30/100))
+	// Sidebar width: 45-60 chars or 40% of screen
+	sidebarWidth := max(45, min(60, m.width*40/100))
 
 	// Main content area width
 	mainWidth := m.width - sidebarWidth - 4 // 4 for borders/padding
@@ -276,6 +276,58 @@ func (m Model) View() string {
 	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebarBox, logsBox)
 
 	return main + "\n" + m.renderHelp()
+}
+
+// wrapText wraps text to fit within width, with optional indent for continuation lines.
+// maxLines limits output; 0 means unlimited. Truncates with "..." if exceeded.
+func wrapText(text string, width int, indent string, maxLines int) string {
+	if width <= 0 {
+		return text
+	}
+
+	var lines []string
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return ""
+	}
+
+	currentLine := words[0]
+	firstLine := true
+	contWidth := width - len(indent)
+
+	for _, word := range words[1:] {
+		lineWidth := width
+		if !firstLine {
+			lineWidth = contWidth
+		}
+
+		if len(currentLine)+1+len(word) <= lineWidth {
+			currentLine += " " + word
+		} else {
+			lines = append(lines, currentLine)
+			if maxLines > 0 && len(lines) >= maxLines {
+				// Truncate last line with ellipsis
+				last := lines[len(lines)-1]
+				if len(last) > 3 {
+					lines[len(lines)-1] = last[:len(last)-3] + "..."
+				}
+				return strings.Join(lines, "\n")
+			}
+			firstLine = false
+			currentLine = indent + word
+		}
+	}
+	lines = append(lines, currentLine)
+
+	if maxLines > 0 && len(lines) > maxLines {
+		lines = lines[:maxLines]
+		last := lines[len(lines)-1]
+		if len(last) > 3 {
+			lines[len(lines)-1] = last[:len(last)-3] + "..."
+		}
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func (m Model) renderSidebar(width int, height int) string {
@@ -307,12 +359,8 @@ func (m Model) renderSidebar(width int, height int) string {
 		b.WriteString(valueStyle.Render(m.ticket.ID))
 		b.WriteString("\n")
 
-		title := m.ticket.Title
-		maxTitleLen := max(10, width-2)
-		if len(title) > maxTitleLen {
-			title = title[:maxTitleLen-3] + "..."
-		}
-		b.WriteString(valueStyle.Render(title))
+		wrappedTitle := wrapText(m.ticket.Title, width, "", 2)
+		b.WriteString(valueStyle.Render(wrappedTitle))
 		b.WriteString("\n")
 	} else {
 		b.WriteString(labelStyle.Render("Ticket: "))
@@ -371,23 +419,20 @@ func (m Model) renderSidebar(width int, height int) string {
 				b.WriteString(labelStyle.Render(fmt.Sprintf("  ↑ %d more\n", showFrom)))
 			}
 
-			maxPhaseLen := max(15, width-4) // room for "  ✓ "
+			phaseWidth := width - 4 // room for "  ✓ "
 
 			for i := showFrom; i <= showTo; i++ {
 				phase := m.ticket.Phases[i]
-				name := phase.Name
-				if len(name) > maxPhaseLen {
-					name = name[:maxPhaseLen-3] + "..."
-				}
+				wrappedName := wrapText(phase.Name, phaseWidth, "    ", 2)
 				if phase.Completed {
 					b.WriteString(runningStyle.Render("  ✓ "))
-					b.WriteString(labelStyle.Render(name))
+					b.WriteString(labelStyle.Render(wrappedName))
 				} else if currentPhase != nil && phase.Name == currentPhase.Name {
 					b.WriteString(phaseStyle.Render("  → "))
-					b.WriteString(phaseStyle.Render(name))
+					b.WriteString(phaseStyle.Render(wrappedName))
 				} else {
 					b.WriteString(labelStyle.Render("  ○ "))
-					b.WriteString(labelStyle.Render(name))
+					b.WriteString(labelStyle.Render(wrappedName))
 				}
 				b.WriteString("\n")
 			}
