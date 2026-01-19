@@ -79,6 +79,7 @@ type State struct {
 	StartTime            time.Time
 	Model                string
 	TokensByModel        map[string]*ModelTokens
+	CurrentIterTokens    *ModelTokens // live tokens for current iteration
 }
 
 func NewState() *State {
@@ -115,7 +116,15 @@ func (s *State) RecordIteration(filesChanged []string, err string) {
 	}
 }
 
-func (s *State) UpdateTokens(model string, inputTokens, outputTokens int) {
+func (s *State) SetCurrentIterTokens(inputTokens, outputTokens int) {
+	if s.CurrentIterTokens == nil {
+		s.CurrentIterTokens = &ModelTokens{}
+	}
+	s.CurrentIterTokens.InputTokens = inputTokens
+	s.CurrentIterTokens.OutputTokens = outputTokens
+}
+
+func (s *State) FinalizeIterTokens(model string, inputTokens, outputTokens int) {
 	if model != "" {
 		s.Model = model
 	}
@@ -125,18 +134,19 @@ func (s *State) UpdateTokens(model string, inputTokens, outputTokens int) {
 	if s.TokensByModel[s.Model] == nil {
 		s.TokensByModel[s.Model] = &ModelTokens{}
 	}
-	if inputTokens > 0 {
-		s.TokensByModel[s.Model].InputTokens += inputTokens
-	}
-	if outputTokens > 0 {
-		s.TokensByModel[s.Model].OutputTokens += outputTokens
-	}
+	s.TokensByModel[s.Model].InputTokens += inputTokens
+	s.TokensByModel[s.Model].OutputTokens += outputTokens
+	s.CurrentIterTokens = nil
 }
 
 func (s *State) TotalTokens() (input, output int) {
 	for _, t := range s.TokensByModel {
 		input += t.InputTokens
 		output += t.OutputTokens
+	}
+	if s.CurrentIterTokens != nil {
+		input += s.CurrentIterTokens.InputTokens
+		output += s.CurrentIterTokens.OutputTokens
 	}
 	return
 }

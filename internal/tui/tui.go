@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -431,16 +432,35 @@ func (m Model) renderSidebar(width int, height int) string {
 	}
 
 	// Usage section
-	if m.state != nil && len(m.state.TokensByModel) > 0 {
+	hasTokens := m.state != nil && (len(m.state.TokensByModel) > 0 || m.state.CurrentIterTokens != nil)
+	if hasTokens {
 		b.WriteString("\n")
 		b.WriteString(sectionHeader("Usage", width))
 		b.WriteString("\n")
-		for model, tokens := range m.state.TokensByModel {
+
+		// Sort model names for stable display
+		models := make([]string, 0, len(m.state.TokensByModel))
+		for model := range m.state.TokensByModel {
+			models = append(models, model)
+		}
+		sort.Strings(models)
+
+		for _, model := range models {
+			tokens := m.state.TokensByModel[model]
 			shortModel := shortenModelName(model)
 			b.WriteString(valueStyle.Render(shortModel))
 			b.WriteString("\n")
 			b.WriteString(labelStyle.Render("  "))
 			b.WriteString(valueStyle.Render(fmt.Sprintf("%s in / %s out", formatTokens(tokens.InputTokens), formatTokens(tokens.OutputTokens))))
+			b.WriteString("\n")
+		}
+
+		// Show current iteration tokens (live)
+		if m.state.CurrentIterTokens != nil {
+			b.WriteString(labelStyle.Render("current: "))
+			b.WriteString(valueStyle.Render(fmt.Sprintf("%s in / %s out",
+				formatTokens(m.state.CurrentIterTokens.InputTokens),
+				formatTokens(m.state.CurrentIterTokens.OutputTokens))))
 			b.WriteString("\n")
 		}
 	}

@@ -341,6 +341,7 @@ type streamEvent struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
+		Usage modelUsageStats `json:"usage"`
 	} `json:"message"`
 	ModelUsage map[string]modelUsageStats `json:"modelUsage"`
 	Result     string                     `json:"result"`
@@ -365,12 +366,21 @@ func (l *Loop) processStreamingOutput(stdout io.Reader) string {
 		switch event.Type {
 		case "system":
 			if event.Subtype == "init" && event.Model != "" && l.currentState != nil {
-				l.currentState.UpdateTokens(event.Model, 0, 0)
+				l.currentState.Model = event.Model
 				if l.onStateChange != nil && l.currentTicket != nil {
 					l.onStateChange(l.currentState, l.currentTicket, nil)
 				}
 			}
 		case "assistant":
+			if l.currentState != nil && event.Message.Usage.InputTokens > 0 {
+				l.currentState.SetCurrentIterTokens(
+					event.Message.Usage.TotalInputTokens(),
+					event.Message.Usage.OutputTokens,
+				)
+				if l.onStateChange != nil && l.currentTicket != nil {
+					l.onStateChange(l.currentState, l.currentTicket, nil)
+				}
+			}
 			for _, block := range event.Message.Content {
 				if block.Type == "text" && block.Text != "" {
 					fullOutput.WriteString(block.Text)
@@ -382,7 +392,7 @@ func (l *Loop) processStreamingOutput(stdout io.Reader) string {
 		case "result":
 			if l.currentState != nil && len(event.ModelUsage) > 0 {
 				for model, usage := range event.ModelUsage {
-					l.currentState.UpdateTokens(
+					l.currentState.FinalizeIterTokens(
 						model,
 						usage.TotalInputTokens(),
 						usage.OutputTokens,
