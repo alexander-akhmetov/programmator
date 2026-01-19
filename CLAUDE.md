@@ -5,17 +5,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build and Test Commands
 
 ```bash
-uv sync              # Install dependencies
-uv run pytest -v     # Run all tests
-uv run pytest tests/test_response_parser.py -v  # Run single test file
+go build ./...                    # Build all packages
+go test ./...                     # Run all tests
+go test ./internal/parser -v      # Run single package tests
+go test -race ./...               # Run tests with race detector
+
+# Install the CLI
+go install ./cmd/programmator
+
+# Run without installing
+go run ./cmd/programmator start <ticket-id>
+go run ./cmd/programmator status <ticket-id>
+go run ./cmd/programmator logs <ticket-id>
 
 # Lint and format
-uv run ruff format --check src tests   # Check formatting
-uv run ruff check src tests            # Lint
-uv run ty check src tests              # Type check
-
-uv run ruff format src tests           # Auto-format
-uv run ruff check --fix src tests      # Auto-fix lint issues
+gofmt -l .                        # Check formatting
+gofmt -w .                        # Auto-format
+go vet ./...                      # Static analysis
 ```
 
 ## Architecture
@@ -25,23 +31,49 @@ Programmator is a ticket-driven autonomous Claude Code orchestrator. It reads a 
 ### Core Loop Flow
 
 ```
-cli.py (entry) → Loop.run() → [for each iteration]:
-    1. ticket_client.get() → fetch ticket, parse phases
-    2. build_prompt() → create Claude prompt with ticket context
-    3. _invoke_claude() → subprocess call to `claude --print`
-    4. parse_response() → extract PROGRAMMATOR_STATUS block (YAML)
-    5. ticket_client.update_phase() → mark phase complete
-    6. check_safety() → verify iteration/stagnation limits
+main.go (entry) → Loop.Run() → [for each iteration]:
+    1. TicketClient.Get() → fetch ticket, parse phases
+    2. BuildPrompt() → create Claude prompt with ticket context
+    3. invokeClaudeCode() → exec call to `claude --print`
+    4. ParseResponse() → extract PROGRAMMATOR_STATUS block (YAML)
+    5. TicketClient.UpdatePhase() → mark phase complete
+    6. CheckSafety() → verify iteration/stagnation limits
+```
+
+### Directory Structure
+
+```
+cmd/
+  programmator/
+    main.go           # CLI entry point (cobra commands)
+internal/
+  cmd/
+    root.go           # Root cobra command
+    start.go          # Start command (runs the loop)
+    status.go         # Status command (shows ticket state)
+    logs.go           # Logs command (tails log file)
+  loop/
+    loop.go           # Main orchestration loop
+  ticket/
+    client.go         # Ticket CLI wrapper, parses markdown tickets
+  prompt/
+    builder.go        # Builds prompts with ticket context
+  parser/
+    parser.go         # Extracts PROGRAMMATOR_STATUS YAML block
+  safety/
+    safety.go         # Exit conditions (max iterations, stagnation)
+  tui/
+    tui.go            # Bubbletea TUI with status panel and logs
 ```
 
 ### Key Components
 
-- **loop.py**: Main orchestration. Manages iteration state, invokes Claude via subprocess, handles streaming JSON output
-- **ticket_client.py**: Wrapper around external `ticket` CLI. Parses markdown tickets with YAML frontmatter and checkbox phases (`- [ ]`/`- [x]`)
-- **prompt_builder.py**: Builds prompts using `PROMPT_TEMPLATE`. Instructs Claude to output `PROGRAMMATOR_STATUS` block
-- **response_parser.py**: Extracts and parses `PROGRAMMATOR_STATUS` YAML block from Claude output. Status values: CONTINUE, DONE, BLOCKED
-- **safety.py**: Exit conditions: max iterations, stagnation (no file changes), repeated errors
-- **tui.py**: Textual-based TUI with status panel and log viewer (always enabled)
+- **internal/loop/loop.go**: Main orchestration. Manages iteration state, invokes Claude via os/exec, handles streaming output
+- **internal/ticket/client.go**: Wrapper around external `ticket` CLI. Parses markdown tickets with checkbox phases (`- [ ]`/`- [x]`)
+- **internal/prompt/builder.go**: Builds prompts using `PromptTemplate`. Instructs Claude to output `PROGRAMMATOR_STATUS` block
+- **internal/parser/parser.go**: Extracts and parses `PROGRAMMATOR_STATUS` YAML block from Claude output. Status values: CONTINUE, DONE, BLOCKED
+- **internal/safety/safety.go**: Exit conditions: max iterations, stagnation (no file changes), repeated errors
+- **internal/tui/tui.go**: Bubbletea-based TUI with status panel and log viewer
 
 ### Status Protocol
 
@@ -73,3 +105,10 @@ Tickets are markdown files with YAML frontmatter. Phases are checkboxes in a Des
 | `PROGRAMMATOR_TIMEOUT` | 900 | Seconds per Claude invocation |
 | `PROGRAMMATOR_CLAUDE_FLAGS` | `--dangerously-skip-permissions` | Flags passed to Claude |
 | `TICKETS_DIR` | `~/.tickets` | Where ticket files live |
+
+## Dependencies
+
+- [cobra](https://github.com/spf13/cobra) - CLI framework
+- [bubbletea](https://github.com/charmbracelet/bubbletea) - TUI framework
+- [lipgloss](https://github.com/charmbracelet/lipgloss) - TUI styling
+- [gopkg.in/yaml.v3](https://gopkg.in/yaml.v3) - YAML parsing

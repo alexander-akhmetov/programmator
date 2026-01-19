@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:ghuntley.com)",
+      "WebFetch(domain:awesomeclaude.ai)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:deepwiki.com)",
+      "Bash(uv:*)",
+      "Bash(ruff:*)",
+      "Bash(ty:*)",
+      "WebFetch(domain:docs.astral.sh)",
+      "Bash(programmator --help:*)",
+      "WebFetch(domain:textual.textualize.io)",
+      "Bash(make test:*)",
+      "Bash(make lint:*)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "Bash(gofmt:*)",
+      "Bash(golangci-lint run:*)"
+    ]
+  }
+}
