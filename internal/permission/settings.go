@@ -2,11 +2,13 @@
 package permission
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 type Scope string
@@ -90,16 +92,16 @@ func (s *Settings) loadAllowList(path string) []string {
 		return nil
 	}
 
-	var settings claudeSettings
-	if err := json.Unmarshal(data, &settings); err != nil {
+	result := gjson.GetBytes(data, "permissions.allow")
+	if !result.Exists() {
 		return nil
 	}
 
-	if settings.Permissions == nil {
-		return nil
+	var allow []string
+	for _, item := range result.Array() {
+		allow = append(allow, item.String())
 	}
-
-	return settings.Permissions.Allow
+	return allow
 }
 
 func (s *Settings) AddPatternToFile(path, pattern string) error {
@@ -107,43 +109,27 @@ func (s *Settings) AddPatternToFile(path, pattern string) error {
 		return fmt.Errorf("create directory: %w", err)
 	}
 
-	// Use map to preserve all existing fields in the settings file
-	var settings map[string]any
-
 	data, err := os.ReadFile(path)
-	if err == nil {
-		if err := json.Unmarshal(data, &settings); err != nil {
-			return fmt.Errorf("parse settings: %w", err)
-		}
+	if err != nil {
+		// File doesn't exist, create minimal structure
+		data = []byte("{}")
 	}
-	if settings == nil {
-		settings = make(map[string]any)
-	}
-
-	// Get or create permissions block
-	perms, _ := settings["permissions"].(map[string]any)
-	if perms == nil {
-		perms = make(map[string]any)
-		settings["permissions"] = perms
-	}
-
-	// Get or create allow list
-	allowList, _ := perms["allow"].([]any)
 
 	// Check if pattern already exists
-	for _, p := range allowList {
-		if p == pattern {
-			return nil
+	existing := gjson.GetBytes(data, "permissions.allow")
+	if existing.Exists() {
+		for _, item := range existing.Array() {
+			if item.String() == pattern {
+				return nil // Already exists
+			}
 		}
 	}
 
-	// Append the new pattern
-	allowList = append(allowList, pattern)
-	perms["allow"] = allowList
-
-	data, err = json.MarshalIndent(settings, "", "  ")
+	// Append pattern to the allow list using sjson
+	// "-1" index means append to array
+	data, err = sjson.SetBytes(data, "permissions.allow.-1", pattern)
 	if err != nil {
-		return fmt.Errorf("marshal settings: %w", err)
+		return fmt.Errorf("update settings: %w", err)
 	}
 
 	if err := os.WriteFile(path, data, 0644); err != nil {
