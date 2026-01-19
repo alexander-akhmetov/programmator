@@ -162,40 +162,44 @@ func TestHandleKey_Navigation(t *testing.T) {
 	respChan := make(chan permission.HandlerResponse, 1)
 	dialog := NewPermissionDialog(req, respChan)
 
-	// Default: allowIdx=0, scope=Once
+	// Default: cursor=0, allowIdx=0, scope=Once
+	assert.Equal(t, 0, dialog.cursor)
 	assert.Equal(t, 0, dialog.allowIdx)
 	assert.Equal(t, scopeOnce, dialog.scope)
 
-	// Down arrow moves allowIdx forward
+	// Down moves cursor
 	closed := dialog.HandleKey("down")
 	assert.False(t, closed)
-	assert.Equal(t, 1, dialog.allowIdx)
+	assert.Equal(t, 1, dialog.cursor)
 
 	closed = dialog.HandleKey("j")
 	assert.False(t, closed)
-	assert.Equal(t, 2, dialog.allowIdx)
+	assert.Equal(t, 2, dialog.cursor)
 
-	// Up arrow moves allowIdx backward
+	// Up moves cursor back
 	closed = dialog.HandleKey("up")
 	assert.False(t, closed)
-	assert.Equal(t, 1, dialog.allowIdx)
+	assert.Equal(t, 1, dialog.cursor)
 
 	closed = dialog.HandleKey("k")
 	assert.False(t, closed)
-	assert.Equal(t, 0, dialog.allowIdx)
+	assert.Equal(t, 0, dialog.cursor)
 
 	// Can't go below 0
 	closed = dialog.HandleKey("up")
 	assert.False(t, closed)
-	assert.Equal(t, 0, dialog.allowIdx, "should not go below 0")
+	assert.Equal(t, 0, dialog.cursor, "should not go below 0")
 
-	// Right moves scope forward
-	dialog.HandleKey("right")
+	// Space selects allow option
+	dialog.cursor = 1
+	dialog.HandleKey(" ")
+	assert.Equal(t, 1, dialog.allowIdx)
+
+	// Move to scope section (after allow options)
+	numAllowOptions := len(dialog.allowOptions)
+	dialog.cursor = numAllowOptions + 1 // Session
+	dialog.HandleKey(" ")
 	assert.Equal(t, scopeSession, dialog.scope)
-
-	// Left moves scope backward
-	dialog.HandleKey("left")
-	assert.Equal(t, scopeOnce, dialog.scope)
 }
 
 func TestHandleKey_ScopeToggle(t *testing.T) {
@@ -209,33 +213,24 @@ func TestHandleKey_ScopeToggle(t *testing.T) {
 	// Default is scopeOnce
 	assert.Equal(t, scopeOnce, dialog.scope)
 
-	// Right/Tab cycles scope forward
-	dialog.HandleKey("right")
+	numAllowOptions := len(dialog.allowOptions)
+
+	// Move cursor to scope section and select different scopes
+	dialog.cursor = numAllowOptions + 1 // Session
+	dialog.HandleKey(" ")
 	assert.Equal(t, scopeSession, dialog.scope)
 
-	dialog.HandleKey("tab")
+	dialog.cursor = numAllowOptions + 2 // Project
+	dialog.HandleKey(" ")
 	assert.Equal(t, scopeProject, dialog.scope)
 
-	dialog.HandleKey("l")
+	dialog.cursor = numAllowOptions + 3 // Global
+	dialog.HandleKey(" ")
 	assert.Equal(t, scopeGlobal, dialog.scope)
 
-	// Can't go past Global
-	dialog.HandleKey("right")
-	assert.Equal(t, scopeGlobal, dialog.scope, "should not go past Global")
-
-	// Left/h/shift+tab goes backward
-	dialog.HandleKey("left")
-	assert.Equal(t, scopeProject, dialog.scope)
-
-	dialog.HandleKey("h")
-	assert.Equal(t, scopeSession, dialog.scope)
-
-	dialog.HandleKey("shift+tab")
+	dialog.cursor = numAllowOptions + 0 // Once
+	dialog.HandleKey(" ")
 	assert.Equal(t, scopeOnce, dialog.scope)
-
-	// Can't go before Once
-	dialog.HandleKey("left")
-	assert.Equal(t, scopeOnce, dialog.scope, "should not go before Once")
 }
 
 func TestHandleKey_Respond(t *testing.T) {

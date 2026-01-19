@@ -37,10 +37,6 @@ var (
 
 	optionInactiveStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("241"))
-
-	keyHintStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("205")).
-			Bold(true)
 )
 
 type scopeType int
@@ -57,10 +53,11 @@ type PermissionDialog struct {
 	responseChan chan<- permission.HandlerResponse
 
 	allowOptions []allowOption
-	allowIdx     int
+	allowIdx     int // which allow option is checked
 	scope        scopeType
 
-	repoRoot string // detected git repo root
+	cursor   int // global cursor position across all items
+	repoRoot string
 }
 
 type allowOption struct {
@@ -175,38 +172,28 @@ func (d *PermissionDialog) buildAllowOptions() []allowOption {
 }
 
 func (d *PermissionDialog) HandleKey(key string) bool {
+	totalItems := len(d.allowOptions) + 4 // 4 scope options
+
 	switch key {
 	case "up", "k":
-		// Navigate Allow options up
-		if d.allowIdx > 0 {
-			d.allowIdx--
+		if d.cursor > 0 {
+			d.cursor--
 		}
 		return false
 	case "down", "j":
-		// Navigate Allow options down
-		if d.allowIdx < len(d.allowOptions)-1 {
-			d.allowIdx++
+		if d.cursor < totalItems-1 {
+			d.cursor++
 		}
 		return false
-	case "left", "h":
-		// Navigate Scope left
-		if d.scope > 0 {
-			d.scope--
+	case " ":
+		// Space selects the item under cursor
+		if d.cursor < len(d.allowOptions) {
+			d.allowIdx = d.cursor
+		} else {
+			d.scope = scopeType(d.cursor - len(d.allowOptions))
 		}
 		return false
-	case "right", "l", "tab":
-		// Navigate Scope right
-		if d.scope < 3 {
-			d.scope++
-		}
-		return false
-	case "shift+tab", "backtab":
-		// Navigate Scope left
-		if d.scope > 0 {
-			d.scope--
-		}
-		return false
-	case "enter", " ":
+	case "enter":
 		d.respond()
 		return true
 	case "d", "n", "escape":
@@ -272,42 +259,54 @@ func (d *PermissionDialog) renderDialog(width int) string {
 	b.WriteString(strings.Repeat("─", 50))
 	b.WriteString("\n\n")
 
-	// Allow options (vertical list with checkboxes)
-	b.WriteString(permLabelStyle.Render("Allow: "))
-	b.WriteString(keyHintStyle.Render("(↑/↓)"))
+	// Allow options (vertical list)
+	b.WriteString(permLabelStyle.Render("Allow:"))
 	b.WriteString("\n")
 
 	for i, opt := range d.allowOptions {
-		style := optionInactiveStyle
 		label := abbreviateLabel(opt.label)
-		checkbox := "[ ] "
+		checkbox := "[ ]"
 		if i == d.allowIdx {
-			style = optionActiveStyle
-			checkbox = "[x] "
+			checkbox = "[x]"
 		}
-		b.WriteString(style.Render(checkbox + label))
+
+		cursor := "  "
+		style := optionInactiveStyle
+		if d.cursor == i {
+			cursor = "> "
+			style = optionActiveStyle
+		}
+		b.WriteString(cursor)
+		b.WriteString(style.Render(checkbox + " " + label))
 		b.WriteString("\n")
 	}
 
 	b.WriteString("\n")
 
-	// Scope selector (horizontal with checkboxes)
-	b.WriteString(permLabelStyle.Render("Scope: "))
-	b.WriteString(keyHintStyle.Render("(←/→)"))
-	b.WriteString("  ")
+	// Scope options (vertical list)
+	b.WriteString(permLabelStyle.Render("Scope:"))
+	b.WriteString("\n")
 
 	scopes := []string{"Once", "Session", "Project", "Global"}
 	for i, s := range scopes {
-		style := optionInactiveStyle
 		checkbox := "[ ]"
 		if scopeType(i) == d.scope {
-			style = optionActiveStyle
 			checkbox = "[x]"
 		}
+
+		cursorPos := len(d.allowOptions) + i
+		cursor := "  "
+		style := optionInactiveStyle
+		if d.cursor == cursorPos {
+			cursor = "> "
+			style = optionActiveStyle
+		}
+		b.WriteString(cursor)
 		b.WriteString(style.Render(checkbox + " " + s))
-		b.WriteString("  ")
+		b.WriteString("\n")
 	}
-	b.WriteString("\n\n")
+
+	b.WriteString("\n")
 
 	// Show full command and pattern being approved
 	b.WriteString(strings.Repeat("─", 50))
@@ -332,7 +331,7 @@ func (d *PermissionDialog) renderDialog(width int) string {
 	b.WriteString("\n\n")
 
 	// Help
-	b.WriteString(permLabelStyle.Render("↑/↓: Allow • ←/→: Scope • Enter: Confirm • d: Deny"))
+	b.WriteString(permLabelStyle.Render("↑/↓: Move • Space: Select • Enter: Confirm • d: Deny"))
 
 	dialogWidth := min(70, width-4)
 	return dialogBoxStyle.Width(dialogWidth).Render(b.String())
