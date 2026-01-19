@@ -17,7 +17,14 @@ Programmator uses your existing ticket system as its backbone for orchestrating 
 ## Installation
 
 ```bash
-uv sync
+brew tap alexander-akhmetov/tools git@github.com:alexander-akhmetov/homebrew-tools.git
+brew install alexander-akhmetov/tools/programmator
+```
+
+Or build from source:
+
+```bash
+go install ./cmd/programmator
 ```
 
 ## Usage
@@ -107,18 +114,20 @@ flowchart TD
 ## Development
 
 ```bash
-# Run tests
-uv run pytest -v
+# Build
+go build ./...
 
-# Run single test
-uv run pytest tests/test_response_parser.py -v
+# Run tests
+go test ./...
+
+# Run single package tests
+go test ./internal/parser -v
+
+# Run tests with race detector
+go test -race ./...
 
 # Lint and format
-uv run ruff format --check src tests   # Check formatting
-uv run ruff check src tests            # Lint
-uv run ty check src tests              # Type check
-
-# Auto-fix
-uv run ruff format src tests           # Auto-format
-uv run ruff check --fix src tests      # Auto-fix lint issues
+gofmt -l .        # Check formatting
+gofmt -w .        # Auto-format
+go vet ./...      # Static analysis
 ```

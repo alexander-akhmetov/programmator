@@ -2,13 +2,21 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Prerequisites
+
+Programmator requires the external `ticket` CLI to be installed:
+```bash
+brew tap alexander-akhmetov/tools git@github.com:alexander-akhmetov/homebrew-tools.git
+brew install alexander-akhmetov/tools/ticket
+```
+
 ## Build and Test Commands
 
 ```bash
 go build ./...                    # Build all packages
 go test ./...                     # Run all tests
 go test ./internal/parser -v      # Run single package tests
-go test -race ./...               # Run tests with race detector
+go test -race ./...               # Run tests with race detector (CI uses this)
 
 # Install the CLI
 go install ./cmd/programmator
@@ -18,9 +26,9 @@ go run ./cmd/programmator start <ticket-id>
 go run ./cmd/programmator status <ticket-id>
 go run ./cmd/programmator logs <ticket-id>
 
-# Lint and format
+# Lint (CI uses golangci-lint)
+golangci-lint run
 gofmt -l .                        # Check formatting
-gofmt -w .                        # Auto-format
 go vet ./...                      # Static analysis
 ```
 
@@ -40,40 +48,14 @@ main.go (entry) → Loop.Run() → [for each iteration]:
     6. CheckSafety() → verify iteration/stagnation limits
 ```
 
-### Directory Structure
-
-```
-cmd/
-  programmator/
-    main.go           # CLI entry point (cobra commands)
-internal/
-  cmd/
-    root.go           # Root cobra command
-    start.go          # Start command (runs the loop)
-    status.go         # Status command (shows ticket state)
-    logs.go           # Logs command (tails log file)
-  loop/
-    loop.go           # Main orchestration loop
-  ticket/
-    client.go         # Ticket CLI wrapper, parses markdown tickets
-  prompt/
-    builder.go        # Builds prompts with ticket context
-  parser/
-    parser.go         # Extracts PROGRAMMATOR_STATUS YAML block
-  safety/
-    safety.go         # Exit conditions (max iterations, stagnation)
-  tui/
-    tui.go            # Bubbletea TUI with status panel and logs
-```
-
 ### Key Components
 
-- **internal/loop/loop.go**: Main orchestration. Manages iteration state, invokes Claude via os/exec, handles streaming output
-- **internal/ticket/client.go**: Wrapper around external `ticket` CLI. Parses markdown tickets with checkbox phases (`- [ ]`/`- [x]`)
-- **internal/prompt/builder.go**: Builds prompts using `PromptTemplate`. Instructs Claude to output `PROGRAMMATOR_STATUS` block
-- **internal/parser/parser.go**: Extracts and parses `PROGRAMMATOR_STATUS` YAML block from Claude output. Status values: CONTINUE, DONE, BLOCKED
-- **internal/safety/safety.go**: Exit conditions: max iterations, stagnation (no file changes), repeated errors
-- **internal/tui/tui.go**: Bubbletea-based TUI with status panel and log viewer
+- **internal/loop/loop.go**: Main orchestration. Manages iteration state, invokes Claude via os/exec, handles streaming JSON output. Supports pause/resume and process memory monitoring.
+- **internal/ticket/client.go**: Wrapper around external `ticket` CLI. Parses markdown tickets with checkbox phases (`- [ ]`/`- [x]`). Has mock implementation for testing.
+- **internal/prompt/builder.go**: Builds prompts using `PromptTemplate`. Instructs Claude to output `PROGRAMMATOR_STATUS` block.
+- **internal/parser/parser.go**: Extracts and parses `PROGRAMMATOR_STATUS` YAML block from Claude output. Status values: CONTINUE, DONE, BLOCKED.
+- **internal/safety/safety.go**: Exit conditions: max iterations, stagnation (no file changes), repeated errors.
+- **internal/tui/tui.go**: Bubbletea-based TUI with status panel, markdown rendering via glamour, and real-time token usage display.
 
 ### Status Protocol
 
@@ -106,9 +88,6 @@ Tickets are markdown files with YAML frontmatter. Phases are checkboxes in a Des
 | `PROGRAMMATOR_CLAUDE_FLAGS` | `--dangerously-skip-permissions` | Flags passed to Claude |
 | `TICKETS_DIR` | `~/.tickets` | Where ticket files live |
 
-## Dependencies
+## Testing
 
-- [cobra](https://github.com/spf13/cobra) - CLI framework
-- [bubbletea](https://github.com/charmbracelet/bubbletea) - TUI framework
-- [lipgloss](https://github.com/charmbracelet/lipgloss) - TUI styling
-- [gopkg.in/yaml.v3](https://gopkg.in/yaml.v3) - YAML parsing
+Tests use `stretchr/testify` for assertions. The ticket package has a mock client (`client_mock.go`) for testing without the external CLI.
