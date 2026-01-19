@@ -1,7 +1,7 @@
 .PHONY: build test lint fmt install clean
 
 build:
-	go build ./...
+	go build -o programmator ./cmd/programmator
 
 test:
 	go test ./...

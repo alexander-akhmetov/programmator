@@ -120,8 +120,10 @@ func (s *State) SetCurrentIterTokens(inputTokens, outputTokens int) {
 	if s.CurrentIterTokens == nil {
 		s.CurrentIterTokens = &ModelTokens{}
 	}
+	// Input seems cumulative from Claude, so replace
 	s.CurrentIterTokens.InputTokens = inputTokens
-	s.CurrentIterTokens.OutputTokens = outputTokens
+	// Output is per-turn, so accumulate
+	s.CurrentIterTokens.OutputTokens += outputTokens
 }
 
 func (s *State) FinalizeIterTokens(model string, inputTokens, outputTokens int) {

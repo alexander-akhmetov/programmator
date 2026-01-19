@@ -383,7 +383,7 @@ func (l *Loop) processStreamingOutput(stdout io.Reader) string {
 				}
 			}
 		case "assistant":
-			if l.currentState != nil && event.Message.Usage.InputTokens > 0 {
+			if l.currentState != nil {
 				l.currentState.SetCurrentIterTokens(
 					event.Message.Usage.TotalInputTokens(),
 					event.Message.Usage.OutputTokens,
