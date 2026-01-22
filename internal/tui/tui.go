@@ -68,6 +68,10 @@ var (
 	stoppedStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("196")).
 			Bold(true)
+
+	dangerStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("196")).
+			Bold(true)
 )
 
 type runState int
@@ -382,7 +386,14 @@ func (m Model) renderSidebar(width int, height int) string {
 
 	// Title and state
 	b.WriteString(titleStyle.Render("⚡ PROGRAMMATOR"))
-	b.WriteString("\n\n")
+	b.WriteString("\n")
+
+	// Warning banner if running with dangerous permissions
+	if strings.Contains(m.config.ClaudeFlags, "--dangerously-skip-permissions") {
+		b.WriteString(dangerStyle.Render("⚠ SKIP PERMISSIONS"))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 
 	var stateIndicator string
 	switch m.runState {
