@@ -196,8 +196,15 @@ func MatchPattern(pattern, target string) bool {
 		return true
 	}
 
+	// Bash-style prefix matching: "git:*" matches "git status"
 	if prefix, found := strings.CutSuffix(patternArg, ":*"); found {
 		return strings.HasPrefix(targetArg, prefix)
+	}
+
+	// Glob-style recursive matching: "/path/**" matches "/path/subdir/file.go"
+	if dir, found := strings.CutSuffix(patternArg, "/**"); found {
+		// Target must be under the directory (start with dir + separator)
+		return strings.HasPrefix(targetArg, dir+"/") || targetArg == dir
 	}
 
 	return patternArg == targetArg

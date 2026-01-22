@@ -89,8 +89,34 @@ func (d *PermissionDialog) buildAllowOptions() []allowOption {
 	var options []allowOption
 
 	switch toolName {
-	case "Read", "Write", "Edit", "Glob", "Grep":
-		// File-based tools
+	case "Read", "Write", "Edit":
+		// File tools use /** glob patterns (Claude Code requirement)
+		options = append(options, allowOption{
+			label:   "This path",
+			pattern: fmt.Sprintf("%s(%s)", toolName, input),
+		})
+
+		if dir := filepath.Dir(input); dir != "" && dir != "." {
+			options = append(options, allowOption{
+				label:   fmt.Sprintf("Directory %s", abbreviatePath(dir)),
+				pattern: fmt.Sprintf("%s(%s/**)", toolName, dir),
+			})
+		}
+
+		if d.repoRoot != "" && strings.HasPrefix(input, d.repoRoot) {
+			options = append(options, allowOption{
+				label:   fmt.Sprintf("Entire repo %s", abbreviatePath(d.repoRoot)),
+				pattern: fmt.Sprintf("%s(%s/**)", toolName, d.repoRoot),
+			})
+		}
+
+		options = append(options, allowOption{
+			label:   fmt.Sprintf("All %s operations", toolName),
+			pattern: toolName,
+		})
+
+	case "Glob", "Grep":
+		// Search tools use :* prefix patterns
 		options = append(options, allowOption{
 			label:   "This path",
 			pattern: fmt.Sprintf("%s(%s)", toolName, input),
@@ -110,7 +136,6 @@ func (d *PermissionDialog) buildAllowOptions() []allowOption {
 			})
 		}
 
-		// Allow all for this tool
 		options = append(options, allowOption{
 			label:   fmt.Sprintf("All %s operations", toolName),
 			pattern: toolName,

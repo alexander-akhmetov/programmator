@@ -17,9 +17,10 @@ func TestBuildAllowOptions_FileTools(t *testing.T) {
 		description   string
 		wantContains  []string
 		wantOptionCnt int
+		wantDirGlob   string // expected directory pattern suffix
 	}{
 		{
-			name:        "Read file",
+			name:        "Read file uses glob pattern",
 			toolName:    "Read",
 			description: "/tmp/project/src/main.go",
 			wantContains: []string{
@@ -28,9 +29,10 @@ func TestBuildAllowOptions_FileTools(t *testing.T) {
 				"All Read operations",
 			},
 			wantOptionCnt: 3,
+			wantDirGlob:   "Read(/tmp/project/src/**)",
 		},
 		{
-			name:        "Write file",
+			name:        "Write file uses glob pattern",
 			toolName:    "Write",
 			description: "/tmp/test.txt",
 			wantContains: []string{
@@ -39,9 +41,10 @@ func TestBuildAllowOptions_FileTools(t *testing.T) {
 				"All Write operations",
 			},
 			wantOptionCnt: 3,
+			wantDirGlob:   "Write(/tmp/**)",
 		},
 		{
-			name:        "Edit file",
+			name:        "Edit file uses glob pattern",
 			toolName:    "Edit",
 			description: "/home/user/file.go",
 			wantContains: []string{
@@ -50,6 +53,31 @@ func TestBuildAllowOptions_FileTools(t *testing.T) {
 				"All Edit operations",
 			},
 			wantOptionCnt: 3,
+			wantDirGlob:   "Edit(/home/user/**)",
+		},
+		{
+			name:        "Glob uses prefix pattern",
+			toolName:    "Glob",
+			description: "/tmp/project/src/main.go",
+			wantContains: []string{
+				"This path",
+				"Directory",
+				"All Glob operations",
+			},
+			wantOptionCnt: 3,
+			wantDirGlob:   "Glob(/tmp/project/src:*)",
+		},
+		{
+			name:        "Grep uses prefix pattern",
+			toolName:    "Grep",
+			description: "/tmp/project/src/main.go",
+			wantContains: []string{
+				"This path",
+				"Directory",
+				"All Grep operations",
+			},
+			wantOptionCnt: 3,
+			wantDirGlob:   "Grep(/tmp/project/src:*)",
 		},
 	}
 
@@ -72,6 +100,18 @@ func TestBuildAllowOptions_FileTools(t *testing.T) {
 
 			for _, want := range tt.wantContains {
 				assert.Contains(t, allLabels, want, "labels should contain: %s", want)
+			}
+
+			// Verify directory pattern uses correct syntax
+			if tt.wantDirGlob != "" {
+				found := false
+				for _, opt := range dialog.allowOptions {
+					if opt.pattern == tt.wantDirGlob {
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "should have directory pattern: %s", tt.wantDirGlob)
 			}
 		})
 	}

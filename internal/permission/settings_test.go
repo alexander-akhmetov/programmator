@@ -100,6 +100,55 @@ func TestMatchPattern(t *testing.T) {
 			target:   "Bash(ls)",
 			expected: false,
 		},
+		// Glob pattern tests for file tools
+		{
+			name:     "glob recursive match",
+			pattern:  "Read(/home/user/**)",
+			target:   "Read(/home/user/project/file.go)",
+			expected: true,
+		},
+		{
+			name:     "glob recursive match nested",
+			pattern:  "Read(/home/user/**)",
+			target:   "Read(/home/user/a/b/c/d.txt)",
+			expected: true,
+		},
+		{
+			name:     "glob recursive match direct child",
+			pattern:  "Read(/home/user/**)",
+			target:   "Read(/home/user/file.go)",
+			expected: true,
+		},
+		{
+			name:     "glob recursive no match different path",
+			pattern:  "Read(/home/user/**)",
+			target:   "Read(/tmp/file.go)",
+			expected: false,
+		},
+		{
+			name:     "glob recursive no match partial prefix",
+			pattern:  "Read(/home/user/**)",
+			target:   "Read(/home/username/file.go)",
+			expected: false,
+		},
+		{
+			name:     "glob with tilde expansion",
+			pattern:  "Read(~/.claude/**)",
+			target:   "Read(~/.claude/settings.json)",
+			expected: true,
+		},
+		{
+			name:     "Write glob pattern",
+			pattern:  "Write(/tmp/project/**)",
+			target:   "Write(/tmp/project/src/main.go)",
+			expected: true,
+		},
+		{
+			name:     "Edit glob pattern",
+			pattern:  "Edit(/home/dev/**)",
+			target:   "Edit(/home/dev/app/config.yaml)",
+			expected: true,
+		},
 	}
 
 	for _, tt := range tests {
