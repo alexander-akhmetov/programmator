@@ -93,3 +93,44 @@ func TestWorkItem_AllPhasesComplete(t *testing.T) {
 		})
 	}
 }
+
+func TestWorkItem_HasPhases(t *testing.T) {
+	tests := []struct {
+		name     string
+		phases   []Phase
+		expected bool
+	}{
+		{
+			name:     "no phases",
+			phases:   []Phase{},
+			expected: false,
+		},
+		{
+			name:     "nil phases",
+			phases:   nil,
+			expected: false,
+		},
+		{
+			name: "has phases",
+			phases: []Phase{
+				{Name: "Phase 1", Completed: false},
+			},
+			expected: true,
+		},
+		{
+			name: "has completed phases",
+			phases: []Phase{
+				{Name: "Phase 1", Completed: true},
+				{Name: "Phase 2", Completed: true},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := &WorkItem{Phases: tt.phases}
+			assert.Equal(t, tt.expected, w.HasPhases())
+		})
+	}
+}

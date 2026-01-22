@@ -4,11 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Prerequisites
 
-Programmator requires the external `ticket` CLI to be installed:
+For ticket-based workflow, install the external `ticket` CLI:
 ```bash
 brew tap alexander-akhmetov/tools git@github.com:alexander-akhmetov/homebrew-tools.git
 brew install alexander-akhmetov/tools/ticket
 ```
+
+Plan files work without any external dependencies.
 
 ## Build and Test Commands
 
@@ -22,8 +24,9 @@ go test -race ./...               # Run tests with race detector (CI uses this)
 go install ./cmd/programmator
 
 # Run without installing
-go run ./cmd/programmator start <ticket-id>
-go run ./cmd/programmator status <ticket-id>
+go run ./cmd/programmator start <ticket-id>      # ticket
+go run ./cmd/programmator start ./plan.md        # plan file
+go run ./cmd/programmator status
 go run ./cmd/programmator logs <ticket-id>
 
 # Lint (CI uses golangci-lint)
@@ -34,24 +37,27 @@ go vet ./...                      # Static analysis
 
 ## Architecture
 
-Programmator is a ticket-driven autonomous Claude Code orchestrator. It reads a ticket, identifies the current phase, invokes Claude Code with a structured prompt, parses the response, and loops until all phases are complete or safety limits are reached.
+Programmator is an autonomous Claude Code orchestrator driven by tickets or plan files. It reads a source (ticket or plan file), identifies the current phase, invokes Claude Code with a structured prompt, parses the response, and loops until all phases are complete or safety limits are reached.
 
 ### Core Loop Flow
 
 ```
 main.go (entry) → Loop.Run() → [for each iteration]:
-    1. TicketClient.Get() → fetch ticket, parse phases
-    2. BuildPrompt() → create Claude prompt with ticket context
+    1. Source.Get() → fetch ticket/plan, parse phases
+    2. BuildPrompt() → create Claude prompt with source context
     3. invokeClaudeCode() → exec call to `claude --print`
     4. ParseResponse() → extract PROGRAMMATOR_STATUS block (YAML)
-    5. TicketClient.UpdatePhase() → mark phase complete
+    5. Source.MarkPhaseComplete() → update checkbox in ticket/plan file
     6. CheckSafety() → verify iteration/stagnation limits
 ```
 
 ### Key Components
 
 - **internal/loop/loop.go**: Main orchestration. Manages iteration state, invokes Claude via os/exec, handles streaming JSON output. Supports pause/resume and process memory monitoring.
+- **internal/source/**: Abstraction layer for work sources. `Source` interface with `TicketSource` and `PlanSource` implementations.
+- **internal/source/detect.go**: Auto-detects source type from CLI argument (file path → plan, otherwise → ticket).
 - **internal/ticket/client.go**: Wrapper around external `ticket` CLI. Parses markdown tickets with checkbox phases (`- [ ]`/`- [x]`). Has mock implementation for testing.
+- **internal/plan/plan.go**: Parses standalone markdown plan files with checkbox tasks and optional validation commands.
 - **internal/prompt/builder.go**: Builds prompts using `PromptTemplate`. Instructs Claude to output `PROGRAMMATOR_STATUS` block.
 - **internal/parser/parser.go**: Extracts and parses `PROGRAMMATOR_STATUS` YAML block from Claude output. Status values: CONTINUE, DONE, BLOCKED.
 - **internal/safety/safety.go**: Exit conditions: max iterations, stagnation (no file changes), repeated errors.
@@ -69,13 +75,25 @@ PROGRAMMATOR_STATUS:
   error: "blocking reason" (only if BLOCKED)
 ```
 
-### Ticket Format
+### Source Formats
 
-Tickets are markdown files with YAML frontmatter. Phases are checkboxes in a Design section:
+**Tickets**: Markdown files with YAML frontmatter. Phases are checkboxes in a Design section:
 ```markdown
 ## Design
 - [ ] Phase 1: Investigation
 - [x] Phase 2: Implementation (completed)
+```
+
+**Plan files**: Standalone markdown with checkbox tasks and optional validation commands:
+```markdown
+# Plan: Feature Name
+
+## Validation Commands
+- `go test ./...`
+
+## Tasks
+- [ ] Task 1: Investigate
+- [ ] Task 2: Implement
 ```
 
 ## Environment Variables
@@ -87,6 +105,7 @@ Tickets are markdown files with YAML frontmatter. Phases are checkboxes in a Des
 | `PROGRAMMATOR_TIMEOUT` | 900 | Seconds per Claude invocation |
 | `PROGRAMMATOR_CLAUDE_FLAGS` | `--dangerously-skip-permissions` | Flags passed to Claude |
 | `TICKETS_DIR` | `~/.tickets` | Where ticket files live |
+| `CLAUDE_CONFIG_DIR` | - | Custom Claude config directory |
 
 ## Testing
 

@@ -9,10 +9,11 @@ import (
 
 func TestBuild(t *testing.T) {
 	tests := []struct {
-		name     string
-		workItem *source.WorkItem
-		notes    []string
-		wantSubs []string
+		name        string
+		workItem    *source.WorkItem
+		notes       []string
+		wantSubs    []string
+		notWantSubs []string
 	}{
 		{
 			name: "basic prompt with current phase",
@@ -73,7 +74,7 @@ func TestBuild(t *testing.T) {
 			},
 		},
 		{
-			name: "no phases",
+			name: "no phases - phaseless mode",
 			workItem: &source.WorkItem{
 				ID:         "t-000",
 				Title:      "No Phases",
@@ -82,7 +83,29 @@ func TestBuild(t *testing.T) {
 			},
 			notes: nil,
 			wantSubs: []string{
+				"ticket t-000: No Phases",
+				"Work on the task described above",
+				"phase_completed: null",
+			},
+			notWantSubs: []string{
+				"Current Phase",
 				"All phases complete",
+			},
+		},
+		{
+			name: "empty phases - phaseless mode",
+			workItem: &source.WorkItem{
+				ID:         "t-001",
+				Title:      "Empty Phases",
+				RawContent: "Also phaseless",
+				Phases:     []source.Phase{},
+			},
+			notes: nil,
+			wantSubs: []string{
+				"Work on the task described above",
+			},
+			notWantSubs: []string{
+				"Current Phase",
 			},
 		},
 	}
@@ -92,7 +115,12 @@ func TestBuild(t *testing.T) {
 			got := Build(tt.workItem, tt.notes)
 			for _, sub := range tt.wantSubs {
 				if !strings.Contains(got, sub) {
-					t.Errorf("Build() missing substring %q\n\nGot:\n%s", sub, got)
+					t.Errorf("Build() missing expected substring %q\n\nGot:\n%s", sub, got)
+				}
+			}
+			for _, sub := range tt.notWantSubs {
+				if strings.Contains(got, sub) {
+					t.Errorf("Build() should not contain substring %q\n\nGot:\n%s", sub, got)
 				}
 			}
 		})

@@ -45,6 +45,12 @@ func (w *WorkItem) AllPhasesComplete() bool {
 	return len(w.Phases) > 0
 }
 
+// HasPhases returns true if the work item has any phases defined.
+// This is used to distinguish between phased and phaseless execution modes.
+func (w *WorkItem) HasPhases() bool {
+	return len(w.Phases) > 0
+}
+
 // Source is the common interface for ticket and plan sources.
 // It provides methods to get, update, and manage work items.
 type Source interface {

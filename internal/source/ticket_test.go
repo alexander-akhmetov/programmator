@@ -101,6 +101,21 @@ func TestTicketSource_UpdatePhase(t *testing.T) {
 	assert.Equal(t, []string{"Phase 1: Design"}, mock.updatedPhases)
 }
 
+func TestTicketSource_UpdatePhase_Phaseless(t *testing.T) {
+	mock := newMockTicketClient()
+	source := NewTicketSource(mock)
+
+	// Empty phase name should be a no-op (phaseless ticket)
+	err := source.UpdatePhase("test-123", "")
+	require.NoError(t, err)
+	assert.Empty(t, mock.updatedPhases)
+
+	// "null" phase name should also be a no-op
+	err = source.UpdatePhase("test-123", "null")
+	require.NoError(t, err)
+	assert.Empty(t, mock.updatedPhases)
+}
+
 func TestTicketSource_AddNote(t *testing.T) {
 	mock := newMockTicketClient()
 	source := NewTicketSource(mock)
@@ -159,4 +174,26 @@ func TestTicketToWorkItem(t *testing.T) {
 	assert.False(t, item.Phases[0].Completed)
 	assert.Equal(t, "Phase B", item.Phases[1].Name)
 	assert.True(t, item.Phases[1].Completed)
+}
+
+func TestTicketSource_Get_Phaseless(t *testing.T) {
+	mock := newMockTicketClient()
+	mock.tickets["phaseless-1"] = &ticket.Ticket{
+		ID:         "phaseless-1",
+		Title:      "Phaseless Task",
+		Status:     "open",
+		Phases:     nil, // No phases
+		RawContent: "# Phaseless Task\n\nJust do the thing.\n",
+	}
+
+	source := NewTicketSource(mock)
+	item, err := source.Get("phaseless-1")
+	require.NoError(t, err)
+
+	assert.Equal(t, "phaseless-1", item.ID)
+	assert.Equal(t, "Phaseless Task", item.Title)
+	assert.Empty(t, item.Phases)
+	assert.False(t, item.HasPhases())
+	assert.Nil(t, item.CurrentPhase())
+	assert.False(t, item.AllPhasesComplete())
 }

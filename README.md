@@ -3,19 +3,15 @@
 > [!WARNING]
 > YOLO alert! By default, Programmator runs Claude Code with an experimental permissions system check. You can also run it with `--dangerously-skip-permissions`, which allows autonomous file modifications without confirmation prompts, but, as the name suggests, is dangerous.
 
-Ticket-driven autonomous Claude Code loop orchestrator.
-
-> **Note:** Programmator requires the `ticket` CLI to be installed and configured first:
-> ```bash
-> brew tap alexander-akhmetov/tools git@github.com:alexander-akhmetov/homebrew-tools.git
-> brew install alexander-akhmetov/tools/ticket
-> ```
-> Programmator works only with tickets.
-> For more info, see https://github.com/alexander-akhmetov/dotfiles/tree/main/claude/skills
+Autonomous Claude Code loop orchestrator driven by tickets or plan files.
 
 ## Overview
 
-Programmator uses your existing ticket system as its backbone for orchestrating autonomous Claude Code sessions. A ticket defines the work, phases track progress, and the loop continues until all phases are complete.
+Programmator orchestrates autonomous Claude Code sessions using either:
+- **Tickets**: Integration with the external `ticket` CLI for persistent issue tracking
+- **Plan files**: Lightweight markdown files for standalone tasks
+
+Both define the work via checkbox phases. Programmator loops through phases until all are complete or safety limits are reached.
 
 ## Installation
 
@@ -36,6 +32,9 @@ go install ./cmd/programmator
 # Start working on a ticket
 programmator start <ticket-id>
 
+# Start working on a plan file
+programmator start ./docs/plan.md
+
 # Start with specific working directory
 programmator start <ticket-id> -d /path/to/project
 
@@ -45,26 +44,51 @@ programmator start <ticket-id> -n 10
 # Show active sessions
 programmator status
 
-# View logs for a ticket
+# View logs for a ticket/plan
 programmator logs <ticket-id>
 ```
 
-## Ticket Format
+Programmator auto-detects the source type:
+- File paths (contain `/`, end with `.md`, or exist on disk) → Plan file
+- Everything else → Ticket ID
+
+## Source Formats
+
+### Tickets
+
+Requires the `ticket` CLI:
+```bash
+brew tap alexander-akhmetov/tools git@github.com:alexander-akhmetov/homebrew-tools.git
+brew install alexander-akhmetov/tools/ticket
+```
 
 See `templates/ticket.md` for the expected format. Key elements:
-
 - **Design section**: Contains `- [ ]` checkboxes for phases
 - **Phases**: Programmator works through them sequentially
 - **Notes**: Progress is logged here automatically
 
-Example:
+### Plan Files
+
+Standalone markdown files with checkbox tasks. No external dependencies.
+
 ```markdown
-## Design
-- [ ] Phase 1: Investigation - understand current implementation
-- [ ] Phase 2: Implementation - add the new feature
-- [ ] Phase 3: Testing - write and run tests
-- [x] Phase 4: Cleanup - ensure code quality
+# Plan: Feature Name
+
+## Validation Commands
+- `go test ./...`
+- `golangci-lint run`
+
+## Tasks
+- [ ] Task 1: Investigate current implementation
+- [ ] Task 2: Implement the feature
+- [ ] Task 3: Add tests
+- [x] Task 4: Cleanup (completed)
 ```
+
+Key elements:
+- **Title**: First `# ` heading (optional `Plan:` prefix)
+- **Validation Commands**: Commands run after each task completion (optional)
+- **Tasks**: Checkbox items (`- [ ]` / `- [x]`) anywhere in the file
 
 ## Configuration
 
@@ -77,6 +101,7 @@ Environment variables:
 | `PROGRAMMATOR_TIMEOUT` | 900 | Seconds per Claude invocation |
 | `PROGRAMMATOR_CLAUDE_FLAGS` | `--dangerously-skip-permissions` | Flags passed to Claude |
 | `TICKETS_DIR` | `~/.tickets` | Where ticket files live |
+| `CLAUDE_CONFIG_DIR` | - | Custom Claude config directory (passed to Claude subprocess) |
 
 ## How It Works
 

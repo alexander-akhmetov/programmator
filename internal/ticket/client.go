@@ -59,6 +59,11 @@ func (c *CLIClient) Get(id string) (*Ticket, error) {
 }
 
 func (c *CLIClient) UpdatePhase(id string, phaseName string) error {
+	// For phaseless tickets, there's nothing to update
+	if phaseName == "" || phaseName == "null" {
+		return nil
+	}
+
 	// Find the ticket file
 	filePath, err := c.findTicketFile(id)
 	if err != nil {
@@ -211,5 +216,10 @@ func (t *Ticket) AllPhasesComplete() bool {
 			return false
 		}
 	}
+	return len(t.Phases) > 0
+}
+
+// HasPhases returns true if the ticket has any phases defined.
+func (t *Ticket) HasPhases() bool {
 	return len(t.Phases) > 0
 }

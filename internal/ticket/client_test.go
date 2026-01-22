@@ -368,3 +368,68 @@ func TestMockClientImplementsInterface(_ *testing.T) {
 	var _ Client = (*MockClient)(nil)
 	var _ Client = (*CLIClient)(nil)
 }
+
+func TestTicket_HasPhases(t *testing.T) {
+	tests := []struct {
+		name     string
+		phases   []Phase
+		expected bool
+	}{
+		{
+			name:     "no phases",
+			phases:   []Phase{},
+			expected: false,
+		},
+		{
+			name:     "nil phases",
+			phases:   nil,
+			expected: false,
+		},
+		{
+			name: "has phases",
+			phases: []Phase{
+				{Name: "Phase 1", Completed: false},
+			},
+			expected: true,
+		},
+		{
+			name: "has completed phases",
+			phases: []Phase{
+				{Name: "Phase 1", Completed: true},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ticket := &Ticket{Phases: tt.phases}
+			result := ticket.HasPhases()
+			if result != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestPhaselessTicketParsing(t *testing.T) {
+	content := `---
+title: "Phaseless ticket"
+status: open
+---
+# Phaseless ticket
+
+## Goal
+Do something without explicit phases.
+
+## Description
+This ticket has no checkbox phases - it should be treated as a single task.
+`
+	ticket, err := parseTicket("phaseless-1", content)
+	require.NoError(t, err)
+	require.Equal(t, "Phaseless ticket", ticket.Title)
+	require.Empty(t, ticket.Phases)
+	require.False(t, ticket.HasPhases())
+	require.Nil(t, ticket.CurrentPhase())
+	require.False(t, ticket.AllPhasesComplete())
+}

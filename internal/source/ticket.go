@@ -30,7 +30,11 @@ func (s *TicketSource) Get(id string) (*WorkItem, error) {
 }
 
 // UpdatePhase marks a phase as completed in the ticket.
+// For phaseless tickets (empty phaseName), this is a no-op.
 func (s *TicketSource) UpdatePhase(id, phaseName string) error {
+	if phaseName == "" || phaseName == "null" {
+		return nil
+	}
 	return s.client.UpdatePhase(id, phaseName)
 }
 

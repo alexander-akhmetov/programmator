@@ -1370,3 +1370,214 @@ func TestRunWithPlanSource_UpdatesCheckboxes(t *testing.T) {
 	require.Contains(t, string(savedContent), "- [x] Task 1: First task")
 	require.Contains(t, string(savedContent), "- [x] Task 2: Second task")
 }
+
+// Tests for phaseless ticket execution
+
+func TestRunPhaselessTicket_CompletesOnDone(t *testing.T) {
+	// Test: A ticket without phases runs until Claude reports DONE
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+		return &source.WorkItem{
+			ID:         "phaseless-123",
+			Title:      "Phaseless Ticket",
+			Phases:     nil, // No phases - phaseless ticket
+			RawContent: "# Phaseless Ticket\n\nJust do the task.\n",
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 5, Timeout: 60}
+	l := NewWithSource(config, "", nil, nil, false, mock)
+
+	// Mock Claude to report DONE on first invocation
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: DONE
+  files_changed: ["main.go"]
+  summary: "Completed the entire task"
+`, nil
+	})
+
+	result, err := l.Run("phaseless-123")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	require.Equal(t, 1, result.Iterations)
+	require.NotNil(t, result.FinalStatus)
+	require.Equal(t, parser.StatusDone, result.FinalStatus.Status)
+
+	// Verify status was set to closed
+	require.Len(t, mock.SetStatusCalls, 2) // in_progress + closed
+	require.Equal(t, "closed", mock.SetStatusCalls[1].Status)
+}
+
+func TestRunPhaselessTicket_ContinuesUntilDone(t *testing.T) {
+	// Test: A phaseless ticket continues looping until Claude signals DONE
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+		return &source.WorkItem{
+			ID:         "phaseless-456",
+			Title:      "Multi-iteration Phaseless Ticket",
+			Phases:     []source.Phase{}, // Empty phases - also phaseless
+			RawContent: "# Task\n\nComplex task requiring multiple steps.\n",
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 5, Timeout: 60}
+	l := NewWithSource(config, "", nil, nil, false, mock)
+
+	// Mock Claude to work for 3 iterations before reporting DONE
+	invocation := 0
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		invocation++
+		if invocation < 3 {
+			return fmt.Sprintf(`PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: ["file%d.go"]
+  summary: "Working on step %d"
+`, invocation, invocation), nil
+		}
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: DONE
+  files_changed: ["final.go"]
+  summary: "Task completed"
+`, nil
+	})
+
+	result, err := l.Run("phaseless-456")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	require.Equal(t, 3, result.Iterations)
+	require.Len(t, result.TotalFilesChanged, 3)
+
+	// Verify no UpdatePhase calls since there are no phases
+	for _, call := range mock.UpdatePhaseCalls {
+		require.Empty(t, call.PhaseName, "UpdatePhase should not be called for phaseless tickets")
+	}
+}
+
+func TestRunPhaselessTicket_SafetyLimitsStillApply(t *testing.T) {
+	// Test: Safety limits (stagnation) still apply to phaseless tickets
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+		return &source.WorkItem{
+			ID:         "phaseless-stag",
+			Title:      "Phaseless Ticket That Stagnates",
+			Phases:     nil,
+			RawContent: "# Task\n\nTask that doesn't progress.\n",
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 2, Timeout: 60}
+	l := NewWithSource(config, "", nil, nil, false, mock)
+
+	// Mock Claude to never make progress (no files changed)
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: []
+  summary: "Still thinking..."
+`, nil
+	})
+
+	result, err := l.Run("phaseless-stag")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonStagnation, result.ExitReason)
+}
+
+func TestRunPhaselessTicket_BlockedHandled(t *testing.T) {
+	// Test: BLOCKED status is handled correctly for phaseless tickets
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+		return &source.WorkItem{
+			ID:         "phaseless-blocked",
+			Title:      "Phaseless Ticket That Gets Blocked",
+			Phases:     nil,
+			RawContent: "# Task\n\nTask that gets blocked.\n",
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 5, Timeout: 60}
+	l := NewWithSource(config, "", nil, nil, false, mock)
+
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: BLOCKED
+  files_changed: []
+  summary: "Cannot proceed"
+  error: "Missing required credentials"
+`, nil
+	})
+
+	result, err := l.Run("phaseless-blocked")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonBlocked, result.ExitReason)
+	require.NotNil(t, result.FinalStatus)
+	require.Equal(t, "Missing required credentials", result.FinalStatus.Error)
+}
+
+func TestWorkItemHelpers_Phaseless(t *testing.T) {
+	// Test: WorkItem helper methods work correctly for phaseless items
+	tests := []struct {
+		name              string
+		phases            []source.Phase
+		hasPhases         bool
+		allPhasesComplete bool
+		currentPhaseIsNil bool
+	}{
+		{
+			name:              "nil phases",
+			phases:            nil,
+			hasPhases:         false,
+			allPhasesComplete: false,
+			currentPhaseIsNil: true,
+		},
+		{
+			name:              "empty phases",
+			phases:            []source.Phase{},
+			hasPhases:         false,
+			allPhasesComplete: false,
+			currentPhaseIsNil: true,
+		},
+		{
+			name: "has incomplete phases",
+			phases: []source.Phase{
+				{Name: "Phase 1", Completed: false},
+			},
+			hasPhases:         true,
+			allPhasesComplete: false,
+			currentPhaseIsNil: false,
+		},
+		{
+			name: "all phases complete",
+			phases: []source.Phase{
+				{Name: "Phase 1", Completed: true},
+			},
+			hasPhases:         true,
+			allPhasesComplete: true,
+			currentPhaseIsNil: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			item := &source.WorkItem{Phases: tc.phases}
+
+			require.Equal(t, tc.hasPhases, item.HasPhases())
+			require.Equal(t, tc.allPhasesComplete, item.AllPhasesComplete())
+
+			if tc.currentPhaseIsNil {
+				require.Nil(t, item.CurrentPhase())
+			} else {
+				require.NotNil(t, item.CurrentPhase())
+			}
+		})
+	}
+}

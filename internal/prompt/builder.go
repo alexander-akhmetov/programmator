@@ -8,7 +8,7 @@ import (
 	"github.com/alexander-akhmetov/programmator/internal/source"
 )
 
-const promptTemplate = `You are working on ticket %s: %s
+const phasedPromptTemplate = `You are working on ticket %s: %s
 
 ## Current State
 %s
@@ -54,16 +54,48 @@ PROGRAMMATOR_STATUS:
 ` + "```" + `
 `
 
+const phaselessPromptTemplate = `You are working on ticket %s: %s
+
+## Current State
+%s
+
+## Progress Notes
+%s
+
+## Instructions
+Work on the task described above. Complete the work and report your status when done.
+
+## Session End Protocol
+When you've completed your work for this iteration, you MUST end with exactly this block:
+
+` + "```" + `
+PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed:
+    - file1.py
+    - file2.py
+  summary: "One line describing what you did"
+` + "```" + `
+
+Status values:
+- CONTINUE: Making progress, more work remains
+- DONE: Task complete
+- BLOCKED: Cannot proceed without human intervention (add error: field)
+
+If blocked:
+` + "```" + `
+PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: BLOCKED
+  files_changed: []
+  summary: "What was attempted"
+  error: "Description of what's blocking progress"
+` + "```" + `
+`
+
 // Build creates a prompt from a work item and optional progress notes.
 func Build(w *source.WorkItem, notes []string) string {
-	currentPhase := w.CurrentPhase()
-	phaseName := "null"
-	currentPhaseStr := "All phases complete"
-	if currentPhase != nil {
-		phaseName = currentPhase.Name
-		currentPhaseStr = fmt.Sprintf("**%s**", currentPhase.Name)
-	}
-
 	notesStr := "(No previous notes)"
 	if len(notes) > 0 {
 		noteLines := make([]string, 0, len(notes))
@@ -73,8 +105,28 @@ func Build(w *source.WorkItem, notes []string) string {
 		notesStr = strings.Join(noteLines, "\n")
 	}
 
+	// Use phaseless template when there are no phases
+	if !w.HasPhases() {
+		return fmt.Sprintf(
+			phaselessPromptTemplate,
+			w.ID,
+			w.Title,
+			w.RawContent,
+			notesStr,
+		)
+	}
+
+	// Use phased template when phases exist
+	currentPhase := w.CurrentPhase()
+	phaseName := "null"
+	currentPhaseStr := "All phases complete"
+	if currentPhase != nil {
+		phaseName = currentPhase.Name
+		currentPhaseStr = fmt.Sprintf("**%s**", currentPhase.Name)
+	}
+
 	return fmt.Sprintf(
-		promptTemplate,
+		phasedPromptTemplate,
 		w.ID,
 		w.Title,
 		w.RawContent,
