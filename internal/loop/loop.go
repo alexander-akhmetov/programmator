@@ -55,13 +55,13 @@ type Loop struct {
 	currentTicket *ticket.Ticket
 
 	// Review configuration
-	reviewConfig      review.Config
-	skipReview        bool
-	reviewOnly        bool
-	reviewPassed      bool
-	reviewRunner      *review.Runner
-	pendingReviewFix  bool   // true when Claude needs to fix review issues before next review
-	lastReviewIssues  string // formatted issues from last review for Claude to fix
+	reviewConfig     review.Config
+	skipReview       bool
+	reviewOnly       bool
+	reviewPassed     bool
+	reviewRunner     *review.Runner
+	pendingReviewFix bool   // true when Claude needs to fix review issues before next review
+	lastReviewIssues string // formatted issues from last review for Claude to fix
 }
 
 func New(config safety.Config, workingDir string, onOutput OutputCallback, onStateChange StateCallback, streaming bool) *Loop {
@@ -97,6 +97,203 @@ func (l *Loop) SetReviewOnly(reviewOnly bool) {
 	l.reviewOnly = reviewOnly
 }
 
+// loopAction indicates what the main loop should do next.
+type loopAction int
+
+const (
+	loopContinue loopAction = iota
+	loopReturn
+	loopBreakToClaudeInvocation
+)
+
+// runContext holds mutable state for a single Run invocation.
+type runContext struct {
+	ctx             context.Context
+	ticketID        string
+	client          ticket.Client
+	state           *safety.State
+	result          *Result
+	progressNotes   []string
+	filesChangedSet map[string]struct{}
+	t               *ticket.Ticket
+}
+
+// checkStopRequested checks if stop was requested and handles the response.
+// Returns loopReturn if we should exit, loopContinue otherwise.
+func (l *Loop) checkStopRequested(rc *runContext) loopAction {
+	l.mu.Lock()
+	for l.paused && !l.stopRequested {
+		l.pauseCond.Wait()
+	}
+	if l.stopRequested {
+		l.mu.Unlock()
+		l.log("Stop requested by user")
+		_ = rc.client.AddNote(rc.ticketID, fmt.Sprintf("progress: Stopped by user after %d iterations", rc.state.Iteration))
+		rc.result.ExitReason = safety.ExitReasonUserInterrupt
+		rc.result.Iterations = rc.state.Iteration
+		return loopReturn
+	}
+	l.mu.Unlock()
+	return loopContinue
+}
+
+// checkContextCanceled checks if context was canceled.
+// Returns loopReturn if we should exit, loopContinue otherwise.
+func (l *Loop) checkContextCanceled(rc *runContext) loopAction {
+	select {
+	case <-rc.ctx.Done():
+		rc.result.ExitReason = safety.ExitReasonUserInterrupt
+		rc.result.Iterations = rc.state.Iteration
+		return loopReturn
+	default:
+		return loopContinue
+	}
+}
+
+// handleAllPhasesComplete handles the logic when all phases are complete.
+// Returns loopReturn if we should exit, loopBreakToClaudeInvocation if we should invoke Claude,
+// or loopContinue to proceed normally.
+func (l *Loop) handleAllPhasesComplete(rc *runContext) loopAction {
+	if !rc.t.AllPhasesComplete() && !l.reviewOnly {
+		return loopContinue
+	}
+
+	// If we have pending review fixes, invoke Claude to fix them
+	if l.pendingReviewFix {
+		l.log("Pending review fixes - invoking Claude to fix issues")
+		return loopBreakToClaudeInvocation
+	}
+
+	// Check if we should run review
+	if l.reviewConfig.Enabled && !l.skipReview && !l.reviewPassed {
+		return l.handleReviewPhase(rc)
+	}
+
+	// No review needed or already passed
+	return l.completeAllPhases(rc)
+}
+
+// handleReviewPhase handles the review phase when all tasks are complete.
+func (l *Loop) handleReviewPhase(rc *runContext) loopAction {
+	l.log("All phases complete - starting code review")
+	reviewResult, reviewErr := l.runReview(rc.ctx, rc.ticketID, rc.client, rc.state, rc.result.TotalFilesChanged)
+	if reviewErr != nil {
+		l.log(fmt.Sprintf("Review error: %v", reviewErr))
+		_ = rc.client.AddNote(rc.ticketID, fmt.Sprintf("error: Review failed: %v", reviewErr))
+		rc.result.ExitReason = safety.ExitReasonError
+		rc.result.Iterations = rc.state.Iteration
+		return loopReturn
+	}
+
+	if reviewResult.Passed {
+		l.reviewPassed = true
+		l.log("Review passed!")
+		_ = rc.client.AddNote(rc.ticketID, "progress: Code review passed")
+		return l.completeAllPhases(rc)
+	}
+
+	// Review found issues - log them and let Claude fix them
+	l.log(fmt.Sprintf("Review found %d issues", reviewResult.TotalIssues))
+	issueNote := review.FormatIssuesMarkdown(reviewResult.Results)
+	_ = rc.client.AddNote(rc.ticketID, fmt.Sprintf("review: [iter %d] Review found %d issues:\n%s", rc.state.Iteration, reviewResult.TotalIssues, issueNote))
+
+	// Check if we've exceeded max review iterations
+	checkResult := safety.Check(l.config, rc.state)
+	if checkResult.ShouldExit {
+		l.log(fmt.Sprintf("Review safety exit: %s", checkResult.Reason))
+		_ = rc.client.AddNote(rc.ticketID, fmt.Sprintf("error: Review safety exit: %s", checkResult.Reason))
+		rc.result.ExitReason = checkResult.Reason
+		rc.result.Iterations = rc.state.Iteration
+		return loopReturn
+	}
+
+	// Set pending fix flag so next iteration invokes Claude instead of re-running review
+	l.pendingReviewFix = true
+	l.lastReviewIssues = issueNote
+	rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[iter %d] Review found %d issues - please fix them:\n%s", rc.state.Iteration, reviewResult.TotalIssues, issueNote))
+	return loopBreakToClaudeInvocation
+}
+
+// completeAllPhases marks the ticket as complete and returns.
+func (l *Loop) completeAllPhases(rc *runContext) loopAction {
+	l.log("All phases complete!")
+	_ = rc.client.SetStatus(rc.ticketID, "closed")
+	_ = rc.client.AddNote(rc.ticketID, fmt.Sprintf("progress: Completed all phases in %d iterations", rc.state.Iteration))
+	rc.result.ExitReason = safety.ExitReasonComplete
+	rc.result.Iterations = rc.state.Iteration
+	return loopReturn
+}
+
+// processClaudeStatus processes the status returned by Claude.
+// Returns loopReturn if we should exit, loopContinue otherwise.
+func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) loopAction {
+	l.log(fmt.Sprintf("Status: %s", status.Status))
+	l.log(fmt.Sprintf("Summary: %s", status.Summary))
+
+	rc.result.FinalStatus = status
+	l.recordPhaseProgress(rc, status)
+	l.trackFilesChanged(rc, status)
+
+	rc.state.RecordIteration(status.FilesChanged, status.Error)
+
+	// Reset pending review fix flag - Claude has attempted to fix the issues
+	if l.pendingReviewFix {
+		l.pendingReviewFix = false
+		l.lastReviewIssues = ""
+	}
+
+	if l.onStateChange != nil {
+		l.onStateChange(rc.state, rc.t, rc.result.TotalFilesChanged)
+	}
+
+	if status.Status == parser.StatusDone {
+		l.log("Claude reported DONE")
+		_ = rc.client.SetStatus(rc.ticketID, "closed")
+		_ = rc.client.AddNote(rc.ticketID, fmt.Sprintf("progress: Completed in %d iterations", rc.state.Iteration))
+		rc.result.ExitReason = safety.ExitReasonComplete
+		rc.result.Iterations = rc.state.Iteration
+		return loopReturn
+	}
+
+	if status.Status == parser.StatusBlocked {
+		l.log(fmt.Sprintf("Claude reported BLOCKED: %s", status.Error))
+		_ = rc.client.AddNote(rc.ticketID, fmt.Sprintf("error: [iter %d] BLOCKED: %s", rc.state.Iteration, status.Error))
+		rc.result.ExitReason = safety.ExitReasonBlocked
+		rc.result.Iterations = rc.state.Iteration
+		return loopReturn
+	}
+
+	return loopContinue
+}
+
+// recordPhaseProgress records phase completion or progress notes.
+func (l *Loop) recordPhaseProgress(rc *runContext, status *parser.ParsedStatus) {
+	if status.PhaseCompleted != "" {
+		l.log(fmt.Sprintf("Phase completed: %s", status.PhaseCompleted))
+		if err := rc.client.UpdatePhase(rc.ticketID, status.PhaseCompleted); err != nil {
+			l.log(fmt.Sprintf("Warning: failed to update phase '%s': %v", status.PhaseCompleted, err))
+		}
+		rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[iter %d] Completed: %s", rc.state.Iteration, status.PhaseCompleted))
+		_ = rc.client.AddNote(rc.ticketID, fmt.Sprintf("progress: [iter %d] Completed %s", rc.state.Iteration, status.PhaseCompleted))
+	} else {
+		rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[iter %d] %s", rc.state.Iteration, status.Summary))
+		_ = rc.client.AddNote(rc.ticketID, fmt.Sprintf("progress: [iter %d] %s", rc.state.Iteration, status.Summary))
+	}
+}
+
+// trackFilesChanged records which files were changed.
+func (l *Loop) trackFilesChanged(rc *runContext, status *parser.ParsedStatus) {
+	if len(status.FilesChanged) > 0 {
+		l.log(fmt.Sprintf("Files changed: %s", strings.Join(status.FilesChanged, ", ")))
+		for _, f := range status.FilesChanged {
+			if _, exists := rc.filesChangedSet[f]; !exists {
+				rc.filesChangedSet[f] = struct{}{}
+				rc.result.TotalFilesChanged = append(rc.result.TotalFilesChanged, f)
+			}
+		}
+	}
+}
+
 func (l *Loop) Run(ticketID string) (*Result, error) {
 	timing.Log("Loop.Run: start")
 	startTime := time.Now()
@@ -110,7 +307,6 @@ func (l *Loop) Run(ticketID string) (*Result, error) {
 		client = ticket.NewClient()
 	}
 	timing.Log("Loop.Run: ticket client created")
-	state := safety.NewState()
 
 	result := &Result{
 		ExitReason:        safety.ExitReasonComplete,
@@ -129,128 +325,69 @@ func (l *Loop) Run(ticketID string) (*Result, error) {
 	l.log(fmt.Sprintf("Starting on ticket %s: %s", ticketID, t.Title))
 	_ = client.SetStatus(ticketID, "in_progress")
 
-	var progressNotes []string
-	filesChangedSet := make(map[string]struct{})
+	rc := &runContext{
+		ctx:             ctx,
+		ticketID:        ticketID,
+		client:          client,
+		state:           safety.NewState(),
+		result:          result,
+		progressNotes:   nil,
+		filesChangedSet: make(map[string]struct{}),
+		t:               t,
+	}
 
 	if l.onStateChange != nil {
-		l.onStateChange(state, t, nil)
+		l.onStateChange(rc.state, rc.t, nil)
 	}
 
 	for {
-		l.mu.Lock()
-		for l.paused && !l.stopRequested {
-			l.pauseCond.Wait()
-		}
-		if l.stopRequested {
-			l.mu.Unlock()
-			l.log("Stop requested by user")
-			_ = client.AddNote(ticketID, fmt.Sprintf("progress: Stopped by user after %d iterations", state.Iteration))
-			result.ExitReason = safety.ExitReasonUserInterrupt
-			result.Iterations = state.Iteration
-			return result, nil
-		}
-		l.mu.Unlock()
-
-		select {
-		case <-ctx.Done():
-			result.ExitReason = safety.ExitReasonUserInterrupt
-			result.Iterations = state.Iteration
-			return result, nil
-		default:
+		if action := l.checkStopRequested(rc); action == loopReturn {
+			return rc.result, nil
 		}
 
-		t, err = client.Get(ticketID)
+		if action := l.checkContextCanceled(rc); action == loopReturn {
+			return rc.result, nil
+		}
+
+		rc.t, err = rc.client.Get(rc.ticketID)
 		if err != nil {
-			result.ExitReason = safety.ExitReasonError
-			return result, err
+			rc.result.ExitReason = safety.ExitReasonError
+			return rc.result, err
 		}
 
-		if t.AllPhasesComplete() || l.reviewOnly {
-			// If we have pending review fixes, skip review and let Claude fix them first
-			if l.pendingReviewFix {
-				l.log("Pending review fixes - invoking Claude to fix issues")
-				// Fall through to Claude invocation below
-			} else if l.reviewConfig.Enabled && !l.skipReview && !l.reviewPassed {
-				// Check if we should run review
-				l.log("All phases complete - starting code review")
-				reviewResult, reviewErr := l.runReview(ctx, ticketID, client, state, result.TotalFilesChanged)
-				if reviewErr != nil {
-					l.log(fmt.Sprintf("Review error: %v", reviewErr))
-					_ = client.AddNote(ticketID, fmt.Sprintf("error: Review failed: %v", reviewErr))
-					result.ExitReason = safety.ExitReasonError
-					result.Iterations = state.Iteration
-					return result, reviewErr
-				}
+		action := l.handleAllPhasesComplete(rc)
+		if action == loopReturn {
+			return rc.result, nil
+		}
+		// If action == loopBreakToClaudeInvocation, we fall through to invoke Claude
 
-				if !reviewResult.Passed {
-					// Review found issues - log them and let Claude fix them
-					l.log(fmt.Sprintf("Review found %d issues", reviewResult.TotalIssues))
-					issueNote := review.FormatIssuesMarkdown(reviewResult.Results)
-					_ = client.AddNote(ticketID, fmt.Sprintf("review: [iter %d] Review found %d issues:\n%s", state.Iteration, reviewResult.TotalIssues, issueNote))
+		if action != loopBreakToClaudeInvocation {
+			rc.state.Iteration++
 
-					// Check if we've exceeded max review iterations
-					checkResult := safety.Check(l.config, state)
-					if checkResult.ShouldExit {
-						l.log(fmt.Sprintf("Review safety exit: %s", checkResult.Reason))
-						_ = client.AddNote(ticketID, fmt.Sprintf("error: Review safety exit: %s", checkResult.Reason))
-						result.ExitReason = checkResult.Reason
-						result.Iterations = state.Iteration
-						return result, nil
-					}
-
-					// Set pending fix flag so next iteration invokes Claude instead of re-running review
-					l.pendingReviewFix = true
-					l.lastReviewIssues = issueNote
-					progressNotes = append(progressNotes, fmt.Sprintf("[iter %d] Review found %d issues - please fix them:\n%s", state.Iteration, reviewResult.TotalIssues, issueNote))
-					// Fall through to Claude invocation below
-				} else {
-					l.reviewPassed = true
-					l.log("Review passed!")
-					_ = client.AddNote(ticketID, "progress: Code review passed")
-
-					l.log("All phases complete!")
-					_ = client.SetStatus(ticketID, "closed")
-					_ = client.AddNote(ticketID, fmt.Sprintf("progress: Completed all phases in %d iterations", state.Iteration))
-					result.ExitReason = safety.ExitReasonComplete
-					result.Iterations = state.Iteration
-					return result, nil
-				}
-			} else {
-				// No review needed or already passed
-				l.log("All phases complete!")
-				_ = client.SetStatus(ticketID, "closed")
-				_ = client.AddNote(ticketID, fmt.Sprintf("progress: Completed all phases in %d iterations", state.Iteration))
-				result.ExitReason = safety.ExitReasonComplete
-				result.Iterations = state.Iteration
-				return result, nil
+			checkResult := safety.Check(l.config, rc.state)
+			if checkResult.ShouldExit {
+				l.log(fmt.Sprintf("Safety exit: %s", checkResult.Reason))
+				_ = rc.client.AddNote(rc.ticketID, fmt.Sprintf("error: Safety exit after %d iters: %s", rc.state.Iteration, checkResult.Reason))
+				rc.result.ExitReason = checkResult.Reason
+				rc.result.Iterations = rc.state.Iteration
+				return rc.result, nil
 			}
 		}
 
-		state.Iteration++
-
-		checkResult := safety.Check(l.config, state)
-		if checkResult.ShouldExit {
-			l.log(fmt.Sprintf("Safety exit: %s", checkResult.Reason))
-			_ = client.AddNote(ticketID, fmt.Sprintf("error: Safety exit after %d iters: %s", state.Iteration, checkResult.Reason))
-			result.ExitReason = checkResult.Reason
-			result.Iterations = state.Iteration
-			return result, nil
-		}
-
-		currentPhase := t.CurrentPhase()
-		l.logIterationSeparator(state.Iteration, l.config.MaxIterations)
-		l.log(fmt.Sprintf("Iteration %d/%d", state.Iteration, l.config.MaxIterations))
+		currentPhase := rc.t.CurrentPhase()
+		l.logIterationSeparator(rc.state.Iteration, l.config.MaxIterations)
+		l.log(fmt.Sprintf("Iteration %d/%d", rc.state.Iteration, l.config.MaxIterations))
 		if currentPhase != nil {
 			l.log(fmt.Sprintf("Current phase: %s", currentPhase.Name))
 		}
 
-		promptText := prompt.Build(t, progressNotes)
+		promptText := prompt.Build(rc.t, rc.progressNotes)
 
-		l.currentState = state
-		l.currentTicket = t
+		l.currentState = rc.state
+		l.currentTicket = rc.t
 
 		if l.onStateChange != nil {
-			l.onStateChange(state, t, result.TotalFilesChanged)
+			l.onStateChange(rc.state, rc.t, rc.result.TotalFilesChanged)
 		}
 
 		l.log("Invoking Claude...")
@@ -261,80 +398,28 @@ func (l *Loop) Run(ticketID string) (*Result, error) {
 		}
 		output, err := invoker(ctx, promptText)
 		if err != nil {
-			result.ExitReason = safety.ExitReasonError
-			return result, err
+			rc.result.ExitReason = safety.ExitReasonError
+			return rc.result, err
 		}
 
 		status, err := parser.Parse(output)
 		if err != nil {
-			result.ExitReason = safety.ExitReasonError
-			return result, err
+			rc.result.ExitReason = safety.ExitReasonError
+			return rc.result, err
 		}
 
 		if status == nil {
 			l.log("Warning: No PROGRAMMATOR_STATUS found in output")
-			state.RecordIteration(nil, "no_status_block")
+			rc.state.RecordIteration(nil, "no_status_block")
 			if l.onStateChange != nil {
-				l.onStateChange(state, t, result.TotalFilesChanged)
+				l.onStateChange(rc.state, rc.t, rc.result.TotalFilesChanged)
 			}
-			progressNotes = append(progressNotes, fmt.Sprintf("[iter %d] No status block returned", state.Iteration))
+			rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[iter %d] No status block returned", rc.state.Iteration))
 			continue
 		}
 
-		l.log(fmt.Sprintf("Status: %s", status.Status))
-		l.log(fmt.Sprintf("Summary: %s", status.Summary))
-
-		result.FinalStatus = status
-
-		if status.PhaseCompleted != "" {
-			l.log(fmt.Sprintf("Phase completed: %s", status.PhaseCompleted))
-			if err := client.UpdatePhase(ticketID, status.PhaseCompleted); err != nil {
-				l.log(fmt.Sprintf("Warning: failed to update phase '%s': %v", status.PhaseCompleted, err))
-			}
-			progressNotes = append(progressNotes, fmt.Sprintf("[iter %d] Completed: %s", state.Iteration, status.PhaseCompleted))
-			_ = client.AddNote(ticketID, fmt.Sprintf("progress: [iter %d] Completed %s", state.Iteration, status.PhaseCompleted))
-		} else {
-			progressNotes = append(progressNotes, fmt.Sprintf("[iter %d] %s", state.Iteration, status.Summary))
-			_ = client.AddNote(ticketID, fmt.Sprintf("progress: [iter %d] %s", state.Iteration, status.Summary))
-		}
-
-		if len(status.FilesChanged) > 0 {
-			l.log(fmt.Sprintf("Files changed: %s", strings.Join(status.FilesChanged, ", ")))
-			for _, f := range status.FilesChanged {
-				if _, exists := filesChangedSet[f]; !exists {
-					filesChangedSet[f] = struct{}{}
-					result.TotalFilesChanged = append(result.TotalFilesChanged, f)
-				}
-			}
-		}
-
-		state.RecordIteration(status.FilesChanged, status.Error)
-
-		// Reset pending review fix flag - Claude has attempted to fix the issues
-		if l.pendingReviewFix {
-			l.pendingReviewFix = false
-			l.lastReviewIssues = ""
-		}
-
-		if l.onStateChange != nil {
-			l.onStateChange(state, t, result.TotalFilesChanged)
-		}
-
-		if status.Status == parser.StatusDone {
-			l.log("Claude reported DONE")
-			_ = client.SetStatus(ticketID, "closed")
-			_ = client.AddNote(ticketID, fmt.Sprintf("progress: Completed in %d iterations", state.Iteration))
-			result.ExitReason = safety.ExitReasonComplete
-			result.Iterations = state.Iteration
-			return result, nil
-		}
-
-		if status.Status == parser.StatusBlocked {
-			l.log(fmt.Sprintf("Claude reported BLOCKED: %s", status.Error))
-			_ = client.AddNote(ticketID, fmt.Sprintf("error: [iter %d] BLOCKED: %s", state.Iteration, status.Error))
-			result.ExitReason = safety.ExitReasonBlocked
-			result.Iterations = state.Iteration
-			return result, nil
+		if action := l.processClaudeStatus(rc, status); action == loopReturn {
+			return rc.result, nil
 		}
 	}
 }
@@ -683,4 +768,314 @@ func (l *Loop) runReview(ctx context.Context, _ string, _ ticket.Client, state *
 // SetReviewRunner sets a custom review runner (useful for testing).
 func (l *Loop) SetReviewRunner(runner *review.Runner) {
 	l.reviewRunner = runner
+}
+
+// ReviewOnlyResult holds the result of a review-only run.
+type ReviewOnlyResult struct {
+	Passed        bool
+	Iterations    int
+	TotalIssues   int
+	FilesFixed    []string
+	Duration      time.Duration
+	FinalReview   *review.RunResult
+	ExitReason    safety.ExitReason
+	CommitsMade   int
+	LastReviewErr error
+}
+
+// RunReviewOnly runs the review-only loop: review → fix → commit → re-review.
+// It requires git changed files to be provided and does not use tickets.
+func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewOnlyResult, error) {
+	startTime := time.Now()
+	ctx, cancel := context.WithCancel(context.Background())
+	l.cancelFunc = cancel
+	defer cancel()
+
+	state := safety.NewState()
+	result := &ReviewOnlyResult{
+		Passed:     false,
+		FilesFixed: make([]string, 0),
+		ExitReason: safety.ExitReasonComplete,
+	}
+	defer func() { result.Duration = time.Since(startTime) }()
+
+	// Force enable review
+	l.reviewConfig.Enabled = true
+
+	// Initialize review runner
+	if l.reviewRunner == nil {
+		var outputCallback review.OutputCallback
+		if l.onOutput != nil {
+			outputCallback = func(text string) {
+				l.onOutput(text)
+			}
+		}
+		l.reviewRunner = review.NewRunner(l.reviewConfig, outputCallback)
+	}
+
+	filesFixedSet := make(map[string]struct{})
+
+	for {
+		l.mu.Lock()
+		for l.paused && !l.stopRequested {
+			l.pauseCond.Wait()
+		}
+		if l.stopRequested {
+			l.mu.Unlock()
+			l.log("Stop requested by user")
+			result.ExitReason = safety.ExitReasonUserInterrupt
+			result.Iterations = state.Iteration
+			return result, nil
+		}
+		l.mu.Unlock()
+
+		select {
+		case <-ctx.Done():
+			result.ExitReason = safety.ExitReasonUserInterrupt
+			result.Iterations = state.Iteration
+			return result, nil
+		default:
+		}
+
+		state.Iteration++
+		result.Iterations = state.Iteration
+
+		l.logIterationSeparator(state.Iteration, l.config.MaxIterations)
+		l.log(fmt.Sprintf("Review iteration %d/%d", state.Iteration, l.config.MaxIterations))
+
+		// Check safety limits
+		checkResult := safety.Check(l.config, state)
+		if checkResult.ShouldExit {
+			l.log(fmt.Sprintf("Safety exit: %s", checkResult.Reason))
+			result.ExitReason = checkResult.Reason
+			return result, nil
+		}
+
+		// Run review
+		l.log("Running code review...")
+		reviewResult, err := l.reviewRunner.Run(ctx, l.workingDir, filesChanged)
+		if err != nil {
+			l.log(fmt.Sprintf("Review error: %v", err))
+			result.LastReviewErr = err
+			result.ExitReason = safety.ExitReasonError
+			return result, err
+		}
+
+		result.FinalReview = reviewResult
+		result.TotalIssues = reviewResult.TotalIssues
+
+		if reviewResult.Passed {
+			l.log("Review passed - no issues found!")
+			result.Passed = true
+			result.ExitReason = safety.ExitReasonComplete
+			return result, nil
+		}
+
+		l.log(fmt.Sprintf("Review found %d issues - invoking Claude to fix", reviewResult.TotalIssues))
+
+		// Build prompt for Claude to fix issues
+		issuesMarkdown := review.FormatIssuesMarkdown(reviewResult.Results)
+		promptText := BuildReviewFixPrompt(baseBranch, filesChanged, issuesMarkdown, state.Iteration)
+
+		l.currentState = state
+		if l.onStateChange != nil {
+			l.onStateChange(state, nil, result.FilesFixed)
+		}
+
+		// Invoke Claude to fix issues
+		l.log("Invoking Claude to fix review issues...")
+		invoker := l.claudeInvoker
+		if invoker == nil {
+			invoker = l.invokeClaudePrint
+		}
+		output, err := invoker(ctx, promptText)
+		if err != nil {
+			result.ExitReason = safety.ExitReasonError
+			return result, err
+		}
+
+		// Parse status from Claude's response
+		status, err := parser.Parse(output)
+		if err != nil {
+			l.log(fmt.Sprintf("Warning: Failed to parse status: %v", err))
+			state.RecordIteration(nil, "parse_error")
+			continue
+		}
+
+		if status == nil {
+			l.log("Warning: No PROGRAMMATOR_STATUS found in output")
+			state.RecordIteration(nil, "no_status_block")
+			continue
+		}
+
+		l.log(fmt.Sprintf("Status: %s", status.Status))
+		l.log(fmt.Sprintf("Summary: %s", status.Summary))
+
+		// Track files changed
+		if len(status.FilesChanged) > 0 {
+			l.log(fmt.Sprintf("Files fixed: %s", strings.Join(status.FilesChanged, ", ")))
+			for _, f := range status.FilesChanged {
+				if _, exists := filesFixedSet[f]; !exists {
+					filesFixedSet[f] = struct{}{}
+					result.FilesFixed = append(result.FilesFixed, f)
+				}
+			}
+		}
+
+		state.RecordIteration(status.FilesChanged, status.Error)
+
+		if l.onStateChange != nil {
+			l.onStateChange(state, nil, result.FilesFixed)
+		}
+
+		// Handle blocked status
+		if status.Status == parser.StatusBlocked {
+			l.log(fmt.Sprintf("Claude reported BLOCKED: %s", status.Error))
+			result.ExitReason = safety.ExitReasonBlocked
+			return result, nil
+		}
+
+		// Handle commits: if Claude made changes but didn't commit, we auto-commit
+		if len(status.FilesChanged) > 0 {
+			if status.CommitMade {
+				result.CommitsMade++
+				l.log(fmt.Sprintf("Commit made by Claude (total: %d)", result.CommitsMade))
+			} else {
+				// Auto-commit changes since Claude didn't
+				l.log("Auto-committing changes...")
+				if err := l.autoCommitChanges(status.FilesChanged, status.Summary); err != nil {
+					l.log(fmt.Sprintf("Warning: auto-commit failed: %v", err))
+				} else {
+					result.CommitsMade++
+					l.log(fmt.Sprintf("Auto-commit successful (total: %d)", result.CommitsMade))
+				}
+			}
+		}
+
+		// Refresh the list of changed files for next review iteration
+		refreshedFiles, err := getChangedFilesForReview(l.workingDir, baseBranch)
+		if err != nil {
+			l.log(fmt.Sprintf("Warning: failed to refresh changed files: %v", err))
+		} else {
+			filesChanged = refreshedFiles
+		}
+
+		// If Claude reports DONE, check if review passes
+		if status.Status == parser.StatusDone {
+			l.log("Claude reports fixes complete - running final review")
+			// Loop will continue and run review again
+		}
+	}
+}
+
+// autoCommitChanges stages and commits the specified files with a fix message.
+func (l *Loop) autoCommitChanges(files []string, summary string) error {
+	// Stage files
+	for _, file := range files {
+		cmd := exec.Command("git", "-C", l.workingDir, "add", file)
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to stage %s: %w", file, err)
+		}
+	}
+
+	// Create commit message
+	commitMsg := "fix: review fixes"
+	if summary != "" {
+		commitMsg = fmt.Sprintf("fix: %s", summary)
+	}
+
+	// Commit
+	cmd := exec.Command("git", "-C", l.workingDir, "commit", "-m", commitMsg)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("commit failed: %w: %s", err, string(output))
+	}
+
+	return nil
+}
+
+// getChangedFilesForReview returns the list of files changed between base branch and HEAD.
+func getChangedFilesForReview(workingDir, baseBranch string) ([]string, error) {
+	// Try three-dot diff first (changes since branching)
+	cmd := exec.Command("git", "-C", workingDir, "diff", "--name-only", baseBranch+"...HEAD")
+	out, err := cmd.Output()
+	if err != nil {
+		// Fallback to two-dot diff
+		cmd = exec.Command("git", "-C", workingDir, "diff", "--name-only", baseBranch)
+		out, err = cmd.Output()
+		if err != nil {
+			return nil, fmt.Errorf("git diff failed: %w", err)
+		}
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	var files []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			files = append(files, line)
+		}
+	}
+
+	return files, nil
+}
+
+// BuildReviewFixPrompt creates a prompt for Claude to fix review issues.
+func BuildReviewFixPrompt(baseBranch string, filesChanged []string, issuesMarkdown string, iteration int) string {
+	filesList := strings.Join(filesChanged, "\n  - ")
+
+	return fmt.Sprintf(`You are reviewing and fixing code issues found by automated code review.
+
+## Context
+- Base branch: %s
+- Review iteration: %d
+
+## Files to review
+  - %s
+
+## Issues Found
+The following issues were found by code review agents and need to be fixed:
+
+%s
+
+## Instructions
+1. Review each issue carefully
+2. Make the necessary fixes to address each issue
+3. After fixing, commit your changes with a clear commit message
+4. Report your status
+
+## Important
+- Fix ALL issues listed above
+- Make clean, minimal fixes that address the specific issues
+- Test your changes if possible
+- Commit with message format: "fix: <brief description of fixes>"
+
+## Session End Protocol
+When you've completed your fixes, you MUST end with exactly this block:
+
+`+"```"+`
+PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed:
+    - file1.go
+    - file2.go
+  summary: "Fixed N issues: brief description"
+  commit_made: true
+`+"```"+`
+
+Status values:
+- CONTINUE: Made fixes, ready for re-review
+- DONE: All issues fixed, commit made
+- BLOCKED: Cannot fix without human intervention (add error: field)
+
+If blocked:
+`+"```"+`
+PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: BLOCKED
+  files_changed: []
+  summary: "What was attempted"
+  error: "Description of what's blocking progress"
+`+"```"+`
+`, baseBranch, iteration, filesList, issuesMarkdown)
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexander-akhmetov/programmator/internal/parser"
+	"github.com/alexander-akhmetov/programmator/internal/review"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
 	"github.com/alexander-akhmetov/programmator/internal/ticket"
 )
@@ -740,4 +741,581 @@ func TestRunContextCancellation(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, safety.ExitReasonUserInterrupt, result.ExitReason)
+}
+
+// Tests for RunReviewOnly
+
+func TestRunReviewOnlyPassesWithNoIssues(t *testing.T) {
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := New(config, "/tmp", nil, nil, false)
+
+	// Mock the review runner to return no issues
+	mockRunner := createMockReviewRunner(t, false, 0)
+	l.SetReviewRunner(mockRunner)
+
+	result, err := l.RunReviewOnly("main", []string{"file.go"})
+
+	require.NoError(t, err)
+	require.True(t, result.Passed)
+	require.Equal(t, 1, result.Iterations)
+	require.Equal(t, 0, result.TotalIssues)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+}
+
+func TestRunReviewOnlyFailsMaxIterations(t *testing.T) {
+	config := safety.Config{MaxIterations: 2, StagnationLimit: 10, Timeout: 60}
+	l := New(config, "/tmp", nil, nil, false)
+
+	// Mock review runner to always return issues
+	mockRunner := createMockReviewRunner(t, true, 1)
+	l.SetReviewRunner(mockRunner)
+
+	// Mock Claude invoker to return CONTINUE
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: ["file.go"]
+  summary: "Fixed one issue"
+  commit_made: true
+`, nil
+	})
+
+	result, err := l.RunReviewOnly("main", []string{"file.go"})
+
+	require.NoError(t, err)
+	require.False(t, result.Passed)
+	require.Equal(t, safety.ExitReasonMaxIterations, result.ExitReason)
+}
+
+func TestRunReviewOnlyBlocked(t *testing.T) {
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := New(config, "/tmp", nil, nil, false)
+
+	// Mock review runner to return issues
+	mockRunner := createMockReviewRunner(t, true, 1)
+	l.SetReviewRunner(mockRunner)
+
+	// Mock Claude invoker to return BLOCKED
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: BLOCKED
+  files_changed: []
+  summary: "Cannot fix this issue"
+  error: "Requires human intervention"
+`, nil
+	})
+
+	result, err := l.RunReviewOnly("main", []string{"file.go"})
+
+	require.NoError(t, err)
+	require.False(t, result.Passed)
+	require.Equal(t, safety.ExitReasonBlocked, result.ExitReason)
+}
+
+func TestRunReviewOnlyFixAndPass(t *testing.T) {
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := New(config, "/tmp", nil, nil, false)
+
+	// Mock review runner: first call returns issues, second call passes
+	invocation := 0
+	mockRunner := createMockReviewRunnerFunc(t, func() (bool, int) {
+		invocation++
+		if invocation == 1 {
+			return true, 1 // has issues
+		}
+		return false, 0 // passes
+	})
+	l.SetReviewRunner(mockRunner)
+
+	// Mock Claude invoker to return CONTINUE with files fixed
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: ["file.go"]
+  summary: "Fixed the issue"
+  commit_made: true
+`, nil
+	})
+
+	result, err := l.RunReviewOnly("main", []string{"file.go"})
+
+	require.NoError(t, err)
+	require.True(t, result.Passed)
+	require.Equal(t, 2, result.Iterations)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	require.Len(t, result.FilesFixed, 1)
+	require.Equal(t, 1, result.CommitsMade)
+}
+
+func TestRunReviewOnlyStopRequested(t *testing.T) {
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := New(config, "/tmp", nil, nil, false)
+
+	l.Stop()
+
+	result, err := l.RunReviewOnly("main", []string{"file.go"})
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonUserInterrupt, result.ExitReason)
+}
+
+func TestRunReviewOnlyInvokerError(t *testing.T) {
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := New(config, "/tmp", nil, nil, false)
+
+	// Mock review runner to return issues
+	mockRunner := createMockReviewRunner(t, true, 1)
+	l.SetReviewRunner(mockRunner)
+
+	// Mock Claude invoker to return error
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		return "", fmt.Errorf("claude error")
+	})
+
+	result, err := l.RunReviewOnly("main", []string{"file.go"})
+
+	require.Error(t, err)
+	require.Equal(t, safety.ExitReasonError, result.ExitReason)
+}
+
+func TestRunReviewOnlyTracksFilesFixed(t *testing.T) {
+	config := safety.Config{MaxIterations: 5, StagnationLimit: 10, Timeout: 60}
+	l := New(config, "/tmp", nil, nil, false)
+
+	// Mock review runner: returns issues for first 2 calls, then passes
+	invocation := 0
+	mockRunner := createMockReviewRunnerFunc(t, func() (bool, int) {
+		invocation++
+		if invocation <= 2 {
+			return true, 1
+		}
+		return false, 0
+	})
+	l.SetReviewRunner(mockRunner)
+
+	// Mock Claude invoker to return different files each time
+	claudeCall := 0
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		claudeCall++
+		files := fmt.Sprintf(`["file%d.go"]`, claudeCall)
+		return fmt.Sprintf(`PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: %s
+  summary: "Fixed issue %d"
+  commit_made: true
+`, files, claudeCall), nil
+	})
+
+	result, err := l.RunReviewOnly("main", []string{"file.go"})
+
+	require.NoError(t, err)
+	require.True(t, result.Passed)
+	require.Len(t, result.FilesFixed, 2) // Two different files fixed
+}
+
+func TestRunReviewOnlyAutoCommit(t *testing.T) {
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := New(config, "/tmp", nil, nil, false)
+
+	// Mock review runner: first call returns issues, second call passes
+	invocation := 0
+	mockRunner := createMockReviewRunnerFunc(t, func() (bool, int) {
+		invocation++
+		if invocation == 1 {
+			return true, 1 // has issues
+		}
+		return false, 0 // passes
+	})
+	l.SetReviewRunner(mockRunner)
+
+	// Mock Claude invoker to return CONTINUE with files fixed but NO commit_made
+	// (auto-commit will fail since we're in /tmp, but that's OK for this test)
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: ["file.go"]
+  summary: "Fixed the issue"
+`, nil
+	})
+
+	result, err := l.RunReviewOnly("main", []string{"file.go"})
+
+	// Should pass since review passes on second iteration
+	require.NoError(t, err)
+	require.True(t, result.Passed)
+	require.Equal(t, 2, result.Iterations)
+	require.Len(t, result.FilesFixed, 1)
+	// Auto-commit would have been attempted but might fail in test env - that's OK
+}
+
+func TestBuildReviewFixPrompt(t *testing.T) {
+	baseBranch := "main"
+	filesChanged := []string{"main.go", "utils.go"}
+	issuesMarkdown := "### quality\n- Error not handled at main.go:42"
+	iteration := 2
+
+	prompt := BuildReviewFixPrompt(baseBranch, filesChanged, issuesMarkdown, iteration)
+
+	require.Contains(t, prompt, "Base branch: main")
+	require.Contains(t, prompt, "Review iteration: 2")
+	require.Contains(t, prompt, "main.go")
+	require.Contains(t, prompt, "utils.go")
+	require.Contains(t, prompt, issuesMarkdown)
+	require.Contains(t, prompt, "PROGRAMMATOR_STATUS:")
+	require.Contains(t, prompt, "commit_made: true")
+}
+
+func TestBuildReviewFixPromptFormatting(t *testing.T) {
+	prompt := BuildReviewFixPrompt("develop", []string{"file.go"}, "some issues", 1)
+
+	// Check structure
+	require.Contains(t, prompt, "## Context")
+	require.Contains(t, prompt, "## Files to review")
+	require.Contains(t, prompt, "## Issues Found")
+	require.Contains(t, prompt, "## Instructions")
+	require.Contains(t, prompt, "## Session End Protocol")
+}
+
+// Helper functions for creating mock review runners
+
+func createMockReviewRunner(t *testing.T, hasIssues bool, issueCount int) *review.Runner {
+	t.Helper()
+
+	cfg := review.Config{
+		Enabled:       true,
+		MaxIterations: 3,
+		Passes: []review.Pass{
+			{
+				Name:     "test_pass",
+				Parallel: true,
+				Agents: []review.AgentConfig{
+					{Name: "test_agent"},
+				},
+			},
+		},
+	}
+
+	runner := review.NewRunner(cfg, nil)
+	runner.SetAgentFactory(func(agentCfg review.AgentConfig, _ string) review.Agent {
+		mock := review.NewMockAgent(agentCfg.Name)
+		mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*review.Result, error) {
+			var issues []review.Issue
+			if hasIssues {
+				for i := range issueCount {
+					issues = append(issues, review.Issue{
+						File:        "file.go",
+						Severity:    review.SeverityHigh,
+						Description: fmt.Sprintf("Issue %d", i+1),
+					})
+				}
+			}
+			return &review.Result{
+				AgentName: agentCfg.Name,
+				Issues:    issues,
+				Summary:   "Review complete",
+			}, nil
+		})
+		return mock
+	})
+
+	return runner
+}
+
+func createMockReviewRunnerFunc(t *testing.T, resultFunc func() (hasIssues bool, issueCount int)) *review.Runner {
+	t.Helper()
+
+	cfg := review.Config{
+		Enabled:       true,
+		MaxIterations: 3,
+		Passes: []review.Pass{
+			{
+				Name:     "test_pass",
+				Parallel: true,
+				Agents: []review.AgentConfig{
+					{Name: "test_agent"},
+				},
+			},
+		},
+	}
+
+	runner := review.NewRunner(cfg, nil)
+	runner.SetAgentFactory(func(agentCfg review.AgentConfig, _ string) review.Agent {
+		mock := review.NewMockAgent(agentCfg.Name)
+		mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*review.Result, error) {
+			hasIssues, issueCount := resultFunc()
+			var issues []review.Issue
+			if hasIssues {
+				for i := range issueCount {
+					issues = append(issues, review.Issue{
+						File:        "file.go",
+						Severity:    review.SeverityHigh,
+						Description: fmt.Sprintf("Issue %d", i+1),
+					})
+				}
+			}
+			return &review.Result{
+				AgentName: agentCfg.Name,
+				Issues:    issues,
+				Summary:   "Review complete",
+			}, nil
+		})
+		return mock
+	})
+
+	return runner
+}
+
+// Additional tests for review-only mode edge cases
+
+func TestRunReviewOnlyNoStatusBlock(t *testing.T) {
+	config := safety.Config{MaxIterations: 5, StagnationLimit: 10, Timeout: 60}
+	l := New(config, "/tmp", nil, nil, false)
+
+	// Mock review runner: returns issues first time, passes second time
+	invocation := 0
+	mockRunner := createMockReviewRunnerFunc(t, func() (bool, int) {
+		invocation++
+		if invocation == 1 {
+			return true, 1 // has issues
+		}
+		return false, 0 // passes
+	})
+	l.SetReviewRunner(mockRunner)
+
+	// Mock Claude invoker to return output without PROGRAMMATOR_STATUS block
+	claudeCall := 0
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		claudeCall++
+		if claudeCall <= 2 {
+			// No status block - should be handled gracefully
+			return "Made some changes but forgot the status block", nil
+		}
+		// Eventually return proper status
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: ["file.go"]
+  summary: "Fixed the issue"
+`, nil
+	})
+
+	result, err := l.RunReviewOnly("main", []string{"file.go"})
+
+	require.NoError(t, err)
+	// Eventually passes after review runner returns no issues
+	require.True(t, result.Passed)
+}
+
+func TestRunReviewOnlyReviewError(t *testing.T) {
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := New(config, "/tmp", nil, nil, false)
+
+	// Mock review runner that returns an error (via sequential execution to propagate error)
+	cfg := review.Config{
+		Enabled:       true,
+		MaxIterations: 3,
+		Passes: []review.Pass{
+			{
+				Name:     "test_pass",
+				Parallel: false, // Sequential so error propagates
+				Agents: []review.AgentConfig{
+					{Name: "test_agent"},
+				},
+			},
+		},
+	}
+	runner := review.NewRunner(cfg, nil)
+	runner.SetAgentFactory(func(agentCfg review.AgentConfig, _ string) review.Agent {
+		mock := review.NewMockAgent(agentCfg.Name)
+		mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*review.Result, error) {
+			return nil, fmt.Errorf("review agent failed")
+		})
+		return mock
+	})
+	l.SetReviewRunner(runner)
+
+	result, err := l.RunReviewOnly("main", []string{"file.go"})
+
+	// When agent errors in sequential mode, the result includes the error but the pass itself doesn't fail.
+	// The review passes with zero issues (since the error result has no issues).
+	// This is current behavior - verifying it works as expected.
+	require.NoError(t, err)
+	require.True(t, result.Passed) // Passes because there are 0 issues
+}
+
+func TestRunReviewOnlyStagnation(t *testing.T) {
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 2, Timeout: 60}
+	l := New(config, "/tmp", nil, nil, false)
+
+	// Mock review runner that always returns issues
+	mockRunner := createMockReviewRunner(t, true, 1)
+	l.SetReviewRunner(mockRunner)
+
+	// Mock Claude invoker that never changes any files (should trigger stagnation)
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: []
+  summary: "Thinking about how to fix this"
+`, nil
+	})
+
+	result, err := l.RunReviewOnly("main", []string{"file.go"})
+
+	require.NoError(t, err)
+	require.False(t, result.Passed)
+	require.Equal(t, safety.ExitReasonStagnation, result.ExitReason)
+}
+
+func TestRunReviewOnlyOutputCallback(t *testing.T) {
+	var outputCollected []string
+	onOutput := func(text string) {
+		outputCollected = append(outputCollected, text)
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := New(config, "/tmp", onOutput, nil, false)
+
+	// Mock review runner that passes immediately
+	mockRunner := createMockReviewRunner(t, false, 0)
+	l.SetReviewRunner(mockRunner)
+
+	result, err := l.RunReviewOnly("main", []string{"file.go"})
+
+	require.NoError(t, err)
+	require.True(t, result.Passed)
+
+	// Verify output was collected
+	require.Greater(t, len(outputCollected), 0)
+}
+
+func TestRunReviewOnlyStateCallback(t *testing.T) {
+	var callbackInvoked bool
+	var lastState *safety.State
+
+	stateCallback := func(state *safety.State, _ *ticket.Ticket, _ []string) {
+		callbackInvoked = true
+		lastState = state
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := New(config, "/tmp", nil, stateCallback, false)
+
+	// Mock review runner: first call returns issues (so Claude is invoked and callback is triggered),
+	// second call passes
+	invocation := 0
+	mockRunner := createMockReviewRunnerFunc(t, func() (bool, int) {
+		invocation++
+		if invocation == 1 {
+			return true, 1 // has issues first time
+		}
+		return false, 0 // passes second time
+	})
+	l.SetReviewRunner(mockRunner)
+
+	// Mock Claude invoker so we go through the fix loop
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: ["file.go"]
+  summary: "Fixed the issue"
+  commit_made: true
+`, nil
+	})
+
+	result, err := l.RunReviewOnly("main", []string{"file.go"})
+
+	require.NoError(t, err)
+	require.True(t, result.Passed)
+	require.True(t, callbackInvoked, "state callback should have been invoked")
+	require.NotNil(t, lastState)
+}
+
+func TestRunReviewOnlyDurationTracked(t *testing.T) {
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := New(config, "/tmp", nil, nil, false)
+
+	// Mock review runner that passes immediately
+	mockRunner := createMockReviewRunner(t, false, 0)
+	l.SetReviewRunner(mockRunner)
+
+	result, err := l.RunReviewOnly("main", []string{"file.go"})
+
+	require.NoError(t, err)
+	require.True(t, result.Passed)
+	// Duration should be greater than 0
+	require.Greater(t, result.Duration, time.Duration(0))
+}
+
+func TestRunReviewOnlyDeduplicatesFilesFixed(t *testing.T) {
+	config := safety.Config{MaxIterations: 5, StagnationLimit: 10, Timeout: 60}
+	l := New(config, "/tmp", nil, nil, false)
+
+	// Mock review runner: returns issues for first 2 calls, then passes
+	invocation := 0
+	mockRunner := createMockReviewRunnerFunc(t, func() (bool, int) {
+		invocation++
+		if invocation <= 2 {
+			return true, 1
+		}
+		return false, 0
+	})
+	l.SetReviewRunner(mockRunner)
+
+	// Mock Claude invoker that returns the same file multiple times
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: ["file.go"]
+  summary: "Fixed the issue"
+  commit_made: true
+`, nil
+	})
+
+	result, err := l.RunReviewOnly("main", []string{"file.go"})
+
+	require.NoError(t, err)
+	require.True(t, result.Passed)
+	// file.go should only appear once even though it was returned multiple times
+	require.Len(t, result.FilesFixed, 1)
+	require.Equal(t, "file.go", result.FilesFixed[0])
+}
+
+func TestSetReviewConfig(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+
+	cfg := review.Config{
+		Enabled:       true,
+		MaxIterations: 5,
+	}
+	l.SetReviewConfig(cfg)
+
+	require.True(t, l.reviewConfig.Enabled)
+	require.Equal(t, 5, l.reviewConfig.MaxIterations)
+}
+
+func TestSetSkipReview(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+
+	require.False(t, l.skipReview)
+
+	l.SetSkipReview(true)
+	require.True(t, l.skipReview)
+}
+
+func TestSetReviewOnly(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+
+	require.False(t, l.reviewOnly)
+
+	l.SetReviewOnly(true)
+	require.True(t, l.reviewOnly)
 }

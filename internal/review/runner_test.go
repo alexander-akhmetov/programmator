@@ -18,7 +18,7 @@ func TestRunner_Run(t *testing.T) {
 				{
 					Name:     "test_pass",
 					Parallel: true,
-					Agents: []Agent{
+					Agents: []AgentConfig{
 						{Name: "agent1"},
 					},
 				},
@@ -26,10 +26,10 @@ func TestRunner_Run(t *testing.T) {
 		}
 
 		runner := NewRunner(cfg, nil)
-		runner.SetAgentFactory(func(agentCfg Agent, defaultPrompt string) ReviewAgent {
+		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
-			mock.SetReviewFunc(func(ctx context.Context, workingDir string, filesChanged []string) (*ReviewResult, error) {
-				return &ReviewResult{
+			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
+				return &Result{
 					AgentName: agentCfg.Name,
 					Issues:    []Issue{},
 					Summary:   "No issues",
@@ -52,7 +52,7 @@ func TestRunner_Run(t *testing.T) {
 				{
 					Name:     "test_pass",
 					Parallel: true,
-					Agents: []Agent{
+					Agents: []AgentConfig{
 						{Name: "agent1"},
 					},
 				},
@@ -60,10 +60,10 @@ func TestRunner_Run(t *testing.T) {
 		}
 
 		runner := NewRunner(cfg, nil)
-		runner.SetAgentFactory(func(agentCfg Agent, defaultPrompt string) ReviewAgent {
+		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
-			mock.SetReviewFunc(func(ctx context.Context, workingDir string, filesChanged []string) (*ReviewResult, error) {
-				return &ReviewResult{
+			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
+				return &Result{
 					AgentName: agentCfg.Name,
 					Issues: []Issue{
 						{File: "file.go", Severity: SeverityHigh, Description: "Problem"},
@@ -88,7 +88,7 @@ func TestRunner_Run(t *testing.T) {
 				{
 					Name:     "test_pass",
 					Parallel: false,
-					Agents: []Agent{
+					Agents: []AgentConfig{
 						{Name: "agent1"},
 					},
 				},
@@ -96,9 +96,9 @@ func TestRunner_Run(t *testing.T) {
 		}
 
 		runner := NewRunner(cfg, nil)
-		runner.SetAgentFactory(func(agentCfg Agent, defaultPrompt string) ReviewAgent {
+		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
-			mock.SetReviewFunc(func(ctx context.Context, workingDir string, filesChanged []string) (*ReviewResult, error) {
+			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
 				return nil, errors.New("agent error")
 			})
 			return mock
@@ -117,22 +117,22 @@ func TestRunner_Run(t *testing.T) {
 			Passes: []Pass{
 				{
 					Name:   "pass1",
-					Agents: []Agent{{Name: "agent1"}},
+					Agents: []AgentConfig{{Name: "agent1"}},
 				},
 				{
 					Name:   "pass2",
-					Agents: []Agent{{Name: "agent2"}},
+					Agents: []AgentConfig{{Name: "agent2"}},
 				},
 			},
 		}
 
 		agentsCalled := make(map[string]bool)
 		runner := NewRunner(cfg, nil)
-		runner.SetAgentFactory(func(agentCfg Agent, defaultPrompt string) ReviewAgent {
+		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
-			mock.SetReviewFunc(func(ctx context.Context, workingDir string, filesChanged []string) (*ReviewResult, error) {
+			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
 				agentsCalled[agentCfg.Name] = true
-				return &ReviewResult{AgentName: agentCfg.Name, Issues: []Issue{}}, nil
+				return &Result{AgentName: agentCfg.Name, Issues: []Issue{}}, nil
 			})
 			return mock
 		})
@@ -152,7 +152,7 @@ func TestRunner_Run(t *testing.T) {
 				{
 					Name:     "test_pass",
 					Parallel: false,
-					Agents: []Agent{
+					Agents: []AgentConfig{
 						{Name: "agent1"},
 						{Name: "agent2"},
 					},
@@ -164,14 +164,14 @@ func TestRunner_Run(t *testing.T) {
 		callCount := 0
 
 		runner := NewRunner(cfg, nil)
-		runner.SetAgentFactory(func(agentCfg Agent, defaultPrompt string) ReviewAgent {
+		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
-			mock.SetReviewFunc(func(ctx context.Context, workingDir string, filesChanged []string) (*ReviewResult, error) {
+			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
 				callCount++
 				if callCount == 1 {
 					cancel() // Cancel after first agent
 				}
-				return &ReviewResult{AgentName: agentCfg.Name, Issues: []Issue{}}, nil
+				return &Result{AgentName: agentCfg.Name, Issues: []Issue{}}, nil
 			})
 			return mock
 		})
@@ -185,7 +185,7 @@ func TestRunner_Run(t *testing.T) {
 func TestRunResult_HasCriticalIssues(t *testing.T) {
 	t.Run("returns true for critical", func(t *testing.T) {
 		result := &RunResult{
-			Results: []*ReviewResult{
+			Results: []*Result{
 				{Issues: []Issue{{Severity: SeverityCritical}}},
 			},
 		}
@@ -194,7 +194,7 @@ func TestRunResult_HasCriticalIssues(t *testing.T) {
 
 	t.Run("returns true for high", func(t *testing.T) {
 		result := &RunResult{
-			Results: []*ReviewResult{
+			Results: []*Result{
 				{Issues: []Issue{{Severity: SeverityHigh}}},
 			},
 		}
@@ -203,7 +203,7 @@ func TestRunResult_HasCriticalIssues(t *testing.T) {
 
 	t.Run("returns false for medium", func(t *testing.T) {
 		result := &RunResult{
-			Results: []*ReviewResult{
+			Results: []*Result{
 				{Issues: []Issue{{Severity: SeverityMedium}}},
 			},
 		}
@@ -212,7 +212,7 @@ func TestRunResult_HasCriticalIssues(t *testing.T) {
 
 	t.Run("returns false for no issues", func(t *testing.T) {
 		result := &RunResult{
-			Results: []*ReviewResult{
+			Results: []*Result{
 				{Issues: []Issue{}},
 			},
 		}
@@ -222,7 +222,7 @@ func TestRunResult_HasCriticalIssues(t *testing.T) {
 
 func TestRunResult_AllIssues(t *testing.T) {
 	result := &RunResult{
-		Results: []*ReviewResult{
+		Results: []*Result{
 			{Issues: []Issue{{Description: "Issue 1"}, {Description: "Issue 2"}}},
 			{Issues: []Issue{{Description: "Issue 3"}}},
 		},
@@ -239,7 +239,7 @@ func TestRunner_OutputCallback(t *testing.T) {
 		Passes: []Pass{
 			{
 				Name:   "test_pass",
-				Agents: []Agent{{Name: "agent1"}},
+				Agents: []AgentConfig{{Name: "agent1"}},
 			},
 		},
 	}
@@ -248,7 +248,7 @@ func TestRunner_OutputCallback(t *testing.T) {
 	runner := NewRunner(cfg, func(text string) {
 		logs = append(logs, text)
 	})
-	runner.SetAgentFactory(func(agentCfg Agent, defaultPrompt string) ReviewAgent {
+	runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 		return NewMockAgent(agentCfg.Name)
 	})
 
@@ -265,14 +265,14 @@ func TestRunner_RegisterAgent(t *testing.T) {
 		Passes: []Pass{
 			{
 				Name:   "test_pass",
-				Agents: []Agent{{Name: "custom"}},
+				Agents: []AgentConfig{{Name: "custom"}},
 			},
 		},
 	}
 
 	customAgent := NewMockAgent("custom")
-	customAgent.SetReviewFunc(func(ctx context.Context, workingDir string, filesChanged []string) (*ReviewResult, error) {
-		return &ReviewResult{
+	customAgent.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
+		return &Result{
 			AgentName: "custom",
 			Issues:    []Issue{{Description: "Custom issue"}},
 		}, nil

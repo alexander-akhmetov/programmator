@@ -13,12 +13,20 @@ func TestDefaultConfig(t *testing.T) {
 
 	require.False(t, cfg.Enabled)
 	require.Equal(t, DefaultMaxIterations, cfg.MaxIterations)
-	require.Len(t, cfg.Passes, 1)
+	require.Len(t, cfg.Passes, 2)
+
+	// First pass: code_review
 	require.Equal(t, "code_review", cfg.Passes[0].Name)
 	require.True(t, cfg.Passes[0].Parallel)
 	require.Len(t, cfg.Passes[0].Agents, 2)
 	require.Equal(t, "quality", cfg.Passes[0].Agents[0].Name)
 	require.Equal(t, "security", cfg.Passes[0].Agents[1].Name)
+
+	// Second pass: linter
+	require.Equal(t, "linter", cfg.Passes[1].Name)
+	require.False(t, cfg.Passes[1].Parallel)
+	require.Len(t, cfg.Passes[1].Agents, 1)
+	require.Equal(t, "linter", cfg.Passes[1].Agents[0].Name)
 }
 
 func TestConfigFromEnv(t *testing.T) {

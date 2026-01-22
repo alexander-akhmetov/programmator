@@ -121,7 +121,7 @@ REVIEW_RESULT:
 
 func TestFormatIssuesMarkdown(t *testing.T) {
 	t.Run("formats issues correctly", func(t *testing.T) {
-		results := []*ReviewResult{
+		results := []*Result{
 			{
 				AgentName: "quality",
 				Issues: []Issue{
@@ -147,7 +147,7 @@ func TestFormatIssuesMarkdown(t *testing.T) {
 	})
 
 	t.Run("handles multiple agents", func(t *testing.T) {
-		results := []*ReviewResult{
+		results := []*Result{
 			{
 				AgentName: "quality",
 				Issues: []Issue{
@@ -168,7 +168,7 @@ func TestFormatIssuesMarkdown(t *testing.T) {
 	})
 
 	t.Run("handles error in result", func(t *testing.T) {
-		results := []*ReviewResult{
+		results := []*Result{
 			{
 				AgentName: "quality",
 				Error:     error(nil),
@@ -181,7 +181,7 @@ func TestFormatIssuesMarkdown(t *testing.T) {
 	})
 
 	t.Run("skips agents with no issues", func(t *testing.T) {
-		results := []*ReviewResult{
+		results := []*Result{
 			{
 				AgentName: "quality",
 				Issues:    []Issue{},

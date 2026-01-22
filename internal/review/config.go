@@ -23,13 +23,13 @@ type Config struct {
 
 // Pass defines a review pass with multiple agents.
 type Pass struct {
-	Name     string  `yaml:"name"`
-	Parallel bool    `yaml:"parallel"`
-	Agents   []Agent `yaml:"agents"`
+	Name     string        `yaml:"name"`
+	Parallel bool          `yaml:"parallel"`
+	Agents   []AgentConfig `yaml:"agents"`
 }
 
-// Agent defines a single review agent.
-type Agent struct {
+// AgentConfig defines a single review agent configuration.
+type AgentConfig struct {
 	Name   string   `yaml:"name"`
 	Focus  []string `yaml:"focus"`
 	Prompt string   `yaml:"prompt,omitempty"` // custom prompt path or empty for default
@@ -44,7 +44,7 @@ func DefaultConfig() Config {
 			{
 				Name:     "code_review",
 				Parallel: true,
-				Agents: []Agent{
+				Agents: []AgentConfig{
 					{
 						Name:  "quality",
 						Focus: []string{"error handling", "code clarity", "test coverage"},
@@ -52,6 +52,16 @@ func DefaultConfig() Config {
 					{
 						Name:  "security",
 						Focus: []string{"input validation", "secrets", "injection"},
+					},
+				},
+			},
+			{
+				Name:     "linter",
+				Parallel: false,
+				Agents: []AgentConfig{
+					{
+						Name:  "linter",
+						Focus: []string{"lint errors", "formatting", "static analysis"},
 					},
 				},
 			},

@@ -12,6 +12,8 @@ func GetDefaultPrompt(agentName string) string {
 		return prompts.QualityPrompt
 	case "security":
 		return prompts.SecurityPrompt
+	case "linter":
+		return prompts.LinterPrompt
 	default:
 		return defaultGenericPrompt
 	}

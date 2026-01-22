@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// ReviewResult holds the result of a single agent review.
-type ReviewResult struct {
+// Result holds the result of a single agent review.
+type Result struct {
 	AgentName  string
 	Issues     []Issue
 	Summary    string
@@ -40,8 +40,8 @@ const (
 	SeverityInfo     Severity = "info"
 )
 
-// ReviewAgent defines the interface for code review agents.
-type ReviewAgent interface {
+// Agent defines the interface for code review agents.
+type Agent interface {
 	// Name returns the agent's name.
 	Name() string
 
@@ -49,7 +49,7 @@ type ReviewAgent interface {
 	// The context should be used for cancellation and timeouts.
 	// workingDir is the directory containing the code to review.
 	// filesChanged is the list of files that have been modified.
-	Review(ctx context.Context, workingDir string, filesChanged []string) (*ReviewResult, error)
+	Review(ctx context.Context, workingDir string, filesChanged []string) (*Result, error)
 }
 
 // ClaudeAgent implements ReviewAgent using Claude Code.
@@ -100,9 +100,9 @@ func (a *ClaudeAgent) Name() string {
 }
 
 // Review runs the code review using Claude.
-func (a *ClaudeAgent) Review(ctx context.Context, workingDir string, filesChanged []string) (*ReviewResult, error) {
+func (a *ClaudeAgent) Review(ctx context.Context, workingDir string, filesChanged []string) (*Result, error) {
 	start := time.Now()
-	result := &ReviewResult{
+	result := &Result{
 		AgentName: a.name,
 		Issues:    make([]Issue, 0),
 	}
@@ -185,7 +185,8 @@ REVIEW_RESULT:
 
 // invokeClaude runs Claude with the given prompt.
 func (a *ClaudeAgent) invokeClaude(ctx context.Context, workingDir, promptText string) (string, error) {
-	args := []string{"--print"}
+	args := make([]string, 0, 1+len(a.claudeArgs))
+	args = append(args, "--print")
 	args = append(args, a.claudeArgs...)
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, a.timeout)
@@ -231,15 +232,15 @@ func (a *ClaudeAgent) invokeClaude(ctx context.Context, workingDir, promptText s
 // MockAgent is a mock implementation for testing.
 type MockAgent struct {
 	name       string
-	reviewFunc func(ctx context.Context, workingDir string, filesChanged []string) (*ReviewResult, error)
+	reviewFunc func(ctx context.Context, workingDir string, filesChanged []string) (*Result, error)
 }
 
 // NewMockAgent creates a new MockAgent.
 func NewMockAgent(name string) *MockAgent {
 	return &MockAgent{
 		name: name,
-		reviewFunc: func(ctx context.Context, workingDir string, filesChanged []string) (*ReviewResult, error) {
-			return &ReviewResult{
+		reviewFunc: func(_ context.Context, _ string, _ []string) (*Result, error) {
+			return &Result{
 				AgentName: name,
 				Issues:    []Issue{},
 				Summary:   "Mock review passed",
@@ -254,11 +255,11 @@ func (m *MockAgent) Name() string {
 }
 
 // Review runs the mock review function.
-func (m *MockAgent) Review(ctx context.Context, workingDir string, filesChanged []string) (*ReviewResult, error) {
+func (m *MockAgent) Review(ctx context.Context, workingDir string, filesChanged []string) (*Result, error) {
 	return m.reviewFunc(ctx, workingDir, filesChanged)
 }
 
 // SetReviewFunc sets the mock review function.
-func (m *MockAgent) SetReviewFunc(f func(ctx context.Context, workingDir string, filesChanged []string) (*ReviewResult, error)) {
+func (m *MockAgent) SetReviewFunc(f func(ctx context.Context, workingDir string, filesChanged []string) (*Result, error)) {
 	m.reviewFunc = f
 }

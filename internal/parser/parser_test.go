@@ -16,6 +16,7 @@ func TestParse(t *testing.T) {
 		wantSummary string
 		wantError   string
 	}{
+		// NOTE: See TestParseCommitMade for commit_made field tests
 		{
 			name: "basic CONTINUE status",
 			output: `Some output text here
@@ -207,6 +208,65 @@ PROGRAMMATOR_STATUS:
 						t.Errorf("FilesChanged[%d] = %q, want %q", i, f, tt.wantFiles[i])
 					}
 				}
+			}
+		})
+	}
+}
+
+func TestParseCommitMade(t *testing.T) {
+	tests := []struct {
+		name           string
+		output         string
+		wantCommitMade bool
+	}{
+		{
+			name: "commit_made true",
+			output: `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed:
+    - main.go
+  summary: "Fixed issue"
+  commit_made: true
+`,
+			wantCommitMade: true,
+		},
+		{
+			name: "commit_made false",
+			output: `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed:
+    - main.go
+  summary: "Fixed issue"
+  commit_made: false
+`,
+			wantCommitMade: false,
+		},
+		{
+			name: "commit_made omitted",
+			output: `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed:
+    - main.go
+  summary: "Fixed issue"
+`,
+			wantCommitMade: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := Parse(tt.output)
+			if err != nil {
+				t.Fatalf("Parse() unexpected error: %v", err)
+			}
+			if got == nil {
+				t.Fatal("Parse() returned nil")
+			}
+			if got.CommitMade != tt.wantCommitMade {
+				t.Errorf("CommitMade = %v, want %v", got.CommitMade, tt.wantCommitMade)
 			}
 		})
 	}

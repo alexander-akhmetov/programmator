@@ -39,7 +39,7 @@ func parseReviewOutput(output string) ([]Issue, string, error) {
 }
 
 // FormatIssuesMarkdown formats issues as markdown for ticket notes.
-func FormatIssuesMarkdown(results []*ReviewResult) string {
+func FormatIssuesMarkdown(results []*Result) string {
 	var b strings.Builder
 
 	for _, result := range results {

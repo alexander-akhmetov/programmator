@@ -10,3 +10,6 @@ var QualityPrompt string
 
 //go:embed security.md
 var SecurityPrompt string
+
+//go:embed linter.md
+var LinterPrompt string

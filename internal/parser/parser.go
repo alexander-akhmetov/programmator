@@ -28,6 +28,7 @@ type ParsedStatus struct {
 	FilesChanged   []string `yaml:"files_changed"`
 	Summary        string   `yaml:"summary"`
 	Error          string   `yaml:"error,omitempty"`
+	CommitMade     bool     `yaml:"commit_made,omitempty"`
 }
 
 // IsValid checks if the parsed status has valid values.

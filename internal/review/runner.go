@@ -12,9 +12,9 @@ type RunResult struct {
 	Passed       bool
 	Iteration    int
 	TotalIssues  int
-	Results      []*ReviewResult
+	Results      []*Result
 	Duration     time.Duration
-	IssuesByPass map[string][]*ReviewResult
+	IssuesByPass map[string][]*Result
 }
 
 // HasCriticalIssues checks if any critical or high severity issues were found.
@@ -31,7 +31,11 @@ func (r *RunResult) HasCriticalIssues() bool {
 
 // AllIssues returns all issues from all results.
 func (r *RunResult) AllIssues() []Issue {
-	var issues []Issue
+	total := 0
+	for _, result := range r.Results {
+		total += len(result.Issues)
+	}
+	issues := make([]Issue, 0, total)
 	for _, result := range r.Results {
 		issues = append(issues, result.Issues...)
 	}
@@ -44,20 +48,20 @@ type OutputCallback func(text string)
 // Runner orchestrates the review process.
 type Runner struct {
 	config       Config
-	agents       map[string]ReviewAgent
+	agents       map[string]Agent
 	agentsMu     sync.Mutex
 	onOutput     OutputCallback
 	agentFactory AgentFactory
 }
 
 // AgentFactory creates review agents from config.
-type AgentFactory func(agentCfg Agent, defaultPrompt string) ReviewAgent
+type AgentFactory func(agentCfg AgentConfig, defaultPrompt string) Agent
 
 // NewRunner creates a new review runner.
 func NewRunner(config Config, onOutput OutputCallback) *Runner {
 	r := &Runner{
 		config:   config,
-		agents:   make(map[string]ReviewAgent),
+		agents:   make(map[string]Agent),
 		onOutput: onOutput,
 	}
 	r.agentFactory = r.defaultAgentFactory
@@ -70,7 +74,7 @@ func (r *Runner) SetAgentFactory(factory AgentFactory) {
 }
 
 // defaultAgentFactory creates ClaudeAgent instances.
-func (r *Runner) defaultAgentFactory(agentCfg Agent, defaultPrompt string) ReviewAgent {
+func (r *Runner) defaultAgentFactory(agentCfg AgentConfig, defaultPrompt string) Agent {
 	prompt := defaultPrompt
 	if agentCfg.Prompt != "" {
 		prompt = agentCfg.Prompt
@@ -87,8 +91,8 @@ func (r *Runner) Run(ctx context.Context, workingDir string, filesChanged []stri
 	result := &RunResult{
 		Passed:       true,
 		Iteration:    1,
-		Results:      make([]*ReviewResult, 0),
-		IssuesByPass: make(map[string][]*ReviewResult),
+		Results:      make([]*Result, 0),
+		IssuesByPass: make(map[string][]*Result),
 	}
 
 	r.log("Running review passes")
@@ -122,8 +126,8 @@ func (r *Runner) Run(ctx context.Context, workingDir string, filesChanged []stri
 }
 
 // runAllPasses executes all configured review passes.
-func (r *Runner) runAllPasses(ctx context.Context, workingDir string, filesChanged []string) ([]*ReviewResult, error) {
-	var allResults []*ReviewResult
+func (r *Runner) runAllPasses(ctx context.Context, workingDir string, filesChanged []string) ([]*Result, error) {
+	var allResults []*Result
 
 	for _, pass := range r.config.Passes {
 		r.log(fmt.Sprintf("Running pass: %s", pass.Name))
@@ -140,7 +144,7 @@ func (r *Runner) runAllPasses(ctx context.Context, workingDir string, filesChang
 }
 
 // runPass executes a single review pass.
-func (r *Runner) runPass(ctx context.Context, pass Pass, workingDir string, filesChanged []string) ([]*ReviewResult, error) {
+func (r *Runner) runPass(ctx context.Context, pass Pass, workingDir string, filesChanged []string) ([]*Result, error) {
 	if pass.Parallel {
 		return r.runAgentsParallel(ctx, pass.Agents, workingDir, filesChanged)
 	}
@@ -148,14 +152,14 @@ func (r *Runner) runPass(ctx context.Context, pass Pass, workingDir string, file
 }
 
 // runAgentsParallel runs all agents in parallel.
-func (r *Runner) runAgentsParallel(ctx context.Context, agents []Agent, workingDir string, filesChanged []string) ([]*ReviewResult, error) {
+func (r *Runner) runAgentsParallel(ctx context.Context, agents []AgentConfig, workingDir string, filesChanged []string) ([]*Result, error) {
 	var wg sync.WaitGroup
-	results := make([]*ReviewResult, len(agents))
+	results := make([]*Result, len(agents))
 	errors := make([]error, len(agents))
 
 	for i, agentCfg := range agents {
 		wg.Add(1)
-		go func(idx int, cfg Agent) {
+		go func(idx int, cfg AgentConfig) {
 			defer wg.Done()
 
 			agent := r.getOrCreateAgent(cfg)
@@ -164,7 +168,7 @@ func (r *Runner) runAgentsParallel(ctx context.Context, agents []Agent, workingD
 			result, err := agent.Review(ctx, workingDir, filesChanged)
 			if err != nil {
 				errors[idx] = err
-				results[idx] = &ReviewResult{
+				results[idx] = &Result{
 					AgentName: cfg.Name,
 					Error:     err,
 				}
@@ -189,8 +193,8 @@ func (r *Runner) runAgentsParallel(ctx context.Context, agents []Agent, workingD
 }
 
 // runAgentsSequential runs all agents sequentially.
-func (r *Runner) runAgentsSequential(ctx context.Context, agents []Agent, workingDir string, filesChanged []string) ([]*ReviewResult, error) {
-	results := make([]*ReviewResult, 0, len(agents))
+func (r *Runner) runAgentsSequential(ctx context.Context, agents []AgentConfig, workingDir string, filesChanged []string) ([]*Result, error) {
+	results := make([]*Result, 0, len(agents))
 
 	for _, agentCfg := range agents {
 		select {
@@ -204,7 +208,7 @@ func (r *Runner) runAgentsSequential(ctx context.Context, agents []Agent, workin
 
 		result, err := agent.Review(ctx, workingDir, filesChanged)
 		if err != nil {
-			result = &ReviewResult{
+			result = &Result{
 				AgentName: agentCfg.Name,
 				Error:     err,
 			}
@@ -218,7 +222,7 @@ func (r *Runner) runAgentsSequential(ctx context.Context, agents []Agent, workin
 }
 
 // getOrCreateAgent gets a cached agent or creates a new one.
-func (r *Runner) getOrCreateAgent(cfg Agent) ReviewAgent {
+func (r *Runner) getOrCreateAgent(cfg AgentConfig) Agent {
 	r.agentsMu.Lock()
 	defer r.agentsMu.Unlock()
 
@@ -241,7 +245,7 @@ func (r *Runner) log(message string) {
 }
 
 // RegisterAgent registers a custom agent (useful for testing).
-func (r *Runner) RegisterAgent(agent ReviewAgent) {
+func (r *Runner) RegisterAgent(agent Agent) {
 	r.agentsMu.Lock()
 	defer r.agentsMu.Unlock()
 	r.agents[agent.Name()] = agent
