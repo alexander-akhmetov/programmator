@@ -717,6 +717,8 @@ type TUI struct {
 	model                  Model
 	interactivePermissions bool
 	allowPatterns          []string
+	skipReview             bool
+	reviewOnly             bool
 }
 
 func New(config safety.Config) *TUI {
@@ -735,6 +737,14 @@ func (t *TUI) SetInteractivePermissions(enabled bool) {
 
 func (t *TUI) SetAllowPatterns(patterns []string) {
 	t.allowPatterns = patterns
+}
+
+func (t *TUI) SetSkipReview(skip bool) {
+	t.skipReview = skip
+}
+
+func (t *TUI) SetReviewOnly(reviewOnly bool) {
+	t.reviewOnly = reviewOnly
 }
 
 func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
@@ -817,6 +827,8 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 	if permServer != nil {
 		l.SetPermissionSocketPath(permServer.SocketPath())
 	}
+	l.SetSkipReview(t.skipReview)
+	l.SetReviewOnly(t.reviewOnly)
 
 	t.model.SetLoop(l)
 	timing.Log("TUI.Run: loop created")

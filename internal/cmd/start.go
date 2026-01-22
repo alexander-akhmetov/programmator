@@ -23,6 +23,8 @@ var (
 	timeout         int
 	skipPermissions bool
 	allowPatterns   []string
+	skipReview      bool
+	reviewOnly      bool
 )
 
 var startCmd = &cobra.Command{
@@ -57,6 +59,8 @@ func init() {
 	startCmd.Flags().IntVar(&timeout, "timeout", 0, "Timeout per Claude invocation in seconds (overrides PROGRAMMATOR_TIMEOUT)")
 	startCmd.Flags().BoolVar(&skipPermissions, "dangerously-skip-permissions", false, "Skip interactive permission dialogs (grants all permissions)")
 	startCmd.Flags().StringArrayVar(&allowPatterns, "allow", nil, "Pre-allow permission patterns (e.g., 'Bash(git:*)', 'Read')")
+	startCmd.Flags().BoolVar(&skipReview, "skip-review", false, "Skip the code review phase after all task phases complete")
+	startCmd.Flags().BoolVar(&reviewOnly, "review-only", false, "Run only the code review phase (skip task phases)")
 }
 
 func runStart(_ *cobra.Command, args []string) error {
@@ -103,6 +107,8 @@ func runStart(_ *cobra.Command, args []string) error {
 	t := tui.New(config)
 	t.SetInteractivePermissions(!skipPermissions)
 	t.SetAllowPatterns(allowPatterns)
+	t.SetSkipReview(skipReview)
+	t.SetReviewOnly(reviewOnly)
 	timing.Log("TUI created, calling Run")
 	result, err := t.Run(ticketID, wd)
 	timing.Log("runStart: TUI.Run returned")
@@ -185,9 +191,9 @@ func printSummary(ticketID string, result *loop.Result) {
 	switch result.ExitReason {
 	case safety.ExitReasonComplete:
 		exitStyle = summarySuccess
-	case safety.ExitReasonBlocked, safety.ExitReasonError:
+	case safety.ExitReasonBlocked, safety.ExitReasonError, safety.ExitReasonReviewFailed:
 		exitStyle = summaryError
-	case safety.ExitReasonMaxIterations, safety.ExitReasonStagnation, safety.ExitReasonUserInterrupt:
+	case safety.ExitReasonMaxIterations, safety.ExitReasonStagnation, safety.ExitReasonUserInterrupt, safety.ExitReasonMaxReviewRetries:
 		exitStyle = summaryWarning
 	}
 	b.WriteString(summaryLabel.Render("Exit:       ") + exitStyle.Render(string(result.ExitReason)) + "\n")

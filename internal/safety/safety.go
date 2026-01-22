@@ -8,35 +8,40 @@ import (
 )
 
 const (
-	DefaultMaxIterations   = 50
-	DefaultStagnationLimit = 3
-	DefaultTimeout         = 900 // seconds
+	DefaultMaxIterations       = 50
+	DefaultStagnationLimit     = 3
+	DefaultTimeout             = 900 // seconds
+	DefaultMaxReviewIterations = 3
 )
 
 type ExitReason string
 
 const (
-	ExitReasonComplete      ExitReason = "complete"
-	ExitReasonMaxIterations ExitReason = "max_iterations"
-	ExitReasonStagnation    ExitReason = "stagnation"
-	ExitReasonBlocked       ExitReason = "blocked"
-	ExitReasonError         ExitReason = "error"
-	ExitReasonUserInterrupt ExitReason = "user_interrupt"
+	ExitReasonComplete         ExitReason = "complete"
+	ExitReasonMaxIterations    ExitReason = "max_iterations"
+	ExitReasonStagnation       ExitReason = "stagnation"
+	ExitReasonBlocked          ExitReason = "blocked"
+	ExitReasonError            ExitReason = "error"
+	ExitReasonUserInterrupt    ExitReason = "user_interrupt"
+	ExitReasonReviewFailed     ExitReason = "review_failed"
+	ExitReasonMaxReviewRetries ExitReason = "max_review_retries"
 )
 
 type Config struct {
-	MaxIterations   int
-	StagnationLimit int
-	Timeout         int
-	ClaudeFlags     string
+	MaxIterations       int
+	StagnationLimit     int
+	Timeout             int
+	ClaudeFlags         string
+	MaxReviewIterations int
 }
 
 func ConfigFromEnv() Config {
 	cfg := Config{
-		MaxIterations:   DefaultMaxIterations,
-		StagnationLimit: DefaultStagnationLimit,
-		Timeout:         DefaultTimeout,
-		ClaudeFlags:     "",
+		MaxIterations:       DefaultMaxIterations,
+		StagnationLimit:     DefaultStagnationLimit,
+		Timeout:             DefaultTimeout,
+		ClaudeFlags:         "",
+		MaxReviewIterations: DefaultMaxReviewIterations,
 	}
 
 	if v := os.Getenv("PROGRAMMATOR_MAX_ITERATIONS"); v != "" {
@@ -61,6 +66,12 @@ func ConfigFromEnv() Config {
 		cfg.ClaudeFlags = v
 	}
 
+	if v := os.Getenv("PROGRAMMATOR_MAX_REVIEW_ITERATIONS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.MaxReviewIterations = n
+		}
+	}
+
 	return cfg
 }
 
@@ -80,6 +91,8 @@ type State struct {
 	Model                string
 	TokensByModel        map[string]*ModelTokens
 	CurrentIterTokens    *ModelTokens // live tokens for current iteration
+	ReviewIterations     int          // number of review iterations performed
+	InReviewPhase        bool         // whether we're currently in review phase
 }
 
 func NewState() *State {
@@ -153,6 +166,21 @@ func (s *State) TotalTokens() (input, output int) {
 	return
 }
 
+// RecordReviewIteration increments the review iteration counter.
+func (s *State) RecordReviewIteration() {
+	s.ReviewIterations++
+}
+
+// EnterReviewPhase marks that we've entered the review phase.
+func (s *State) EnterReviewPhase() {
+	s.InReviewPhase = true
+}
+
+// ExitReviewPhase marks that we've exited the review phase.
+func (s *State) ExitReviewPhase() {
+	s.InReviewPhase = false
+}
+
 type CheckResult struct {
 	ShouldExit bool
 	Reason     ExitReason
@@ -181,6 +209,14 @@ func Check(cfg Config, state *State) CheckResult {
 			ShouldExit: true,
 			Reason:     ExitReasonBlocked,
 			Message:    "Repeated errors, blocking progress",
+		}
+	}
+
+	if state.InReviewPhase && state.ReviewIterations >= cfg.MaxReviewIterations {
+		return CheckResult{
+			ShouldExit: true,
+			Reason:     ExitReasonMaxReviewRetries,
+			Message:    "Maximum review iterations reached with issues remaining",
 		}
 	}
 

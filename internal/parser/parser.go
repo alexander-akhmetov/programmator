@@ -11,9 +11,11 @@ import (
 type Status string
 
 const (
-	StatusContinue Status = "CONTINUE"
-	StatusDone     Status = "DONE"
-	StatusBlocked  Status = "BLOCKED"
+	StatusContinue   Status = "CONTINUE"
+	StatusDone       Status = "DONE"
+	StatusBlocked    Status = "BLOCKED"
+	StatusReviewPass Status = "REVIEW_PASS"
+	StatusReviewFail Status = "REVIEW_FAIL"
 )
 
 func (s Status) String() string {
@@ -34,7 +36,7 @@ func (p *ParsedStatus) IsValid() bool {
 		return false
 	}
 	switch p.Status {
-	case StatusContinue, StatusDone, StatusBlocked:
+	case StatusContinue, StatusDone, StatusBlocked, StatusReviewPass, StatusReviewFail:
 		return true
 	default:
 		return false

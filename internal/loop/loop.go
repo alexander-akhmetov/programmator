@@ -15,6 +15,7 @@ import (
 
 	"github.com/alexander-akhmetov/programmator/internal/parser"
 	"github.com/alexander-akhmetov/programmator/internal/prompt"
+	"github.com/alexander-akhmetov/programmator/internal/review"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
 	"github.com/alexander-akhmetov/programmator/internal/ticket"
 	"github.com/alexander-akhmetov/programmator/internal/timing"
@@ -52,6 +53,15 @@ type Loop struct {
 
 	currentState  *safety.State
 	currentTicket *ticket.Ticket
+
+	// Review configuration
+	reviewConfig      review.Config
+	skipReview        bool
+	reviewOnly        bool
+	reviewPassed      bool
+	reviewRunner      *review.Runner
+	pendingReviewFix  bool   // true when Claude needs to fix review issues before next review
+	lastReviewIssues  string // formatted issues from last review for Claude to fix
 }
 
 func New(config safety.Config, workingDir string, onOutput OutputCallback, onStateChange StateCallback, streaming bool) *Loop {
@@ -66,9 +76,25 @@ func NewWithClient(config safety.Config, workingDir string, onOutput OutputCallb
 		onStateChange: onStateChange,
 		streaming:     streaming,
 		client:        client,
+		reviewConfig:  review.ConfigFromEnv(),
 	}
 	l.pauseCond = sync.NewCond(&l.mu)
 	return l
+}
+
+// SetReviewConfig sets the review configuration.
+func (l *Loop) SetReviewConfig(cfg review.Config) {
+	l.reviewConfig = cfg
+}
+
+// SetSkipReview disables the review phase.
+func (l *Loop) SetSkipReview(skip bool) {
+	l.skipReview = skip
+}
+
+// SetReviewOnly enables review-only mode (skips task phases).
+func (l *Loop) SetReviewOnly(reviewOnly bool) {
+	l.reviewOnly = reviewOnly
 }
 
 func (l *Loop) Run(ticketID string) (*Result, error) {
@@ -139,13 +165,65 @@ func (l *Loop) Run(ticketID string) (*Result, error) {
 			return result, err
 		}
 
-		if t.AllPhasesComplete() {
-			l.log("All phases complete!")
-			_ = client.SetStatus(ticketID, "closed")
-			_ = client.AddNote(ticketID, fmt.Sprintf("progress: Completed all phases in %d iterations", state.Iteration))
-			result.ExitReason = safety.ExitReasonComplete
-			result.Iterations = state.Iteration
-			return result, nil
+		if t.AllPhasesComplete() || l.reviewOnly {
+			// If we have pending review fixes, skip review and let Claude fix them first
+			if l.pendingReviewFix {
+				l.log("Pending review fixes - invoking Claude to fix issues")
+				// Fall through to Claude invocation below
+			} else if l.reviewConfig.Enabled && !l.skipReview && !l.reviewPassed {
+				// Check if we should run review
+				l.log("All phases complete - starting code review")
+				reviewResult, reviewErr := l.runReview(ctx, ticketID, client, state, result.TotalFilesChanged)
+				if reviewErr != nil {
+					l.log(fmt.Sprintf("Review error: %v", reviewErr))
+					_ = client.AddNote(ticketID, fmt.Sprintf("error: Review failed: %v", reviewErr))
+					result.ExitReason = safety.ExitReasonError
+					result.Iterations = state.Iteration
+					return result, reviewErr
+				}
+
+				if !reviewResult.Passed {
+					// Review found issues - log them and let Claude fix them
+					l.log(fmt.Sprintf("Review found %d issues", reviewResult.TotalIssues))
+					issueNote := review.FormatIssuesMarkdown(reviewResult.Results)
+					_ = client.AddNote(ticketID, fmt.Sprintf("review: [iter %d] Review found %d issues:\n%s", state.Iteration, reviewResult.TotalIssues, issueNote))
+
+					// Check if we've exceeded max review iterations
+					checkResult := safety.Check(l.config, state)
+					if checkResult.ShouldExit {
+						l.log(fmt.Sprintf("Review safety exit: %s", checkResult.Reason))
+						_ = client.AddNote(ticketID, fmt.Sprintf("error: Review safety exit: %s", checkResult.Reason))
+						result.ExitReason = checkResult.Reason
+						result.Iterations = state.Iteration
+						return result, nil
+					}
+
+					// Set pending fix flag so next iteration invokes Claude instead of re-running review
+					l.pendingReviewFix = true
+					l.lastReviewIssues = issueNote
+					progressNotes = append(progressNotes, fmt.Sprintf("[iter %d] Review found %d issues - please fix them:\n%s", state.Iteration, reviewResult.TotalIssues, issueNote))
+					// Fall through to Claude invocation below
+				} else {
+					l.reviewPassed = true
+					l.log("Review passed!")
+					_ = client.AddNote(ticketID, "progress: Code review passed")
+
+					l.log("All phases complete!")
+					_ = client.SetStatus(ticketID, "closed")
+					_ = client.AddNote(ticketID, fmt.Sprintf("progress: Completed all phases in %d iterations", state.Iteration))
+					result.ExitReason = safety.ExitReasonComplete
+					result.Iterations = state.Iteration
+					return result, nil
+				}
+			} else {
+				// No review needed or already passed
+				l.log("All phases complete!")
+				_ = client.SetStatus(ticketID, "closed")
+				_ = client.AddNote(ticketID, fmt.Sprintf("progress: Completed all phases in %d iterations", state.Iteration))
+				result.ExitReason = safety.ExitReasonComplete
+				result.Iterations = state.Iteration
+				return result, nil
+			}
 		}
 
 		state.Iteration++
@@ -231,6 +309,12 @@ func (l *Loop) Run(ticketID string) (*Result, error) {
 		}
 
 		state.RecordIteration(status.FilesChanged, status.Error)
+
+		// Reset pending review fix flag - Claude has attempted to fix the issues
+		if l.pendingReviewFix {
+			l.pendingReviewFix = false
+			l.lastReviewIssues = ""
+		}
 
 		if l.onStateChange != nil {
 			l.onStateChange(state, t, result.TotalFilesChanged)
@@ -560,4 +644,43 @@ func (l *Loop) buildHookSettings() string {
 
 	data, _ := json.Marshal(settings)
 	return string(data)
+}
+
+// runReview executes the review pipeline.
+func (l *Loop) runReview(ctx context.Context, _ string, _ ticket.Client, state *safety.State, filesChanged []string) (*review.RunResult, error) {
+	state.EnterReviewPhase()
+
+	if l.reviewRunner == nil {
+		// Adapt OutputCallback to review.OutputCallback
+		var outputCallback review.OutputCallback
+		if l.onOutput != nil {
+			outputCallback = func(text string) {
+				l.onOutput(text)
+			}
+		}
+		l.reviewRunner = review.NewRunner(l.reviewConfig, outputCallback)
+	}
+
+	l.log(fmt.Sprintf("Running review iteration %d/%d", state.ReviewIterations+1, l.config.MaxReviewIterations))
+
+	result, err := l.reviewRunner.Run(ctx, l.workingDir, filesChanged)
+
+	// Record iteration AFTER review runs so the count reflects completed reviews
+	state.RecordReviewIteration()
+
+	if err != nil {
+		state.ExitReviewPhase()
+		return nil, err
+	}
+
+	if result.Passed {
+		state.ExitReviewPhase()
+	}
+
+	return result, nil
+}
+
+// SetReviewRunner sets a custom review runner (useful for testing).
+func (l *Loop) SetReviewRunner(runner *review.Runner) {
+	l.reviewRunner = runner
 }
