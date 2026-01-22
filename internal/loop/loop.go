@@ -23,10 +23,12 @@ import (
 
 type Result struct {
 	ExitReason        safety.ExitReason
+	ExitMessage       string // Human-readable explanation of exit reason
 	Iterations        int
 	TotalFilesChanged []string
 	FinalStatus       *parser.ParsedStatus
 	Duration          time.Duration
+	RecentSummaries   []string // Summaries from recent iterations (for debugging stagnation)
 }
 
 type OutputCallback func(text string)
@@ -108,14 +110,15 @@ const (
 
 // runContext holds mutable state for a single Run invocation.
 type runContext struct {
-	ctx             context.Context
-	ticketID        string
-	client          ticket.Client
-	state           *safety.State
-	result          *Result
-	progressNotes   []string
-	filesChangedSet map[string]struct{}
-	t               *ticket.Ticket
+	ctx                context.Context
+	ticketID           string
+	client             ticket.Client
+	state              *safety.State
+	result             *Result
+	progressNotes      []string
+	filesChangedSet    map[string]struct{}
+	t                  *ticket.Ticket
+	iterationSummaries []string // Track summaries for each iteration
 }
 
 // checkStopRequested checks if stop was requested and handles the response.
@@ -233,6 +236,15 @@ func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) 
 	rc.result.FinalStatus = status
 	l.recordPhaseProgress(rc, status)
 	l.trackFilesChanged(rc, status)
+
+	// Track iteration summary for stagnation debugging
+	iterSummary := fmt.Sprintf("[iter %d] %s", rc.state.Iteration, status.Summary)
+	if len(status.FilesChanged) > 0 {
+		iterSummary += fmt.Sprintf(" (files: %s)", strings.Join(status.FilesChanged, ", "))
+	} else {
+		iterSummary += " (no files changed)"
+	}
+	rc.iterationSummaries = append(rc.iterationSummaries, iterSummary)
 
 	rc.state.RecordIteration(status.FilesChanged, status.Error)
 
@@ -369,7 +381,9 @@ func (l *Loop) Run(ticketID string) (*Result, error) {
 				l.log(fmt.Sprintf("Safety exit: %s", checkResult.Reason))
 				_ = rc.client.AddNote(rc.ticketID, fmt.Sprintf("error: Safety exit after %d iters: %s", rc.state.Iteration, checkResult.Reason))
 				rc.result.ExitReason = checkResult.Reason
+				rc.result.ExitMessage = checkResult.Message
 				rc.result.Iterations = rc.state.Iteration
+				rc.result.RecentSummaries = l.getRecentSummaries(rc, 5)
 				return rc.result, nil
 			}
 		}
@@ -664,6 +678,14 @@ func (l *Loop) logIterationSeparator(iteration, maxIterations int) {
 
 func (r *Result) FilesChangedList() []string {
 	return r.TotalFilesChanged
+}
+
+// getRecentSummaries returns the last n iteration summaries for debugging.
+func (l *Loop) getRecentSummaries(rc *runContext, n int) []string {
+	if len(rc.iterationSummaries) <= n {
+		return rc.iterationSummaries
+	}
+	return rc.iterationSummaries[len(rc.iterationSummaries)-n:]
 }
 
 func (l *Loop) pollProcessStats(pid int, stop <-chan struct{}) {

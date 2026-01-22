@@ -198,6 +198,11 @@ func printSummary(ticketID string, result *loop.Result) {
 	}
 	b.WriteString(summaryLabel.Render("Exit:       ") + exitStyle.Render(string(result.ExitReason)) + "\n")
 
+	// Show exit message if available (explains why exit happened)
+	if result.ExitMessage != "" {
+		b.WriteString(summaryLabel.Render("Reason:     ") + summaryWarning.Render(result.ExitMessage) + "\n")
+	}
+
 	b.WriteString(summaryLabel.Render("Iterations: ") + summaryValue.Render(fmt.Sprintf("%d", result.Iterations)) + "\n")
 	b.WriteString(summaryLabel.Render("Duration:   ") + summaryValue.Render(formatDuration(result.Duration)) + "\n")
 
@@ -209,6 +214,15 @@ func printSummary(ticketID string, result *loop.Result) {
 		b.WriteString("\n" + summaryLabel.Render(fmt.Sprintf("Files changed (%d):", len(result.TotalFilesChanged))) + "\n")
 		for _, f := range result.TotalFilesChanged {
 			b.WriteString("  " + summaryFile.Render("• "+f) + "\n")
+		}
+	}
+
+	// Show recent iteration summaries for stagnation/max_iterations debugging
+	if len(result.RecentSummaries) > 0 &&
+		(result.ExitReason == safety.ExitReasonStagnation || result.ExitReason == safety.ExitReasonMaxIterations) {
+		b.WriteString("\n" + summaryLabel.Render("Recent iterations:") + "\n")
+		for _, summary := range result.RecentSummaries {
+			b.WriteString("  " + summaryValue.Render(summary) + "\n")
 		}
 	}
 
