@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/alexander-akhmetov/programmator/internal/ticket"
+	"github.com/alexander-akhmetov/programmator/internal/source"
 )
 
 const promptTemplate = `You are working on ticket %s: %s
@@ -54,9 +54,9 @@ PROGRAMMATOR_STATUS:
 ` + "```" + `
 `
 
-// Build creates a prompt from a ticket and optional progress notes.
-func Build(t *ticket.Ticket, notes []string) string {
-	currentPhase := t.CurrentPhase()
+// Build creates a prompt from a work item and optional progress notes.
+func Build(w *source.WorkItem, notes []string) string {
+	currentPhase := w.CurrentPhase()
 	phaseName := "null"
 	currentPhaseStr := "All phases complete"
 	if currentPhase != nil {
@@ -75,16 +75,16 @@ func Build(t *ticket.Ticket, notes []string) string {
 
 	return fmt.Sprintf(
 		promptTemplate,
-		t.ID,
-		t.Title,
-		t.RawContent,
+		w.ID,
+		w.Title,
+		w.RawContent,
 		notesStr,
 		currentPhaseStr,
 		phaseName,
 	)
 }
 
-func BuildPhaseList(phases []ticket.Phase) string {
+func BuildPhaseList(phases []source.Phase) string {
 	lines := make([]string, 0, len(phases))
 	for _, p := range phases {
 		checkbox := "[ ]"

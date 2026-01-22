@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -17,7 +18,7 @@ import (
 	"github.com/alexander-akhmetov/programmator/internal/prompt"
 	"github.com/alexander-akhmetov/programmator/internal/review"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
-	"github.com/alexander-akhmetov/programmator/internal/ticket"
+	"github.com/alexander-akhmetov/programmator/internal/source"
 	"github.com/alexander-akhmetov/programmator/internal/timing"
 )
 
@@ -32,7 +33,7 @@ type Result struct {
 }
 
 type OutputCallback func(text string)
-type StateCallback func(state *safety.State, ticket *ticket.Ticket, filesChanged []string)
+type StateCallback func(state *safety.State, workItem *source.WorkItem, filesChanged []string)
 type ProcessStatsCallback func(pid int, memoryKB int64)
 type ClaudeInvoker func(ctx context.Context, promptText string) (string, error)
 
@@ -44,7 +45,7 @@ type Loop struct {
 	onProcessStats       ProcessStatsCallback
 	streaming            bool
 	cancelFunc           context.CancelFunc
-	client               ticket.Client
+	source               source.Source
 	claudeInvoker        ClaudeInvoker
 	permissionSocketPath string
 
@@ -53,8 +54,8 @@ type Loop struct {
 	stopRequested bool
 	pauseCond     *sync.Cond
 
-	currentState  *safety.State
-	currentTicket *ticket.Ticket
+	currentState    *safety.State
+	currentWorkItem *source.WorkItem
 
 	// Review configuration
 	reviewConfig     review.Config
@@ -66,18 +67,23 @@ type Loop struct {
 	lastReviewIssues string // formatted issues from last review for Claude to fix
 }
 
-func New(config safety.Config, workingDir string, onOutput OutputCallback, onStateChange StateCallback, streaming bool) *Loop {
-	return NewWithClient(config, workingDir, onOutput, onStateChange, streaming, nil)
+// SetSource sets the source for the loop (for testing).
+func (l *Loop) SetSource(src source.Source) {
+	l.source = src
 }
 
-func NewWithClient(config safety.Config, workingDir string, onOutput OutputCallback, onStateChange StateCallback, streaming bool, client ticket.Client) *Loop {
+func New(config safety.Config, workingDir string, onOutput OutputCallback, onStateChange StateCallback, streaming bool) *Loop {
+	return NewWithSource(config, workingDir, onOutput, onStateChange, streaming, nil)
+}
+
+func NewWithSource(config safety.Config, workingDir string, onOutput OutputCallback, onStateChange StateCallback, streaming bool, src source.Source) *Loop {
 	l := &Loop{
 		config:        config,
 		workingDir:    workingDir,
 		onOutput:      onOutput,
 		onStateChange: onStateChange,
 		streaming:     streaming,
-		client:        client,
+		source:        src,
 		reviewConfig:  review.ConfigFromEnv(),
 	}
 	l.pauseCond = sync.NewCond(&l.mu)
@@ -111,14 +117,21 @@ const (
 // runContext holds mutable state for a single Run invocation.
 type runContext struct {
 	ctx                context.Context
-	ticketID           string
-	client             ticket.Client
+	workItemID         string
+	source             source.Source
 	state              *safety.State
 	result             *Result
 	progressNotes      []string
 	filesChangedSet    map[string]struct{}
-	t                  *ticket.Ticket
+	workItem           *source.WorkItem
 	iterationSummaries []string // Track summaries for each iteration
+}
+
+// Deprecated: NewWithClient is deprecated. Use NewWithSource instead.
+func NewWithClient(config safety.Config, workingDir string, onOutput OutputCallback, onStateChange StateCallback, streaming bool, _ any) *Loop {
+	// This function exists for backwards compatibility during migration.
+	// It will be removed in a future version.
+	return NewWithSource(config, workingDir, onOutput, onStateChange, streaming, nil)
 }
 
 // checkStopRequested checks if stop was requested and handles the response.
@@ -131,7 +144,7 @@ func (l *Loop) checkStopRequested(rc *runContext) loopAction {
 	if l.stopRequested {
 		l.mu.Unlock()
 		l.log("Stop requested by user")
-		_ = rc.client.AddNote(rc.ticketID, fmt.Sprintf("progress: Stopped by user after %d iterations", rc.state.Iteration))
+		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: Stopped by user after %d iterations", rc.state.Iteration))
 		rc.result.ExitReason = safety.ExitReasonUserInterrupt
 		rc.result.Iterations = rc.state.Iteration
 		return loopReturn
@@ -157,7 +170,7 @@ func (l *Loop) checkContextCanceled(rc *runContext) loopAction {
 // Returns loopReturn if we should exit, loopBreakToClaudeInvocation if we should invoke Claude,
 // or loopContinue to proceed normally.
 func (l *Loop) handleAllPhasesComplete(rc *runContext) loopAction {
-	if !rc.t.AllPhasesComplete() && !l.reviewOnly {
+	if !rc.workItem.AllPhasesComplete() && !l.reviewOnly {
 		return loopContinue
 	}
 
@@ -179,10 +192,10 @@ func (l *Loop) handleAllPhasesComplete(rc *runContext) loopAction {
 // handleReviewPhase handles the review phase when all tasks are complete.
 func (l *Loop) handleReviewPhase(rc *runContext) loopAction {
 	l.log("All phases complete - starting code review")
-	reviewResult, reviewErr := l.runReview(rc.ctx, rc.ticketID, rc.client, rc.state, rc.result.TotalFilesChanged)
+	reviewResult, reviewErr := l.runReview(rc.ctx, rc.workItemID, rc.source, rc.state, rc.result.TotalFilesChanged)
 	if reviewErr != nil {
 		l.log(fmt.Sprintf("Review error: %v", reviewErr))
-		_ = rc.client.AddNote(rc.ticketID, fmt.Sprintf("error: Review failed: %v", reviewErr))
+		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("error: Review failed: %v", reviewErr))
 		rc.result.ExitReason = safety.ExitReasonError
 		rc.result.Iterations = rc.state.Iteration
 		return loopReturn
@@ -191,20 +204,20 @@ func (l *Loop) handleReviewPhase(rc *runContext) loopAction {
 	if reviewResult.Passed {
 		l.reviewPassed = true
 		l.log("Review passed!")
-		_ = rc.client.AddNote(rc.ticketID, "progress: Code review passed")
+		_ = rc.source.AddNote(rc.workItemID, "progress: Code review passed")
 		return l.completeAllPhases(rc)
 	}
 
 	// Review found issues - log them and let Claude fix them
 	l.log(fmt.Sprintf("Review found %d issues", reviewResult.TotalIssues))
 	issueNote := review.FormatIssuesMarkdown(reviewResult.Results)
-	_ = rc.client.AddNote(rc.ticketID, fmt.Sprintf("review: [iter %d] Review found %d issues:\n%s", rc.state.Iteration, reviewResult.TotalIssues, issueNote))
+	_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("review: [iter %d] Review found %d issues:\n%s", rc.state.Iteration, reviewResult.TotalIssues, issueNote))
 
 	// Check if we've exceeded max review iterations
 	checkResult := safety.Check(l.config, rc.state)
 	if checkResult.ShouldExit {
 		l.log(fmt.Sprintf("Review safety exit: %s", checkResult.Reason))
-		_ = rc.client.AddNote(rc.ticketID, fmt.Sprintf("error: Review safety exit: %s", checkResult.Reason))
+		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("error: Review safety exit: %s", checkResult.Reason))
 		rc.result.ExitReason = checkResult.Reason
 		rc.result.Iterations = rc.state.Iteration
 		return loopReturn
@@ -217,11 +230,11 @@ func (l *Loop) handleReviewPhase(rc *runContext) loopAction {
 	return loopBreakToClaudeInvocation
 }
 
-// completeAllPhases marks the ticket as complete and returns.
+// completeAllPhases marks the work item as complete and returns.
 func (l *Loop) completeAllPhases(rc *runContext) loopAction {
 	l.log("All phases complete!")
-	_ = rc.client.SetStatus(rc.ticketID, "closed")
-	_ = rc.client.AddNote(rc.ticketID, fmt.Sprintf("progress: Completed all phases in %d iterations", rc.state.Iteration))
+	_ = rc.source.SetStatus(rc.workItemID, "closed")
+	_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: Completed all phases in %d iterations", rc.state.Iteration))
 	rc.result.ExitReason = safety.ExitReasonComplete
 	rc.result.Iterations = rc.state.Iteration
 	return loopReturn
@@ -255,13 +268,13 @@ func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) 
 	}
 
 	if l.onStateChange != nil {
-		l.onStateChange(rc.state, rc.t, rc.result.TotalFilesChanged)
+		l.onStateChange(rc.state, rc.workItem, rc.result.TotalFilesChanged)
 	}
 
 	if status.Status == parser.StatusDone {
 		l.log("Claude reported DONE")
-		_ = rc.client.SetStatus(rc.ticketID, "closed")
-		_ = rc.client.AddNote(rc.ticketID, fmt.Sprintf("progress: Completed in %d iterations", rc.state.Iteration))
+		_ = rc.source.SetStatus(rc.workItemID, "closed")
+		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: Completed in %d iterations", rc.state.Iteration))
 		rc.result.ExitReason = safety.ExitReasonComplete
 		rc.result.Iterations = rc.state.Iteration
 		return loopReturn
@@ -269,7 +282,7 @@ func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) 
 
 	if status.Status == parser.StatusBlocked {
 		l.log(fmt.Sprintf("Claude reported BLOCKED: %s", status.Error))
-		_ = rc.client.AddNote(rc.ticketID, fmt.Sprintf("error: [iter %d] BLOCKED: %s", rc.state.Iteration, status.Error))
+		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("error: [iter %d] BLOCKED: %s", rc.state.Iteration, status.Error))
 		rc.result.ExitReason = safety.ExitReasonBlocked
 		rc.result.Iterations = rc.state.Iteration
 		return loopReturn
@@ -282,14 +295,14 @@ func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) 
 func (l *Loop) recordPhaseProgress(rc *runContext, status *parser.ParsedStatus) {
 	if status.PhaseCompleted != "" {
 		l.log(fmt.Sprintf("Phase completed: %s", status.PhaseCompleted))
-		if err := rc.client.UpdatePhase(rc.ticketID, status.PhaseCompleted); err != nil {
+		if err := rc.source.UpdatePhase(rc.workItemID, status.PhaseCompleted); err != nil {
 			l.log(fmt.Sprintf("Warning: failed to update phase '%s': %v", status.PhaseCompleted, err))
 		}
 		rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[iter %d] Completed: %s", rc.state.Iteration, status.PhaseCompleted))
-		_ = rc.client.AddNote(rc.ticketID, fmt.Sprintf("progress: [iter %d] Completed %s", rc.state.Iteration, status.PhaseCompleted))
+		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: [iter %d] Completed %s", rc.state.Iteration, status.PhaseCompleted))
 	} else {
 		rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[iter %d] %s", rc.state.Iteration, status.Summary))
-		_ = rc.client.AddNote(rc.ticketID, fmt.Sprintf("progress: [iter %d] %s", rc.state.Iteration, status.Summary))
+		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: [iter %d] %s", rc.state.Iteration, status.Summary))
 	}
 }
 
@@ -306,19 +319,20 @@ func (l *Loop) trackFilesChanged(rc *runContext, status *parser.ParsedStatus) {
 	}
 }
 
-func (l *Loop) Run(ticketID string) (*Result, error) {
+func (l *Loop) Run(workItemID string) (*Result, error) {
 	timing.Log("Loop.Run: start")
 	startTime := time.Now()
 	ctx, cancel := context.WithCancel(context.Background())
 	l.cancelFunc = cancel
 	defer cancel()
 
-	timing.Log("Loop.Run: creating ticket client")
-	client := l.client
-	if client == nil {
-		client = ticket.NewClient()
+	timing.Log("Loop.Run: creating source")
+	src := l.source
+	if src == nil {
+		// Auto-detect source type based on workItemID
+		src, workItemID = source.Detect(workItemID)
 	}
-	timing.Log("Loop.Run: ticket client created")
+	timing.Log("Loop.Run: source created")
 
 	result := &Result{
 		ExitReason:        safety.ExitReasonComplete,
@@ -326,30 +340,30 @@ func (l *Loop) Run(ticketID string) (*Result, error) {
 	}
 	defer func() { result.Duration = time.Since(startTime) }()
 
-	timing.Log("Loop.Run: fetching ticket")
-	t, err := client.Get(ticketID)
-	timing.Log("Loop.Run: ticket fetched")
+	timing.Log("Loop.Run: fetching work item")
+	workItem, err := src.Get(workItemID)
+	timing.Log("Loop.Run: work item fetched")
 	if err != nil {
 		result.ExitReason = safety.ExitReasonError
 		return result, err
 	}
 
-	l.log(fmt.Sprintf("Starting on ticket %s: %s", ticketID, t.Title))
-	_ = client.SetStatus(ticketID, "in_progress")
+	l.log(fmt.Sprintf("Starting on %s %s: %s", src.Type(), workItemID, workItem.Title))
+	_ = src.SetStatus(workItemID, "in_progress")
 
 	rc := &runContext{
 		ctx:             ctx,
-		ticketID:        ticketID,
-		client:          client,
+		workItemID:      workItemID,
+		source:          src,
 		state:           safety.NewState(),
 		result:          result,
 		progressNotes:   nil,
 		filesChangedSet: make(map[string]struct{}),
-		t:               t,
+		workItem:        workItem,
 	}
 
 	if l.onStateChange != nil {
-		l.onStateChange(rc.state, rc.t, nil)
+		l.onStateChange(rc.state, rc.workItem, nil)
 	}
 
 	for {
@@ -361,7 +375,7 @@ func (l *Loop) Run(ticketID string) (*Result, error) {
 			return rc.result, nil
 		}
 
-		rc.t, err = rc.client.Get(rc.ticketID)
+		rc.workItem, err = rc.source.Get(rc.workItemID)
 		if err != nil {
 			rc.result.ExitReason = safety.ExitReasonError
 			return rc.result, err
@@ -379,7 +393,7 @@ func (l *Loop) Run(ticketID string) (*Result, error) {
 			checkResult := safety.Check(l.config, rc.state)
 			if checkResult.ShouldExit {
 				l.log(fmt.Sprintf("Safety exit: %s", checkResult.Reason))
-				_ = rc.client.AddNote(rc.ticketID, fmt.Sprintf("error: Safety exit after %d iters: %s", rc.state.Iteration, checkResult.Reason))
+				_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("error: Safety exit after %d iters: %s", rc.state.Iteration, checkResult.Reason))
 				rc.result.ExitReason = checkResult.Reason
 				rc.result.ExitMessage = checkResult.Message
 				rc.result.Iterations = rc.state.Iteration
@@ -388,20 +402,20 @@ func (l *Loop) Run(ticketID string) (*Result, error) {
 			}
 		}
 
-		currentPhase := rc.t.CurrentPhase()
+		currentPhase := rc.workItem.CurrentPhase()
 		l.logIterationSeparator(rc.state.Iteration, l.config.MaxIterations)
 		l.log(fmt.Sprintf("Iteration %d/%d", rc.state.Iteration, l.config.MaxIterations))
 		if currentPhase != nil {
 			l.log(fmt.Sprintf("Current phase: %s", currentPhase.Name))
 		}
 
-		promptText := prompt.Build(rc.t, rc.progressNotes)
+		promptText := prompt.Build(rc.workItem, rc.progressNotes)
 
 		l.currentState = rc.state
-		l.currentTicket = rc.t
+		l.currentWorkItem = rc.workItem
 
 		if l.onStateChange != nil {
-			l.onStateChange(rc.state, rc.t, rc.result.TotalFilesChanged)
+			l.onStateChange(rc.state, rc.workItem, rc.result.TotalFilesChanged)
 		}
 
 		l.log("Invoking Claude...")
@@ -426,7 +440,7 @@ func (l *Loop) Run(ticketID string) (*Result, error) {
 			l.log("Warning: No PROGRAMMATOR_STATUS found in output")
 			rc.state.RecordIteration(nil, "no_status_block")
 			if l.onStateChange != nil {
-				l.onStateChange(rc.state, rc.t, rc.result.TotalFilesChanged)
+				l.onStateChange(rc.state, rc.workItem, rc.result.TotalFilesChanged)
 			}
 			rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[iter %d] No status block returned", rc.state.Iteration))
 			continue
@@ -460,6 +474,12 @@ func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string
 	cmd := exec.CommandContext(timeoutCtx, "claude", args...)
 	if l.workingDir != "" {
 		cmd.Dir = l.workingDir
+	}
+
+	// Explicitly pass through environment, with CLAUDE_CONFIG_DIR if configured
+	cmd.Env = os.Environ()
+	if l.config.ClaudeConfigDir != "" {
+		cmd.Env = append(cmd.Env, "CLAUDE_CONFIG_DIR="+l.config.ClaudeConfigDir)
 	}
 
 	stdin, err := cmd.StdinPipe()
@@ -582,8 +602,8 @@ func (l *Loop) processStreamingOutput(stdout io.Reader) string {
 		case "system":
 			if event.Subtype == "init" && event.Model != "" && l.currentState != nil {
 				l.currentState.Model = event.Model
-				if l.onStateChange != nil && l.currentTicket != nil {
-					l.onStateChange(l.currentState, l.currentTicket, nil)
+				if l.onStateChange != nil && l.currentWorkItem != nil {
+					l.onStateChange(l.currentState, l.currentWorkItem, nil)
 				}
 			}
 		case "assistant":
@@ -592,8 +612,8 @@ func (l *Loop) processStreamingOutput(stdout io.Reader) string {
 					event.Message.Usage.TotalInputTokens(),
 					event.Message.Usage.OutputTokens,
 				)
-				if l.onStateChange != nil && l.currentTicket != nil {
-					l.onStateChange(l.currentState, l.currentTicket, nil)
+				if l.onStateChange != nil && l.currentWorkItem != nil {
+					l.onStateChange(l.currentState, l.currentWorkItem, nil)
 				}
 			}
 			for _, block := range event.Message.Content {
@@ -613,8 +633,8 @@ func (l *Loop) processStreamingOutput(stdout io.Reader) string {
 						usage.OutputTokens,
 					)
 				}
-				if l.onStateChange != nil && l.currentTicket != nil {
-					l.onStateChange(l.currentState, l.currentTicket, nil)
+				if l.onStateChange != nil && l.currentWorkItem != nil {
+					l.onStateChange(l.currentState, l.currentWorkItem, nil)
 				}
 			}
 			if event.Result != "" && fullOutput.Len() == 0 {
@@ -754,7 +774,7 @@ func (l *Loop) buildHookSettings() string {
 }
 
 // runReview executes the review pipeline.
-func (l *Loop) runReview(ctx context.Context, _ string, _ ticket.Client, state *safety.State, filesChanged []string) (*review.RunResult, error) {
+func (l *Loop) runReview(ctx context.Context, _ string, _ source.Source, state *safety.State, filesChanged []string) (*review.RunResult, error) {
 	state.EnterReviewPhase()
 
 	if l.reviewRunner == nil {

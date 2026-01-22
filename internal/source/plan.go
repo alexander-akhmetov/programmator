@@ -1,0 +1,78 @@
+package source
+
+import (
+	"github.com/alexander-akhmetov/programmator/internal/plan"
+)
+
+// PlanSource adapts plan files to the Source interface.
+type PlanSource struct {
+	filePath string
+}
+
+var _ Source = (*PlanSource)(nil)
+
+// NewPlanSource creates a new PlanSource for the given file path.
+func NewPlanSource(filePath string) *PlanSource {
+	return &PlanSource{filePath: filePath}
+}
+
+// Get parses the plan file and returns it as a WorkItem.
+// The id parameter is expected to be the file path.
+func (s *PlanSource) Get(_ string) (*WorkItem, error) {
+	p, err := plan.ParseFile(s.filePath)
+	if err != nil {
+		return nil, err
+	}
+	return planToWorkItem(p), nil
+}
+
+// UpdatePhase marks a task as completed in the plan file.
+func (s *PlanSource) UpdatePhase(_ string, phaseName string) error {
+	p, err := plan.ParseFile(s.filePath)
+	if err != nil {
+		return err
+	}
+
+	if err := p.MarkTaskComplete(phaseName); err != nil {
+		return err
+	}
+
+	return p.SaveFile()
+}
+
+// AddNote is a no-op for plan files.
+// Plan files don't have a notes section like tickets.
+func (s *PlanSource) AddNote(_, _ string) error {
+	return nil
+}
+
+// SetStatus is a no-op for plan files.
+// Plan files don't track status separately.
+func (s *PlanSource) SetStatus(_, _ string) error {
+	return nil
+}
+
+// Type returns "plan".
+func (s *PlanSource) Type() string {
+	return "plan"
+}
+
+// planToWorkItem converts a plan.Plan to a WorkItem.
+func planToWorkItem(p *plan.Plan) *WorkItem {
+	phases := make([]Phase, len(p.Tasks))
+	for i, t := range p.Tasks {
+		phases[i] = Phase{
+			Name:      t.Name,
+			Completed: t.Completed,
+		}
+	}
+
+	return &WorkItem{
+		ID:                 p.ID(),
+		Title:              p.Title,
+		Status:             "open", // Plans don't track status, default to open
+		Phases:             phases,
+		RawContent:         p.RawContent,
+		ValidationCommands: p.ValidationCommands,
+	}
+}

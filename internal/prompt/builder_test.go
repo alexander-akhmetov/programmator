@@ -4,23 +4,23 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/alexander-akhmetov/programmator/internal/ticket"
+	"github.com/alexander-akhmetov/programmator/internal/source"
 )
 
 func TestBuild(t *testing.T) {
 	tests := []struct {
 		name     string
-		ticket   *ticket.Ticket
+		workItem *source.WorkItem
 		notes    []string
 		wantSubs []string
 	}{
 		{
 			name: "basic prompt with current phase",
-			ticket: &ticket.Ticket{
+			workItem: &source.WorkItem{
 				ID:         "t-123",
 				Title:      "Test Ticket",
 				RawContent: "Ticket body content",
-				Phases: []ticket.Phase{
+				Phases: []source.Phase{
 					{Name: "Phase 1", Completed: true},
 					{Name: "Phase 2", Completed: false},
 				},
@@ -36,11 +36,11 @@ func TestBuild(t *testing.T) {
 		},
 		{
 			name: "prompt with notes",
-			ticket: &ticket.Ticket{
+			workItem: &source.WorkItem{
 				ID:         "t-456",
 				Title:      "Another Ticket",
 				RawContent: "Body here",
-				Phases: []ticket.Phase{
+				Phases: []source.Phase{
 					{Name: "Phase 1", Completed: false},
 				},
 			},
@@ -57,11 +57,11 @@ func TestBuild(t *testing.T) {
 		},
 		{
 			name: "all phases complete",
-			ticket: &ticket.Ticket{
+			workItem: &source.WorkItem{
 				ID:         "t-789",
 				Title:      "Done Ticket",
 				RawContent: "All done",
-				Phases: []ticket.Phase{
+				Phases: []source.Phase{
 					{Name: "Phase 1", Completed: true},
 					{Name: "Phase 2", Completed: true},
 				},
@@ -74,7 +74,7 @@ func TestBuild(t *testing.T) {
 		},
 		{
 			name: "no phases",
-			ticket: &ticket.Ticket{
+			workItem: &source.WorkItem{
 				ID:         "t-000",
 				Title:      "No Phases",
 				RawContent: "Empty",
@@ -89,7 +89,7 @@ func TestBuild(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := Build(tt.ticket, tt.notes)
+			got := Build(tt.workItem, tt.notes)
 			for _, sub := range tt.wantSubs {
 				if !strings.Contains(got, sub) {
 					t.Errorf("Build() missing substring %q\n\nGot:\n%s", sub, got)
@@ -102,7 +102,7 @@ func TestBuild(t *testing.T) {
 func TestBuildPhaseList(t *testing.T) {
 	tests := []struct {
 		name   string
-		phases []ticket.Phase
+		phases []source.Phase
 		want   string
 	}{
 		{
@@ -112,7 +112,7 @@ func TestBuildPhaseList(t *testing.T) {
 		},
 		{
 			name: "mixed phases",
-			phases: []ticket.Phase{
+			phases: []source.Phase{
 				{Name: "Phase 1", Completed: true},
 				{Name: "Phase 2", Completed: false},
 				{Name: "Phase 3", Completed: true},
@@ -121,7 +121,7 @@ func TestBuildPhaseList(t *testing.T) {
 		},
 		{
 			name: "all incomplete",
-			phases: []ticket.Phase{
+			phases: []source.Phase{
 				{Name: "First", Completed: false},
 				{Name: "Second", Completed: false},
 			},

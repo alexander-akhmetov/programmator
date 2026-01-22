@@ -9,7 +9,7 @@ import (
 
 	"github.com/alexander-akhmetov/programmator/internal/loop"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
-	"github.com/alexander-akhmetov/programmator/internal/ticket"
+	"github.com/alexander-akhmetov/programmator/internal/source"
 )
 
 func TestNewModel(t *testing.T) {
@@ -117,7 +117,7 @@ func TestModelUpdateKeyMsgs(t *testing.T) {
 func TestModelUpdateTicketMsg(t *testing.T) {
 	model := NewModel(safety.Config{})
 
-	testTicket := &ticket.Ticket{
+	testWorkItem := &source.WorkItem{
 		ID:    "test-123",
 		Title: "Test Ticket",
 	}
@@ -125,7 +125,7 @@ func TestModelUpdateTicketMsg(t *testing.T) {
 	testState.Iteration = 5
 
 	msg := TicketUpdateMsg{
-		Ticket:       testTicket,
+		WorkItem:     testWorkItem,
 		State:        testState,
 		FilesChanged: []string{"file1.go", "file2.go"},
 	}
@@ -133,8 +133,8 @@ func TestModelUpdateTicketMsg(t *testing.T) {
 	updatedModel, _ := model.Update(msg)
 	m := updatedModel.(Model)
 
-	if m.ticket != testTicket {
-		t.Error("ticket should be updated")
+	if m.workItem != testWorkItem {
+		t.Error("workItem should be updated")
 	}
 	if m.state != testState {
 		t.Error("state should be updated")
@@ -255,10 +255,10 @@ func TestModelRenderSidebar(t *testing.T) {
 
 func TestModelRenderSidebarWithTicket(t *testing.T) {
 	model := NewModel(safety.Config{MaxIterations: 10, StagnationLimit: 3})
-	model.ticket = &ticket.Ticket{
+	model.workItem = &source.WorkItem{
 		ID:    "t-123",
 		Title: "Test Ticket Title",
-		Phases: []ticket.Phase{
+		Phases: []source.Phase{
 			{Name: "Phase 1", Completed: true},
 			{Name: "Phase 2", Completed: false},
 		},
@@ -443,7 +443,7 @@ func TestModelRenderSidebarWithResult(t *testing.T) {
 
 func TestModelRenderSidebarTruncatedTitle(t *testing.T) {
 	model := NewModel(safety.Config{MaxIterations: 10, StagnationLimit: 3})
-	model.ticket = &ticket.Ticket{
+	model.workItem = &source.WorkItem{
 		ID:    "t-123",
 		Title: "This is a very long ticket title that should be truncated because it exceeds 50 characters",
 	}
@@ -455,10 +455,10 @@ func TestModelRenderSidebarTruncatedTitle(t *testing.T) {
 
 func TestModelRenderSidebarAllPhasesComplete(t *testing.T) {
 	model := NewModel(safety.Config{MaxIterations: 10, StagnationLimit: 3})
-	model.ticket = &ticket.Ticket{
+	model.workItem = &source.WorkItem{
 		ID:    "t-123",
 		Title: "Test Ticket",
-		Phases: []ticket.Phase{
+		Phases: []source.Phase{
 			{Name: "Phase 1", Completed: true},
 			{Name: "Phase 2", Completed: true},
 		},
@@ -540,10 +540,10 @@ func TestModelViewWithLogs(t *testing.T) {
 	model.height = 40
 	model.ready = true
 	model.logs = []string{"Log line 1\n", "Log line 2\n"}
-	model.ticket = &ticket.Ticket{
+	model.workItem = &source.WorkItem{
 		ID:    "t-123",
 		Title: "Test",
-		Phases: []ticket.Phase{
+		Phases: []source.Phase{
 			{Name: "Phase 1", Completed: false},
 		},
 	}

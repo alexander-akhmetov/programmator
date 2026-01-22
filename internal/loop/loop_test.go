@@ -3,6 +3,7 @@ package loop
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -12,7 +13,7 @@ import (
 	"github.com/alexander-akhmetov/programmator/internal/parser"
 	"github.com/alexander-akhmetov/programmator/internal/review"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
-	"github.com/alexander-akhmetov/programmator/internal/ticket"
+	"github.com/alexander-akhmetov/programmator/internal/source"
 )
 
 func TestNewLoop(t *testing.T) {
@@ -173,12 +174,12 @@ func TestResultFilesChangedList(t *testing.T) {
 func TestStateCallback(t *testing.T) {
 	var callbackCalled bool
 	var receivedState *safety.State
-	var receivedTicket *ticket.Ticket
+	var receivedWorkItem *source.WorkItem
 
-	stateCallback := func(state *safety.State, tk *ticket.Ticket, _ []string) {
+	stateCallback := func(state *safety.State, workItem *source.WorkItem, _ []string) {
 		callbackCalled = true
 		receivedState = state
-		receivedTicket = tk
+		receivedWorkItem = workItem
 	}
 
 	config := safety.Config{}
@@ -189,9 +190,9 @@ func TestStateCallback(t *testing.T) {
 	}
 
 	testState := safety.NewState()
-	testTicket := &ticket.Ticket{ID: "test-123"}
+	testWorkItem := &source.WorkItem{ID: "test-123"}
 
-	l.onStateChange(testState, testTicket, nil)
+	l.onStateChange(testState, testWorkItem, nil)
 
 	if !callbackCalled {
 		t.Error("state callback should have been called")
@@ -199,8 +200,8 @@ func TestStateCallback(t *testing.T) {
 	if receivedState != testState {
 		t.Error("received state doesn't match")
 	}
-	if receivedTicket != testTicket {
-		t.Error("received ticket doesn't match")
+	if receivedWorkItem != testWorkItem {
+		t.Error("received work item doesn't match")
 	}
 }
 
@@ -321,12 +322,12 @@ func TestResultWithFinalStatus(t *testing.T) {
 }
 
 func TestRunAllPhasesCompleteAtStart(t *testing.T) {
-	mock := ticket.NewMockClient()
-	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
-		return &ticket.Ticket{
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+		return &source.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []ticket.Phase{
+			Phases: []source.Phase{
 				{Name: "Phase 1", Completed: true},
 				{Name: "Phase 2", Completed: true},
 			},
@@ -334,7 +335,7 @@ func TestRunAllPhasesCompleteAtStart(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithClient(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, nil, false, mock)
 
 	result, err := l.Run("test-123")
 
@@ -345,13 +346,13 @@ func TestRunAllPhasesCompleteAtStart(t *testing.T) {
 }
 
 func TestRunGetTicketError(t *testing.T) {
-	mock := ticket.NewMockClient()
-	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
 		return nil, fmt.Errorf("ticket not found")
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithClient(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, nil, false, mock)
 
 	result, err := l.Run("nonexistent")
 
@@ -360,19 +361,19 @@ func TestRunGetTicketError(t *testing.T) {
 }
 
 func TestRunStopRequested(t *testing.T) {
-	mock := ticket.NewMockClient()
-	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
-		return &ticket.Ticket{
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+		return &source.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []ticket.Phase{
+			Phases: []source.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithClient(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, nil, false, mock)
 
 	l.Stop()
 
@@ -383,53 +384,53 @@ func TestRunStopRequested(t *testing.T) {
 }
 
 func TestRunStateCallbackCalled(t *testing.T) {
-	mock := ticket.NewMockClient()
-	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
-		return &ticket.Ticket{
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+		return &source.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []ticket.Phase{
+			Phases: []source.Phase{
 				{Name: "Phase 1", Completed: true},
 			},
 		}, nil
 	}
 
 	var callbackInvoked bool
-	stateCallback := func(_ *safety.State, tkt *ticket.Ticket, _ []string) {
+	stateCallback := func(_ *safety.State, tkt *source.WorkItem, _ []string) {
 		callbackInvoked = true
 		require.Equal(t, "test-123", tkt.ID)
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithClient(config, "", nil, stateCallback, false, mock)
+	l := NewWithSource(config, "", nil, stateCallback, false, mock)
 
 	_, err := l.Run("test-123")
 	require.NoError(t, err)
 	require.True(t, callbackInvoked, "state callback should have been called")
 }
 
-func TestNewWithClientNil(t *testing.T) {
+func TestNewWithSourceNil(t *testing.T) {
 	config := safety.Config{MaxIterations: 10}
-	l := NewWithClient(config, "/tmp", nil, nil, false, nil)
+	l := NewWithSource(config, "/tmp", nil, nil, false, nil)
 
 	require.NotNil(t, l)
-	require.Nil(t, l.client)
+	require.Nil(t, l.source)
 }
 
 func TestRunWithMockInvokerDone(t *testing.T) {
-	mock := ticket.NewMockClient()
-	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
-		return &ticket.Ticket{
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+		return &source.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []ticket.Phase{
+			Phases: []source.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithClient(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, nil, false, mock)
 
 	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
 		return `Some output
@@ -451,19 +452,19 @@ PROGRAMMATOR_STATUS:
 }
 
 func TestRunWithMockInvokerBlocked(t *testing.T) {
-	mock := ticket.NewMockClient()
-	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
-		return &ticket.Ticket{
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+		return &source.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []ticket.Phase{
+			Phases: []source.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithClient(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, nil, false, mock)
 
 	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
@@ -482,30 +483,30 @@ func TestRunWithMockInvokerBlocked(t *testing.T) {
 }
 
 func TestRunWithMockInvokerNoStatus(t *testing.T) {
-	mock := ticket.NewMockClient()
+	mock := source.NewMockSource()
 	callCount := 0
-	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
 		callCount++
 		if callCount >= 4 {
-			return &ticket.Ticket{
+			return &source.WorkItem{
 				ID:    "test-123",
 				Title: "Test Ticket",
-				Phases: []ticket.Phase{
+				Phases: []source.Phase{
 					{Name: "Phase 1", Completed: true},
 				},
 			}, nil
 		}
-		return &ticket.Ticket{
+		return &source.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []ticket.Phase{
+			Phases: []source.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 5, Timeout: 60}
-	l := NewWithClient(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, nil, false, mock)
 
 	invokeCount := 0
 	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
@@ -521,19 +522,19 @@ func TestRunWithMockInvokerNoStatus(t *testing.T) {
 }
 
 func TestRunWithMockInvokerError(t *testing.T) {
-	mock := ticket.NewMockClient()
-	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
-		return &ticket.Ticket{
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+		return &source.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []ticket.Phase{
+			Phases: []source.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithClient(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, nil, false, mock)
 
 	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
 		return "", fmt.Errorf("claude error")
@@ -546,19 +547,19 @@ func TestRunWithMockInvokerError(t *testing.T) {
 }
 
 func TestRunMaxIterations(t *testing.T) {
-	mock := ticket.NewMockClient()
-	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
-		return &ticket.Ticket{
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+		return &source.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []ticket.Phase{
+			Phases: []source.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
 	}
 
 	config := safety.Config{MaxIterations: 3, StagnationLimit: 10, Timeout: 60}
-	l := NewWithClient(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, nil, false, mock)
 
 	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
@@ -577,19 +578,19 @@ func TestRunMaxIterations(t *testing.T) {
 }
 
 func TestRunStagnation(t *testing.T) {
-	mock := ticket.NewMockClient()
-	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
-		return &ticket.Ticket{
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+		return &source.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []ticket.Phase{
+			Phases: []source.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 2, Timeout: 60}
-	l := NewWithClient(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, nil, false, mock)
 
 	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
@@ -607,20 +608,20 @@ func TestRunStagnation(t *testing.T) {
 }
 
 func TestRunFilesChanged(t *testing.T) {
-	mock := ticket.NewMockClient()
+	mock := source.NewMockSource()
 	invocation := 0
-	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
-		return &ticket.Ticket{
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+		return &source.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []ticket.Phase{
+			Phases: []source.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
 	}
 
 	config := safety.Config{MaxIterations: 3, StagnationLimit: 10, Timeout: 60}
-	l := NewWithClient(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, nil, false, mock)
 
 	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
 		invocation++
@@ -643,24 +644,24 @@ func TestRunFilesChanged(t *testing.T) {
 }
 
 func TestRunGetTicketErrorDuringLoop(t *testing.T) {
-	mock := ticket.NewMockClient()
+	mock := source.NewMockSource()
 	callCount := 0
-	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
 		callCount++
 		if callCount > 1 {
 			return nil, fmt.Errorf("ticket fetch error")
 		}
-		return &ticket.Ticket{
+		return &source.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []ticket.Phase{
+			Phases: []source.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithClient(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, nil, false, mock)
 
 	result, err := l.Run("test-123")
 
@@ -682,19 +683,19 @@ func TestSetClaudeInvoker(t *testing.T) {
 }
 
 func TestRunParseError(t *testing.T) {
-	mock := ticket.NewMockClient()
-	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
-		return &ticket.Ticket{
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+		return &source.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []ticket.Phase{
+			Phases: []source.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithClient(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, nil, false, mock)
 
 	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
@@ -709,19 +710,19 @@ func TestRunParseError(t *testing.T) {
 }
 
 func TestRunContextCancellation(t *testing.T) {
-	mock := ticket.NewMockClient()
-	mock.GetFunc = func(_ string) (*ticket.Ticket, error) {
-		return &ticket.Ticket{
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+		return &source.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []ticket.Phase{
+			Phases: []source.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithClient(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, nil, false, mock)
 
 	invocations := 0
 	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
@@ -1199,7 +1200,7 @@ func TestRunReviewOnlyStateCallback(t *testing.T) {
 	var callbackInvoked bool
 	var lastState *safety.State
 
-	stateCallback := func(state *safety.State, _ *ticket.Ticket, _ []string) {
+	stateCallback := func(state *safety.State, _ *source.WorkItem, _ []string) {
 		callbackInvoked = true
 		lastState = state
 	}
@@ -1318,4 +1319,54 @@ func TestSetReviewOnly(t *testing.T) {
 
 	l.SetReviewOnly(true)
 	require.True(t, l.reviewOnly)
+}
+
+func TestRunWithPlanSource_UpdatesCheckboxes(t *testing.T) {
+	// Integration test: verifies that completing a phase updates the plan file on disk
+	tmpDir := t.TempDir()
+	planPath := tmpDir + "/test-plan.md"
+	content := `# Plan: Integration Test
+
+## Tasks
+- [ ] Task 1: First task
+- [ ] Task 2: Second task
+`
+	err := os.WriteFile(planPath, []byte(content), 0644)
+	require.NoError(t, err)
+
+	planSource := source.NewPlanSource(planPath)
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := NewWithSource(config, tmpDir, nil, nil, false, planSource)
+
+	// Mock Claude to complete first task, then second task
+	invocation := 0
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		invocation++
+		if invocation == 1 {
+			return `PROGRAMMATOR_STATUS:
+  phase_completed: "Task 1: First task"
+  status: CONTINUE
+  files_changed: ["file1.go"]
+  summary: "Completed first task"
+`, nil
+		}
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: "Task 2: Second task"
+  status: DONE
+  files_changed: ["file2.go"]
+  summary: "Completed second task"
+`, nil
+	})
+
+	result, err := l.Run(planPath)
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	require.Equal(t, 2, result.Iterations)
+
+	// Verify the plan file was updated on disk
+	savedContent, err := os.ReadFile(planPath)
+	require.NoError(t, err)
+
+	require.Contains(t, string(savedContent), "- [x] Task 1: First task")
+	require.Contains(t, string(savedContent), "- [x] Task 2: Second task")
 }

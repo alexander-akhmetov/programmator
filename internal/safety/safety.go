@@ -32,6 +32,7 @@ type Config struct {
 	StagnationLimit     int
 	Timeout             int
 	ClaudeFlags         string
+	ClaudeConfigDir     string
 	MaxReviewIterations int
 }
 
@@ -64,6 +65,10 @@ func ConfigFromEnv() Config {
 
 	if v := os.Getenv("PROGRAMMATOR_CLAUDE_FLAGS"); v != "" {
 		cfg.ClaudeFlags = v
+	}
+
+	if v := os.Getenv("CLAUDE_CONFIG_DIR"); v != "" {
+		cfg.ClaudeConfigDir = v
 	}
 
 	if v := os.Getenv("PROGRAMMATOR_MAX_REVIEW_ITERATIONS"); v != "" {

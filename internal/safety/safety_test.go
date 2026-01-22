@@ -21,6 +21,9 @@ func TestConfigFromEnv_Defaults(t *testing.T) {
 	if cfg.ClaudeFlags != "" {
 		t.Errorf("ClaudeFlags = %q, want %q", cfg.ClaudeFlags, "")
 	}
+	if cfg.ClaudeConfigDir != "" {
+		t.Errorf("ClaudeConfigDir = %q, want %q", cfg.ClaudeConfigDir, "")
+	}
 }
 
 func TestConfigFromEnv_CustomValues(t *testing.T) {
@@ -28,6 +31,7 @@ func TestConfigFromEnv_CustomValues(t *testing.T) {
 	os.Setenv("PROGRAMMATOR_STAGNATION_LIMIT", "5")
 	os.Setenv("PROGRAMMATOR_TIMEOUT", "1800")
 	os.Setenv("PROGRAMMATOR_CLAUDE_FLAGS", "--verbose")
+	os.Setenv("CLAUDE_CONFIG_DIR", "/home/user/.claude-personal")
 	defer os.Clearenv()
 
 	cfg := ConfigFromEnv()
@@ -43,6 +47,9 @@ func TestConfigFromEnv_CustomValues(t *testing.T) {
 	}
 	if cfg.ClaudeFlags != "--verbose" {
 		t.Errorf("ClaudeFlags = %q, want %q", cfg.ClaudeFlags, "--verbose")
+	}
+	if cfg.ClaudeConfigDir != "/home/user/.claude-personal" {
+		t.Errorf("ClaudeConfigDir = %q, want %q", cfg.ClaudeConfigDir, "/home/user/.claude-personal")
 	}
 }
 

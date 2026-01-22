@@ -21,7 +21,7 @@ import (
 	"github.com/alexander-akhmetov/programmator/internal/loop"
 	"github.com/alexander-akhmetov/programmator/internal/permission"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
-	"github.com/alexander-akhmetov/programmator/internal/ticket"
+	"github.com/alexander-akhmetov/programmator/internal/source"
 	"github.com/alexander-akhmetov/programmator/internal/timing"
 )
 
@@ -80,7 +80,7 @@ const (
 )
 
 type Model struct {
-	ticket           *ticket.Ticket
+	workItem         *source.WorkItem
 	state            *safety.State
 	config           safety.Config
 	filesChanged     []string
@@ -118,7 +118,7 @@ func NewModel(config safety.Config) Model {
 }
 
 type TicketUpdateMsg struct {
-	Ticket       *ticket.Ticket
+	WorkItem     *source.WorkItem
 	State        *safety.State
 	FilesChanged []string
 }
@@ -245,7 +245,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.logViewport.SetContent(m.wrapLogs())
 
 	case TicketUpdateMsg:
-		m.ticket = msg.Ticket
+		m.workItem = msg.WorkItem
 		m.state = msg.State
 		m.filesChanged = msg.FilesChanged
 
@@ -422,10 +422,10 @@ func (m Model) renderSidebar(width int, height int) string {
 	// Ticket section
 	b.WriteString(sectionHeader("Ticket", width))
 	b.WriteString("\n")
-	if m.ticket != nil {
-		b.WriteString(valueStyle.Render(m.ticket.ID))
+	if m.workItem != nil {
+		b.WriteString(valueStyle.Render(m.workItem.ID))
 		b.WriteString("\n")
-		wrappedTitle := wrapText(m.ticket.Title, width, "", 2)
+		wrappedTitle := wrapText(m.workItem.Title, width, "", 2)
 		b.WriteString(labelStyle.Render(wrappedTitle))
 		b.WriteString("\n")
 	} else {
@@ -434,7 +434,7 @@ func (m Model) renderSidebar(width int, height int) string {
 	}
 
 	// Environment section
-	if m.workingDir != "" || m.gitBranch != "" {
+	if m.workingDir != "" || m.gitBranch != "" || m.config.ClaudeConfigDir != "" {
 		b.WriteString("\n")
 		b.WriteString(sectionHeader("Environment", width))
 		b.WriteString("\n")
@@ -450,6 +450,11 @@ func (m Model) renderSidebar(width int, height int) string {
 				branchStr += " *"
 			}
 			b.WriteString(valueStyle.Render(branchStr))
+			b.WriteString("\n")
+		}
+		if m.config.ClaudeConfigDir != "" {
+			b.WriteString(labelStyle.Render("Claude: "))
+			b.WriteString(valueStyle.Render(abbreviatePath(m.config.ClaudeConfigDir)))
 			b.WriteString("\n")
 		}
 	}
@@ -505,7 +510,7 @@ func (m Model) renderSidebar(width int, height int) string {
 	}
 
 	// Phases section
-	if m.ticket != nil && len(m.ticket.Phases) > 0 {
+	if m.workItem != nil && len(m.workItem.Phases) > 0 {
 		b.WriteString("\n")
 		b.WriteString(sectionHeader("Phases", width))
 		b.WriteString("\n")
@@ -530,9 +535,9 @@ func (m Model) renderSidebar(width int, height int) string {
 func (m Model) renderPhasesContent(width int, height int) string {
 	var b strings.Builder
 
-	currentPhase := m.ticket.CurrentPhase()
+	currentPhase := m.workItem.CurrentPhase()
 	currentIdx := -1
-	for i, phase := range m.ticket.Phases {
+	for i, phase := range m.workItem.Phases {
 		if currentPhase != nil && phase.Name == currentPhase.Name {
 			currentIdx = i
 			break
@@ -544,11 +549,11 @@ func (m Model) renderPhasesContent(width int, height int) string {
 	contextSize := max(2, (availableForPhases-2)/2)
 
 	showFrom := 0
-	showTo := len(m.ticket.Phases) - 1
+	showTo := len(m.workItem.Phases) - 1
 
-	if len(m.ticket.Phases) > availableForPhases && currentIdx >= 0 {
+	if len(m.workItem.Phases) > availableForPhases && currentIdx >= 0 {
 		showFrom = max(0, currentIdx-contextSize)
-		showTo = min(len(m.ticket.Phases)-1, currentIdx+contextSize)
+		showTo = min(len(m.workItem.Phases)-1, currentIdx+contextSize)
 	}
 
 	if showFrom > 0 {
@@ -557,7 +562,7 @@ func (m Model) renderPhasesContent(width int, height int) string {
 
 	phaseWidth := width - 4
 	for i := showFrom; i <= showTo; i++ {
-		phase := m.ticket.Phases[i]
+		phase := m.workItem.Phases[i]
 		wrappedName := wrapText(phase.Name, phaseWidth, "    ", 2)
 		if phase.Completed {
 			b.WriteString(runningStyle.Render("  ✓ "))
@@ -572,8 +577,8 @@ func (m Model) renderPhasesContent(width int, height int) string {
 		b.WriteString("\n")
 	}
 
-	if showTo < len(m.ticket.Phases)-1 {
-		b.WriteString(labelStyle.Render(fmt.Sprintf("  ↓ %d more\n", len(m.ticket.Phases)-1-showTo)))
+	if showTo < len(m.workItem.Phases)-1 {
+		b.WriteString(labelStyle.Render(fmt.Sprintf("  ↓ %d more\n", len(m.workItem.Phases)-1-showTo)))
 	}
 
 	return b.String()
@@ -806,10 +811,10 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 			default:
 			}
 		},
-		func(state *safety.State, tkt *ticket.Ticket, filesChanged []string) {
+		func(state *safety.State, workItem *source.WorkItem, filesChanged []string) {
 			select {
 			case stateChan <- TicketUpdateMsg{
-				Ticket:       tkt,
+				WorkItem:     workItem,
 				State:        state,
 				FilesChanged: filesChanged,
 			}:
