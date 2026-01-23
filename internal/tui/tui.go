@@ -77,6 +77,9 @@ var (
 	toolStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241"))
 
+	toolResStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("245"))
+
 	diffAddStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("42"))
 
@@ -721,6 +724,10 @@ func (m Model) wrapLogs() string {
 			msg := strings.TrimPrefix(line, "[TOOL]")
 			styled := toolStyle.Render("> " + msg)
 			processed = append(processed, styled)
+		} else if strings.HasPrefix(line, "[TOOLRES]") {
+			flushMarkdown()
+			msg := strings.TrimPrefix(line, "[TOOLRES]")
+			processed = append(processed, toolResStyle.Render(msg))
 		} else if strings.HasPrefix(line, "[DIFF+]") {
 			flushMarkdown()
 			msg := strings.TrimPrefix(line, "[DIFF+]")

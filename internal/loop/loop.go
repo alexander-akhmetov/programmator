@@ -594,6 +594,7 @@ func (l *Loop) processStreamingOutput(stdout io.Reader) string {
 	var fullOutput strings.Builder
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	processedBlockIDs := make(map[string]bool)
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -613,9 +614,9 @@ func (l *Loop) processStreamingOutput(stdout io.Reader) string {
 		case "system":
 			l.handleSystemEvent(&event)
 		case "assistant":
-			l.handleAssistantEvent(&event, &fullOutput)
+			l.handleAssistantEvent(&event, &fullOutput, processedBlockIDs)
 		case "user":
-			debug.Logf("stream: user event (tool result?)")
+			l.handleUserEvent(&event)
 		case "result":
 			l.handleResultEvent(&event, &fullOutput)
 		default:
@@ -633,7 +634,82 @@ func (l *Loop) handleSystemEvent(event *streamEvent) {
 	}
 }
 
-func (l *Loop) handleAssistantEvent(event *streamEvent, fullOutput *strings.Builder) {
+func (l *Loop) handleUserEvent(event *streamEvent) {
+	if l.onOutput == nil || event.ToolName == "" {
+		return
+	}
+
+	// Format tool result summary like Claude Code
+	summary := l.formatToolResultSummary(event.ToolName, event.ToolResult)
+	if summary != "" {
+		l.onOutput(fmt.Sprintf("[TOOLRES]  ⎿  %s\n", summary))
+	}
+}
+
+func (l *Loop) formatToolResultSummary(toolName, result string) string {
+	if result == "" {
+		return ""
+	}
+
+	lines := strings.Split(result, "\n")
+	lineCount := len(lines)
+	if lineCount > 0 && lines[lineCount-1] == "" {
+		lineCount--
+	}
+
+	switch toolName {
+	case "Read":
+		return fmt.Sprintf("Read %d lines", lineCount)
+	case "Glob":
+		// Count non-empty lines as files found
+		fileCount := 0
+		for _, line := range lines {
+			if strings.TrimSpace(line) != "" {
+				fileCount++
+			}
+		}
+		if fileCount == 0 {
+			return "No files found"
+		}
+		return fmt.Sprintf("Found %d files", fileCount)
+	case "Grep":
+		// Count matches
+		matchCount := 0
+		for _, line := range lines {
+			if strings.TrimSpace(line) != "" {
+				matchCount++
+			}
+		}
+		if matchCount == 0 {
+			return "No matches found"
+		}
+		return fmt.Sprintf("Found %d matches", matchCount)
+	case "Bash":
+		// Show first line of output or line count
+		if lineCount == 0 {
+			return "(no output)"
+		}
+		firstLine := strings.TrimSpace(lines[0])
+		if len(firstLine) > 60 {
+			firstLine = firstLine[:57] + "..."
+		}
+		if lineCount == 1 {
+			return firstLine
+		}
+		return fmt.Sprintf("%s (+%d more lines)", firstLine, lineCount-1)
+	case "Write":
+		return "File written"
+	case "Edit":
+		return "File updated"
+	default:
+		if lineCount <= 1 {
+			return strings.TrimSpace(result)
+		}
+		return fmt.Sprintf("%d lines", lineCount)
+	}
+}
+
+func (l *Loop) handleAssistantEvent(event *streamEvent, fullOutput *strings.Builder, processedBlockIDs map[string]bool) {
 	if l.currentState != nil {
 		l.currentState.SetCurrentIterTokens(
 			event.Message.Usage.TotalInputTokens(),
@@ -643,8 +719,8 @@ func (l *Loop) handleAssistantEvent(event *streamEvent, fullOutput *strings.Buil
 	}
 
 	for _, block := range event.Message.Content {
-		debug.Logf("stream: assistant block type=%s name=%s", block.Type, block.Name)
-		l.handleContentBlock(&block, fullOutput)
+		debug.Logf("stream: assistant block type=%s name=%s id=%s", block.Type, block.Name, block.ID)
+		l.handleContentBlock(&block, fullOutput, processedBlockIDs)
 	}
 }
 
@@ -654,13 +730,20 @@ func (l *Loop) handleContentBlock(block *struct {
 	Name  string `json:"name,omitempty"`
 	Input any    `json:"input,omitempty"`
 	ID    string `json:"id,omitempty"`
-}, fullOutput *strings.Builder) {
+}, fullOutput *strings.Builder, processedBlockIDs map[string]bool) {
 	if block.Type == "text" && block.Text != "" {
 		fullOutput.WriteString(block.Text)
 		if l.onOutput != nil {
 			l.onOutput(block.Text)
 		}
 	} else if block.Type == "tool_use" && block.Name != "" {
+		// Skip blocks we've already processed (streaming sends cumulative content)
+		if block.ID != "" && processedBlockIDs[block.ID] {
+			return
+		}
+		if block.ID != "" {
+			processedBlockIDs[block.ID] = true
+		}
 		l.outputToolUse(block.Name, block.Input)
 	}
 }
@@ -689,29 +772,65 @@ func (l *Loop) outputEditDiff(input map[string]any) {
 		return
 	}
 
-	// Generate unified diff
+	// Count lines changed
+	oldLines := strings.Count(oldStr, "\n")
+	newLines := strings.Count(newStr, "\n")
+	if !strings.HasSuffix(oldStr, "\n") && oldStr != "" {
+		oldLines++
+	}
+	if !strings.HasSuffix(newStr, "\n") && newStr != "" {
+		newLines++
+	}
+
+	// Build summary like Claude Code: "Added X lines, removed Y lines"
+	var parts []string
+	added := newLines - oldLines
+	if added > 0 {
+		parts = append(parts, fmt.Sprintf("Added %d line", added))
+		if added > 1 {
+			parts[len(parts)-1] += "s"
+		}
+	}
+	removed := oldLines - newLines
+	if removed > 0 {
+		parts = append(parts, fmt.Sprintf("removed %d line", removed))
+		if removed > 1 {
+			parts[len(parts)-1] += "s"
+		}
+	}
+	if added == 0 && removed == 0 && oldStr != newStr {
+		parts = append(parts, fmt.Sprintf("Modified %d line", oldLines))
+		if oldLines > 1 {
+			parts[len(parts)-1] += "s"
+		}
+	}
+
+	if len(parts) > 0 {
+		l.onOutput(fmt.Sprintf("[DIFF@]  ⎿  %s\n", strings.Join(parts, ", ")))
+	}
+
+	// Generate unified diff for the actual changes
 	diff := udiff.Unified("old", "new", oldStr, newStr)
 	if diff == "" {
 		return
 	}
 
-	// Output each line with appropriate marker for TUI styling
+	// Output only the changed lines (skip headers, hunks, and context)
 	for line := range strings.SplitSeq(diff, "\n") {
 		if line == "" {
 			continue
 		}
 		switch {
-		case strings.HasPrefix(line, "---"), strings.HasPrefix(line, "+++"):
-			// Skip file headers
+		case strings.HasPrefix(line, "---"), strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "@@"):
+			// Skip file headers and hunk markers
 			continue
-		case strings.HasPrefix(line, "@@"):
-			l.onOutput(fmt.Sprintf("[DIFF@]%s\n", line))
 		case strings.HasPrefix(line, "-"):
-			l.onOutput(fmt.Sprintf("[DIFF-]%s\n", line))
+			l.onOutput(fmt.Sprintf("[DIFF-]      %s\n", line))
 		case strings.HasPrefix(line, "+"):
-			l.onOutput(fmt.Sprintf("[DIFF+]%s\n", line))
+			l.onOutput(fmt.Sprintf("[DIFF+]      %s\n", line))
 		default:
-			l.onOutput(fmt.Sprintf("[DIFF ]%s\n", line))
+			// Context lines - show them dimmed for context
+			l.onOutput(fmt.Sprintf("[DIFF ]      %s\n", line))
 		}
 	}
 }
