@@ -18,6 +18,7 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/alexander-akhmetov/programmator/internal/debug"
 	"github.com/alexander-akhmetov/programmator/internal/loop"
 	"github.com/alexander-akhmetov/programmator/internal/permission"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
@@ -72,6 +73,21 @@ var (
 	dangerStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("196")).
 			Bold(true)
+
+	toolStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("241"))
+
+	diffAddStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("42"))
+
+	diffDelStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("196"))
+
+	diffHunkStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("117"))
+
+	diffCtxStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("241"))
 )
 
 type runState int
@@ -215,6 +231,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKeyMsg(msg)
 
 	case PermissionRequestMsg:
+		debug.Logf("tui: received permission request for tool=%s", msg.Request.ToolName)
 		m.permissionDialog = NewPermissionDialog(msg.Request, msg.ResponseChan)
 		return m, nil
 
@@ -384,28 +401,30 @@ func sectionHeader(title string, width int) string {
 func (m Model) renderSidebar(width int, height int) string {
 	var b strings.Builder
 
-	// Title and state
+	b.WriteString(m.renderSidebarHeader(width))
+	b.WriteString(m.renderSidebarTicket(width))
+	b.WriteString(m.renderSidebarEnvironment(width))
+	b.WriteString(m.renderSidebarProgress(width))
+	b.WriteString(m.renderSidebarUsage(width))
+	b.WriteString(m.renderSidebarPhases(width, height))
+	b.WriteString(m.renderSidebarFooter())
+
+	return b.String()
+}
+
+func (m Model) renderSidebarHeader(width int) string {
+	var b strings.Builder
+
 	b.WriteString(titleStyle.Render("⚡ PROGRAMMATOR"))
 	b.WriteString("\n")
 
-	// Warning banner if running with dangerous permissions
 	if strings.Contains(m.config.ClaudeFlags, "--dangerously-skip-permissions") {
 		b.WriteString(dangerStyle.Render("⚠ SKIP PERMISSIONS"))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
 
-	var stateIndicator string
-	switch m.runState {
-	case stateRunning:
-		stateIndicator = runningStyle.Render(m.spinner.View() + " Running")
-	case statePaused:
-		stateIndicator = pausedStyle.Render("⏸ PAUSED")
-	case stateStopped:
-		stateIndicator = stoppedStyle.Render("⏹ STOPPED")
-	case stateComplete:
-		stateIndicator = runningStyle.Render("✓ COMPLETE")
-	}
+	stateIndicator := m.getStateIndicator()
 
 	if m.state != nil && !m.state.StartTime.IsZero() {
 		elapsed := formatDuration(time.Since(m.state.StartTime))
@@ -430,7 +449,27 @@ func (m Model) renderSidebar(width int, height int) string {
 	}
 	b.WriteString("\n")
 
-	// Ticket section
+	return b.String()
+}
+
+func (m Model) getStateIndicator() string {
+	switch m.runState {
+	case stateRunning:
+		return runningStyle.Render(m.spinner.View() + " Running")
+	case statePaused:
+		return pausedStyle.Render("⏸ PAUSED")
+	case stateStopped:
+		return stoppedStyle.Render("⏹ STOPPED")
+	case stateComplete:
+		return runningStyle.Render("✓ COMPLETE")
+	default:
+		return ""
+	}
+}
+
+func (m Model) renderSidebarTicket(width int) string {
+	var b strings.Builder
+
 	b.WriteString(sectionHeader("Ticket", width))
 	b.WriteString("\n")
 	if m.workItem != nil {
@@ -444,91 +483,119 @@ func (m Model) renderSidebar(width int, height int) string {
 		b.WriteString("\n")
 	}
 
-	// Environment section
-	if m.workingDir != "" || m.gitBranch != "" || m.config.ClaudeConfigDir != "" {
-		b.WriteString("\n")
-		b.WriteString(sectionHeader("Environment", width))
-		b.WriteString("\n")
-		if m.workingDir != "" {
-			b.WriteString(labelStyle.Render("Dir: "))
-			b.WriteString(valueStyle.Render(abbreviatePath(m.workingDir)))
-			b.WriteString("\n")
-		}
-		if m.gitBranch != "" {
-			b.WriteString(labelStyle.Render("Git: "))
-			branchStr := m.gitBranch
-			if m.gitDirty {
-				branchStr += " *"
-			}
-			b.WriteString(valueStyle.Render(branchStr))
-			b.WriteString("\n")
-		}
-		if m.config.ClaudeConfigDir != "" {
-			b.WriteString(labelStyle.Render("Claude: "))
-			b.WriteString(valueStyle.Render(abbreviatePath(m.config.ClaudeConfigDir)))
-			b.WriteString("\n")
-		}
+	return b.String()
+}
+
+func (m Model) renderSidebarEnvironment(width int) string {
+	if m.workingDir == "" && m.gitBranch == "" && m.config.ClaudeConfigDir == "" {
+		return ""
 	}
 
-	// Progress section
-	if m.state != nil {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString(sectionHeader("Environment", width))
+	b.WriteString("\n")
+
+	if m.workingDir != "" {
+		b.WriteString(labelStyle.Render("Dir: "))
+		b.WriteString(valueStyle.Render(abbreviatePath(m.workingDir)))
 		b.WriteString("\n")
-		b.WriteString(sectionHeader("Progress", width))
+	}
+	if m.gitBranch != "" {
+		b.WriteString(labelStyle.Render("Git: "))
+		branchStr := m.gitBranch
+		if m.gitDirty {
+			branchStr += " *"
+		}
+		b.WriteString(valueStyle.Render(branchStr))
 		b.WriteString("\n")
-		b.WriteString(labelStyle.Render("Iteration: "))
-		b.WriteString(valueStyle.Render(fmt.Sprintf("%d/%d", m.state.Iteration, m.config.MaxIterations)))
-		b.WriteString("\n")
-		b.WriteString(labelStyle.Render("Stagnation: "))
-		b.WriteString(valueStyle.Render(fmt.Sprintf("%d/%d", m.state.ConsecutiveNoChanges, m.config.StagnationLimit)))
-		b.WriteString("\n")
-		b.WriteString(labelStyle.Render("Files: "))
-		b.WriteString(valueStyle.Render(fmt.Sprintf("%d changed", len(m.state.TotalFilesChanged))))
+	}
+	if m.config.ClaudeConfigDir != "" {
+		b.WriteString(labelStyle.Render("Claude: "))
+		b.WriteString(valueStyle.Render(abbreviatePath(m.config.ClaudeConfigDir)))
 		b.WriteString("\n")
 	}
 
-	// Usage section
+	return b.String()
+}
+
+func (m Model) renderSidebarProgress(width int) string {
+	if m.state == nil {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString(sectionHeader("Progress", width))
+	b.WriteString("\n")
+	b.WriteString(labelStyle.Render("Iteration: "))
+	b.WriteString(valueStyle.Render(fmt.Sprintf("%d/%d", m.state.Iteration, m.config.MaxIterations)))
+	b.WriteString("\n")
+	b.WriteString(labelStyle.Render("Stagnation: "))
+	b.WriteString(valueStyle.Render(fmt.Sprintf("%d/%d", m.state.ConsecutiveNoChanges, m.config.StagnationLimit)))
+	b.WriteString("\n")
+	b.WriteString(labelStyle.Render("Files: "))
+	b.WriteString(valueStyle.Render(fmt.Sprintf("%d changed", len(m.state.TotalFilesChanged))))
+	b.WriteString("\n")
+
+	return b.String()
+}
+
+func (m Model) renderSidebarUsage(width int) string {
 	hasTokens := m.state != nil && (len(m.state.TokensByModel) > 0 || m.state.CurrentIterTokens != nil)
-	if hasTokens {
-		b.WriteString("\n")
-		b.WriteString(sectionHeader("Usage", width))
-		b.WriteString("\n")
-
-		// Sort model names for stable display
-		models := make([]string, 0, len(m.state.TokensByModel))
-		for model := range m.state.TokensByModel {
-			models = append(models, model)
-		}
-		sort.Strings(models)
-
-		for _, model := range models {
-			tokens := m.state.TokensByModel[model]
-			shortModel := shortenModelName(model)
-			b.WriteString(valueStyle.Render(shortModel))
-			b.WriteString("\n")
-			b.WriteString(labelStyle.Render("  "))
-			b.WriteString(valueStyle.Render(fmt.Sprintf("%s in / %s out", formatTokens(tokens.InputTokens), formatTokens(tokens.OutputTokens))))
-			b.WriteString("\n")
-		}
-
-		// Show current iteration tokens (live)
-		if m.state.CurrentIterTokens != nil {
-			b.WriteString(labelStyle.Render("current: "))
-			b.WriteString(valueStyle.Render(fmt.Sprintf("%s in / %s out",
-				formatTokens(m.state.CurrentIterTokens.InputTokens),
-				formatTokens(m.state.CurrentIterTokens.OutputTokens))))
-			b.WriteString("\n")
-		}
+	if !hasTokens {
+		return ""
 	}
 
-	// Phases section
-	if m.workItem != nil && len(m.workItem.Phases) > 0 {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString(sectionHeader("Usage", width))
+	b.WriteString("\n")
+
+	models := make([]string, 0, len(m.state.TokensByModel))
+	for model := range m.state.TokensByModel {
+		models = append(models, model)
+	}
+	sort.Strings(models)
+
+	for _, model := range models {
+		tokens := m.state.TokensByModel[model]
+		shortModel := shortenModelName(model)
+		b.WriteString(valueStyle.Render(shortModel))
 		b.WriteString("\n")
-		b.WriteString(sectionHeader("Phases", width))
+		b.WriteString(labelStyle.Render("  "))
+		b.WriteString(valueStyle.Render(fmt.Sprintf("%s in / %s out", formatTokens(tokens.InputTokens), formatTokens(tokens.OutputTokens))))
 		b.WriteString("\n")
-		b.WriteString(m.renderPhasesContent(width, height))
 	}
 
-	// Exit info
+	if m.state.CurrentIterTokens != nil {
+		b.WriteString(labelStyle.Render("current: "))
+		b.WriteString(valueStyle.Render(fmt.Sprintf("%s in / %s out",
+			formatTokens(m.state.CurrentIterTokens.InputTokens),
+			formatTokens(m.state.CurrentIterTokens.OutputTokens))))
+		b.WriteString("\n")
+	}
+
+	return b.String()
+}
+
+func (m Model) renderSidebarPhases(width int, height int) string {
+	if m.workItem == nil || len(m.workItem.Phases) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString(sectionHeader("Phases", width))
+	b.WriteString("\n")
+	b.WriteString(m.renderPhasesContent(width, height))
+
+	return b.String()
+}
+
+func (m Model) renderSidebarFooter() string {
+	var b strings.Builder
+
 	if m.result != nil && m.runState == stateComplete {
 		b.WriteString("\n")
 		b.WriteString(labelStyle.Render("Exit: "))
@@ -649,6 +716,27 @@ func (m Model) wrapLogs() string {
 			msg := strings.TrimPrefix(line, "[PROG]")
 			styled := progPrefixStyle.Render("▶ programmator:") + " " + msg
 			processed = append(processed, styled)
+		} else if strings.HasPrefix(line, "[TOOL]") {
+			flushMarkdown()
+			msg := strings.TrimPrefix(line, "[TOOL]")
+			styled := toolStyle.Render("> " + msg)
+			processed = append(processed, styled)
+		} else if strings.HasPrefix(line, "[DIFF+]") {
+			flushMarkdown()
+			msg := strings.TrimPrefix(line, "[DIFF+]")
+			processed = append(processed, diffAddStyle.Render(msg))
+		} else if strings.HasPrefix(line, "[DIFF-]") {
+			flushMarkdown()
+			msg := strings.TrimPrefix(line, "[DIFF-]")
+			processed = append(processed, diffDelStyle.Render(msg))
+		} else if strings.HasPrefix(line, "[DIFF@]") {
+			flushMarkdown()
+			msg := strings.TrimPrefix(line, "[DIFF@]")
+			processed = append(processed, diffHunkStyle.Render(msg))
+		} else if strings.HasPrefix(line, "[DIFF ]") {
+			flushMarkdown()
+			msg := strings.TrimPrefix(line, "[DIFF ]")
+			processed = append(processed, diffCtxStyle.Render(msg))
 		} else {
 			markdownBuffer = append(markdownBuffer, line)
 		}

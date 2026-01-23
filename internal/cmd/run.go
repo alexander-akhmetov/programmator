@@ -175,5 +175,5 @@ func streamOutput(r io.Reader) {
 
 func buildRunHookSettings(socketPath string) string {
 	exePath, _ := os.Executable()
-	return fmt.Sprintf(`{"hooks":{"PreToolUse":[{"type":"command","command":"%s hook","timeout":30000}]},"env":{"PROGRAMMATOR_PERMISSION_SOCKET":"%s"}}`, exePath, socketPath)
+	return fmt.Sprintf(`{"hooks":{"PreToolUse":[{"type":"command","command":"%s hook","timeout":120000}]},"env":{"PROGRAMMATOR_PERMISSION_SOCKET":"%s"}}`, exePath, socketPath)
 }

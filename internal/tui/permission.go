@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/alexander-akhmetov/programmator/internal/debug"
 	"github.com/alexander-akhmetov/programmator/internal/permission"
 )
 
@@ -70,6 +71,8 @@ type allowOption struct {
 }
 
 func NewPermissionDialog(req *permission.Request, respChan chan<- permission.HandlerResponse) *PermissionDialog {
+	debug.Logf("tui: creating permission dialog for tool=%s", req.ToolName)
+
 	d := &PermissionDialog{
 		request:      req,
 		responseChan: respChan,
@@ -251,6 +254,8 @@ func (d *PermissionDialog) respond() {
 		decision = permission.DecisionAllowGlobal
 	}
 
+	debug.Logf("tui: permission dialog responding decision=%s pattern=%s", decision, pattern)
+
 	d.responseChan <- permission.HandlerResponse{
 		Decision: decision,
 		Pattern:  pattern,
@@ -260,6 +265,7 @@ func (d *PermissionDialog) respond() {
 
 func (d *PermissionDialog) respondDeny() {
 	if d.responseChan != nil {
+		debug.Logf("tui: permission dialog responding with deny")
 		d.responseChan <- permission.HandlerResponse{Decision: permission.DecisionDeny}
 		d.responseChan = nil
 	}

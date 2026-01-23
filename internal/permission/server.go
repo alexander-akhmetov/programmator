@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/alexander-akhmetov/programmator/internal/debug"
 )
 
 type Decision string
@@ -122,41 +124,55 @@ func (s *Server) Close() error {
 func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
+	debug.Logf("server: new connection")
+
 	var req Request
 	decoder := json.NewDecoder(conn)
 	if err := decoder.Decode(&req); err != nil {
+		debug.Logf("server: failed to decode request: %v", err)
 		s.sendResponse(conn, Response{Decision: DecisionDeny})
 		return
 	}
 
+	debug.Logf("server: received request for tool=%s", req.ToolName)
 	decision := s.processRequest(&req)
+	debug.Logf("server: decision=%s for tool=%s", decision, req.ToolName)
 
 	s.sendResponse(conn, Response{Decision: decision})
+	debug.Logf("server: response sent")
 }
 
 func (s *Server) processRequest(req *Request) Decision {
 	toolInput := formatToolInput(req.ToolName, req.ToolInput)
 	pattern := FormatPattern(req.ToolName, toolInput)
 
+	debug.Logf("server: processing tool=%s pattern=%s", req.ToolName, pattern)
+
 	if s.isSessionAllowed(req.SessionID, pattern) {
+		debug.Logf("server: allowed by session cache")
 		return DecisionAllow
 	}
 
 	if s.settings.IsAllowed(req.ToolName, toolInput) {
+		debug.Logf("server: allowed by settings")
 		return DecisionAllow
 	}
 
 	if s.isPreAllowed(pattern) {
+		debug.Logf("server: allowed by pre-allowed patterns")
 		return DecisionAllow
 	}
 
 	if s.handler == nil {
+		debug.Logf("server: no handler, denying")
 		return DecisionDeny
 	}
 
 	req.Description = toolInput
 
+	debug.Logf("server: calling handler (will block until user responds)...")
 	resp := s.handler(req)
+	debug.Logf("server: handler returned decision=%s", resp.Decision)
 
 	// Use custom pattern if provided, otherwise use auto-generated
 	savePattern := pattern

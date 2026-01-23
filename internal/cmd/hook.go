@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/alexander-akhmetov/programmator/internal/debug"
 	"github.com/alexander-akhmetov/programmator/internal/permission"
 )
 
@@ -44,15 +45,23 @@ type hookDecision struct {
 }
 
 func runHook(_ *cobra.Command, _ []string) error {
+	debug.Logf("hook: started, socket=%s", socketPath)
+
 	input, err := io.ReadAll(os.Stdin)
 	if err != nil {
+		debug.Logf("hook: failed to read stdin: %v", err)
 		return writeHookResponse("deny")
 	}
 
+	debug.Logf("hook: received input (%d bytes)", len(input))
+
 	var hi hookInput
 	if err := json.Unmarshal(input, &hi); err != nil {
+		debug.Logf("hook: failed to parse input: %v", err)
 		return writeHookResponse("deny")
 	}
+
+	debug.Logf("hook: tool=%s session=%s", hi.ToolName, hi.SessionID)
 
 	req := &permission.Request{
 		SessionID: hi.SessionID,
@@ -61,34 +70,44 @@ func runHook(_ *cobra.Command, _ []string) error {
 		ToolUseID: hi.ToolUseID,
 	}
 
+	debug.Logf("hook: sending to server...")
 	decision := sendToServer(socketPath, req)
+	debug.Logf("hook: server responded with %s", decision)
 
 	claudeDecision := "deny"
 	if decision == permission.DecisionAllow {
 		claudeDecision = "allow"
 	}
 
+	debug.Logf("hook: returning %s to Claude", claudeDecision)
 	return writeHookResponse(claudeDecision)
 }
 
 func sendToServer(socket string, req *permission.Request) permission.Decision {
+	debug.Logf("hook: connecting to socket %s", socket)
 	conn, err := net.Dial("unix", socket)
 	if err != nil {
+		debug.Logf("hook: failed to connect: %v", err)
 		return permission.DecisionDeny
 	}
 	defer conn.Close()
 
+	debug.Logf("hook: connected, sending request...")
 	encoder := json.NewEncoder(conn)
 	if err := encoder.Encode(req); err != nil {
+		debug.Logf("hook: failed to send request: %v", err)
 		return permission.DecisionDeny
 	}
 
+	debug.Logf("hook: waiting for response...")
 	var resp permission.Response
 	decoder := json.NewDecoder(conn)
 	if err := decoder.Decode(&resp); err != nil {
+		debug.Logf("hook: failed to read response: %v", err)
 		return permission.DecisionDeny
 	}
 
+	debug.Logf("hook: got response: %s", resp.Decision)
 	return resp.Decision
 }
 

@@ -14,6 +14,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aymanbagabas/go-udiff"
+
+	"github.com/alexander-akhmetov/programmator/internal/debug"
 	"github.com/alexander-akhmetov/programmator/internal/parser"
 	"github.com/alexander-akhmetov/programmator/internal/prompt"
 	"github.com/alexander-akhmetov/programmator/internal/review"
@@ -573,13 +576,18 @@ type streamEvent struct {
 	Message struct {
 		Model   string `json:"model"`
 		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type  string `json:"type"`
+			Text  string `json:"text"`
+			Name  string `json:"name,omitempty"`  // tool name
+			Input any    `json:"input,omitempty"` // tool input
+			ID    string `json:"id,omitempty"`    // tool use id
 		} `json:"content"`
 		Usage messageUsage `json:"usage"`
 	} `json:"message"`
 	ModelUsage map[string]modelUsageStats `json:"modelUsage"`
 	Result     string                     `json:"result"`
+	ToolName   string                     `json:"tool_name,omitempty"`   // for user events with tool results
+	ToolResult string                     `json:"tool_result,omitempty"` // tool result content
 }
 
 func (l *Loop) processStreamingOutput(stdout io.Reader) string {
@@ -595,55 +603,168 @@ func (l *Loop) processStreamingOutput(stdout io.Reader) string {
 
 		var event streamEvent
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			debug.Logf("stream: failed to parse JSON: %v (line: %.100s...)", err, line)
 			continue
 		}
 
+		debug.Logf("stream: event type=%s subtype=%s", event.Type, event.Subtype)
+
 		switch event.Type {
 		case "system":
-			if event.Subtype == "init" && event.Model != "" && l.currentState != nil {
-				l.currentState.Model = event.Model
-				if l.onStateChange != nil && l.currentWorkItem != nil {
-					l.onStateChange(l.currentState, l.currentWorkItem, nil)
-				}
-			}
+			l.handleSystemEvent(&event)
 		case "assistant":
-			if l.currentState != nil {
-				l.currentState.SetCurrentIterTokens(
-					event.Message.Usage.TotalInputTokens(),
-					event.Message.Usage.OutputTokens,
-				)
-				if l.onStateChange != nil && l.currentWorkItem != nil {
-					l.onStateChange(l.currentState, l.currentWorkItem, nil)
-				}
-			}
-			for _, block := range event.Message.Content {
-				if block.Type == "text" && block.Text != "" {
-					fullOutput.WriteString(block.Text)
-					if l.onOutput != nil {
-						l.onOutput(block.Text)
-					}
-				}
-			}
+			l.handleAssistantEvent(&event, &fullOutput)
+		case "user":
+			debug.Logf("stream: user event (tool result?)")
 		case "result":
-			if l.currentState != nil && len(event.ModelUsage) > 0 {
-				for model, usage := range event.ModelUsage {
-					l.currentState.FinalizeIterTokens(
-						model,
-						usage.TotalInputTokens(),
-						usage.OutputTokens,
-					)
-				}
-				if l.onStateChange != nil && l.currentWorkItem != nil {
-					l.onStateChange(l.currentState, l.currentWorkItem, nil)
-				}
-			}
-			if event.Result != "" && fullOutput.Len() == 0 {
-				fullOutput.WriteString(event.Result)
-			}
+			l.handleResultEvent(&event, &fullOutput)
+		default:
+			debug.Logf("stream: unhandled event type=%s", event.Type)
 		}
 	}
 
 	return fullOutput.String()
+}
+
+func (l *Loop) handleSystemEvent(event *streamEvent) {
+	if event.Subtype == "init" && event.Model != "" && l.currentState != nil {
+		l.currentState.Model = event.Model
+		l.notifyStateChange()
+	}
+}
+
+func (l *Loop) handleAssistantEvent(event *streamEvent, fullOutput *strings.Builder) {
+	if l.currentState != nil {
+		l.currentState.SetCurrentIterTokens(
+			event.Message.Usage.TotalInputTokens(),
+			event.Message.Usage.OutputTokens,
+		)
+		l.notifyStateChange()
+	}
+
+	for _, block := range event.Message.Content {
+		debug.Logf("stream: assistant block type=%s name=%s", block.Type, block.Name)
+		l.handleContentBlock(&block, fullOutput)
+	}
+}
+
+func (l *Loop) handleContentBlock(block *struct {
+	Type  string `json:"type"`
+	Text  string `json:"text"`
+	Name  string `json:"name,omitempty"`
+	Input any    `json:"input,omitempty"`
+	ID    string `json:"id,omitempty"`
+}, fullOutput *strings.Builder) {
+	if block.Type == "text" && block.Text != "" {
+		fullOutput.WriteString(block.Text)
+		if l.onOutput != nil {
+			l.onOutput(block.Text)
+		}
+	} else if block.Type == "tool_use" && block.Name != "" {
+		l.outputToolUse(block.Name, block.Input)
+	}
+}
+
+func (l *Loop) outputToolUse(name string, input any) {
+	if l.onOutput == nil {
+		return
+	}
+	toolLine := name
+	inputMap, hasInput := input.(map[string]any)
+	if hasInput {
+		toolLine += formatToolArg(name, inputMap)
+	}
+	l.onOutput(fmt.Sprintf("\n[TOOL]%s\n", toolLine))
+
+	// Show diff for Edit operations
+	if name == "Edit" && hasInput {
+		l.outputEditDiff(inputMap)
+	}
+}
+
+func (l *Loop) outputEditDiff(input map[string]any) {
+	oldStr, oldOk := input["old_string"].(string)
+	newStr, newOk := input["new_string"].(string)
+	if !oldOk || !newOk {
+		return
+	}
+
+	// Generate unified diff
+	diff := udiff.Unified("old", "new", oldStr, newStr)
+	if diff == "" {
+		return
+	}
+
+	// Output each line with appropriate marker for TUI styling
+	for line := range strings.SplitSeq(diff, "\n") {
+		if line == "" {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "---"), strings.HasPrefix(line, "+++"):
+			// Skip file headers
+			continue
+		case strings.HasPrefix(line, "@@"):
+			l.onOutput(fmt.Sprintf("[DIFF@]%s\n", line))
+		case strings.HasPrefix(line, "-"):
+			l.onOutput(fmt.Sprintf("[DIFF-]%s\n", line))
+		case strings.HasPrefix(line, "+"):
+			l.onOutput(fmt.Sprintf("[DIFF+]%s\n", line))
+		default:
+			l.onOutput(fmt.Sprintf("[DIFF ]%s\n", line))
+		}
+	}
+}
+
+func (l *Loop) handleResultEvent(event *streamEvent, fullOutput *strings.Builder) {
+	if l.currentState != nil && len(event.ModelUsage) > 0 {
+		for model, usage := range event.ModelUsage {
+			l.currentState.FinalizeIterTokens(
+				model,
+				usage.TotalInputTokens(),
+				usage.OutputTokens,
+			)
+		}
+		l.notifyStateChange()
+	}
+	if event.Result != "" && fullOutput.Len() == 0 {
+		fullOutput.WriteString(event.Result)
+	}
+}
+
+func (l *Loop) notifyStateChange() {
+	if l.onStateChange != nil && l.currentWorkItem != nil {
+		l.onStateChange(l.currentState, l.currentWorkItem, nil)
+	}
+}
+
+func formatToolArg(toolName string, input map[string]any) string {
+	switch toolName {
+	case "Read", "Write", "Edit":
+		if path, ok := input["file_path"].(string); ok {
+			return " " + path
+		}
+	case "Bash":
+		if cmd, ok := input["command"].(string); ok {
+			if len(cmd) > 80 {
+				cmd = cmd[:80] + "..."
+			}
+			return " " + cmd
+		}
+	case "Glob":
+		if pattern, ok := input["pattern"].(string); ok {
+			return " " + pattern
+		}
+	case "Grep":
+		if pattern, ok := input["pattern"].(string); ok {
+			return " " + pattern
+		}
+	case "Task":
+		if desc, ok := input["description"].(string); ok {
+			return " " + desc
+		}
+	}
+	return ""
 }
 
 func timeoutBlockedStatus() string {
@@ -762,6 +883,7 @@ func (l *Loop) buildHookSettings() string {
 						{
 							"type":    "command",
 							"command": hookCmd,
+							"timeout": 120000,
 						},
 					},
 				},
