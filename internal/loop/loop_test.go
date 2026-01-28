@@ -1523,6 +1523,54 @@ func TestRunPhaselessTicket_BlockedHandled(t *testing.T) {
 	require.Equal(t, "Missing required credentials", result.FinalStatus.Error)
 }
 
+func TestBuildHookSettings_PermissionOnly(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+	l.SetPermissionSocketPath("/tmp/test.sock")
+
+	settings := l.buildHookSettings()
+
+	require.Contains(t, settings, `"matcher":""`)
+	require.Contains(t, settings, "programmator hook --socket /tmp/test.sock")
+	require.Contains(t, settings, `"timeout":120000`)
+	require.NotContains(t, settings, "dcg")
+}
+
+func TestBuildHookSettings_GuardOnly(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+	l.SetGuardMode(true)
+
+	settings := l.buildHookSettings()
+
+	require.Contains(t, settings, `"matcher":"Bash"`)
+	home, _ := os.UserHomeDir()
+	require.Contains(t, settings, fmt.Sprintf("DCG_CONFIG=%s/.config/dcg/config.toml dcg", home))
+	require.Contains(t, settings, `"timeout":5000`)
+	require.NotContains(t, settings, "programmator hook")
+}
+
+func TestBuildHookSettings_BothCombined(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+	l.SetPermissionSocketPath("/tmp/test.sock")
+	l.SetGuardMode(true)
+
+	settings := l.buildHookSettings()
+
+	require.Contains(t, settings, `"matcher":""`)
+	require.Contains(t, settings, "programmator hook --socket /tmp/test.sock")
+	require.Contains(t, settings, `"matcher":"Bash"`)
+	home, _ := os.UserHomeDir()
+	require.Contains(t, settings, fmt.Sprintf("DCG_CONFIG=%s/.config/dcg/config.toml dcg", home))
+}
+
+func TestSetGuardMode(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+
+	require.False(t, l.guardMode)
+
+	l.SetGuardMode(true)
+	require.True(t, l.guardMode)
+}
+
 func TestWorkItemHelpers_Phaseless(t *testing.T) {
 	// Test: WorkItem helper methods work correctly for phaseless items
 	tests := []struct {

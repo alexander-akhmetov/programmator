@@ -91,6 +91,10 @@ var (
 
 	diffCtxStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241"))
+
+	guardStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("42")).
+			Bold(true)
 )
 
 type runState int
@@ -123,6 +127,7 @@ type Model struct {
 	gitDirty         bool
 	claudePID        int
 	claudeMemKB      int64
+	guardMode        bool
 	permissionDialog *PermissionDialog
 }
 
@@ -421,7 +426,10 @@ func (m Model) renderSidebarHeader(width int) string {
 	b.WriteString(titleStyle.Render("⚡ PROGRAMMATOR"))
 	b.WriteString("\n")
 
-	if strings.Contains(m.config.ClaudeFlags, "--dangerously-skip-permissions") {
+	if m.guardMode {
+		b.WriteString(guardStyle.Render("🛡 GUARD MODE"))
+		b.WriteString("\n")
+	} else if strings.Contains(m.config.ClaudeFlags, "--dangerously-skip-permissions") {
 		b.WriteString(dangerStyle.Render("⚠ SKIP PERMISSIONS"))
 		b.WriteString("\n")
 	}
@@ -827,6 +835,7 @@ type TUI struct {
 	program                *tea.Program
 	model                  Model
 	interactivePermissions bool
+	guardMode              bool
 	allowPatterns          []string
 	skipReview             bool
 	reviewOnly             bool
@@ -844,6 +853,11 @@ func New(config safety.Config) *TUI {
 
 func (t *TUI) SetInteractivePermissions(enabled bool) {
 	t.interactivePermissions = enabled
+}
+
+func (t *TUI) SetGuardMode(enabled bool) {
+	t.guardMode = enabled
+	t.model.guardMode = enabled
 }
 
 func (t *TUI) SetAllowPatterns(patterns []string) {
@@ -938,6 +952,7 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 	if permServer != nil {
 		l.SetPermissionSocketPath(permServer.SocketPath())
 	}
+	l.SetGuardMode(t.guardMode)
 	l.SetSkipReview(t.skipReview)
 	l.SetReviewOnly(t.reviewOnly)
 

@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ var (
 	stagnationLimit int
 	timeout         int
 	skipPermissions bool
+	guardMode       bool
 	allowPatterns   []string
 	skipReview      bool
 	reviewOnly      bool
@@ -59,6 +61,7 @@ func init() {
 	startCmd.Flags().IntVar(&timeout, "timeout", 0, "Timeout per Claude invocation in seconds (overrides PROGRAMMATOR_TIMEOUT)")
 	startCmd.Flags().BoolVar(&skipPermissions, "dangerously-skip-permissions", false, "Skip interactive permission dialogs (grants all permissions)")
 	startCmd.Flags().StringArrayVar(&allowPatterns, "allow", nil, "Pre-allow permission patterns (e.g., 'Bash(git:*)', 'Read')")
+	startCmd.Flags().BoolVar(&guardMode, "guard", true, "Guard mode: skip permissions but block destructive commands via dcg (default: enabled)")
 	startCmd.Flags().BoolVar(&skipReview, "skip-review", false, "Skip the code review phase after all task phases complete")
 	startCmd.Flags().BoolVar(&reviewOnly, "review-only", false, "Run only the code review phase (skip task phases)")
 }
@@ -95,17 +98,31 @@ func runStart(_ *cobra.Command, args []string) error {
 	defer removeSessionFile()
 	timing.Log("runStart: session file written")
 
+	if guardMode {
+		if _, err := exec.LookPath("dcg"); err != nil {
+			fmt.Fprintln(os.Stderr, "Warning: dcg not found, falling back to interactive permissions. Install: https://github.com/Dicklesworthstone/destructive_command_guard")
+			guardMode = false
+		} else {
+			if config.ClaudeFlags == "" {
+				config.ClaudeFlags = "--dangerously-skip-permissions"
+			} else if !strings.Contains(config.ClaudeFlags, "--dangerously-skip-permissions") {
+				config.ClaudeFlags += " --dangerously-skip-permissions"
+			}
+		}
+	}
+
 	if skipPermissions {
 		if config.ClaudeFlags == "" {
 			config.ClaudeFlags = "--dangerously-skip-permissions"
-		} else {
+		} else if !strings.Contains(config.ClaudeFlags, "--dangerously-skip-permissions") {
 			config.ClaudeFlags += " --dangerously-skip-permissions"
 		}
 	}
 
 	timing.Log("runStart: creating TUI")
 	t := tui.New(config)
-	t.SetInteractivePermissions(!skipPermissions)
+	t.SetInteractivePermissions(!skipPermissions && !guardMode)
+	t.SetGuardMode(guardMode)
 	t.SetAllowPatterns(allowPatterns)
 	t.SetSkipReview(skipReview)
 	t.SetReviewOnly(reviewOnly)

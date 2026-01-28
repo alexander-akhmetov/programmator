@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -51,6 +52,7 @@ type Loop struct {
 	source               source.Source
 	claudeInvoker        ClaudeInvoker
 	permissionSocketPath string
+	guardMode            bool
 
 	mu            sync.Mutex
 	paused        bool
@@ -466,7 +468,7 @@ func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string
 		args = append(args, "--output-format", "stream-json", "--verbose")
 	}
 
-	if l.permissionSocketPath != "" {
+	if l.permissionSocketPath != "" || l.guardMode {
 		hookSettings := l.buildHookSettings()
 		args = append(args, "--settings", hookSettings)
 	}
@@ -990,23 +992,46 @@ func (l *Loop) SetPermissionSocketPath(path string) {
 	l.permissionSocketPath = path
 }
 
+func (l *Loop) SetGuardMode(enabled bool) {
+	l.guardMode = enabled
+}
+
 func (l *Loop) buildHookSettings() string {
-	hookCmd := fmt.Sprintf("programmator hook --socket %s", l.permissionSocketPath)
+	var preToolUse []map[string]any
+
+	if l.permissionSocketPath != "" {
+		hookCmd := fmt.Sprintf("programmator hook --socket %s", l.permissionSocketPath)
+		preToolUse = append(preToolUse, map[string]any{
+			"matcher": "",
+			"hooks": []map[string]any{
+				{
+					"type":    "command",
+					"command": hookCmd,
+					"timeout": 120000,
+				},
+			},
+		})
+	}
+
+	if l.guardMode {
+		home, _ := os.UserHomeDir()
+		dcgConfigPath := filepath.Join(home, ".config", "dcg", "config.toml")
+		dcgCmd := fmt.Sprintf("DCG_CONFIG=%s dcg", dcgConfigPath)
+		preToolUse = append(preToolUse, map[string]any{
+			"matcher": "Bash",
+			"hooks": []map[string]any{
+				{
+					"type":    "command",
+					"command": dcgCmd,
+					"timeout": 5000,
+				},
+			},
+		})
+	}
 
 	settings := map[string]any{
 		"hooks": map[string]any{
-			"PreToolUse": []map[string]any{
-				{
-					"matcher": "",
-					"hooks": []map[string]any{
-						{
-							"type":    "command",
-							"command": hookCmd,
-							"timeout": 120000,
-						},
-					},
-				},
-			},
+			"PreToolUse": preToolUse,
 		},
 	}
 
