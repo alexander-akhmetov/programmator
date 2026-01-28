@@ -124,6 +124,11 @@ func LoadConfigFile(path string) (Config, error) {
 func mergeConfigs(env, file Config) Config {
 	result := file
 
+	// Env Enabled=true is an explicit override
+	if env.Enabled {
+		result.Enabled = true
+	}
+
 	// Keep env overrides if file doesn't specify
 	if result.MaxIterations == 0 {
 		result.MaxIterations = env.MaxIterations

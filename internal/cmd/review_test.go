@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alexander-akhmetov/programmator/internal/git"
 	"github.com/alexander-akhmetov/programmator/internal/loop"
 	"github.com/alexander-akhmetov/programmator/internal/review"
 )
@@ -67,7 +68,7 @@ func TestGetChangedFiles(t *testing.T) {
 	}
 
 	// Test with HEAD (should work even if no changes)
-	files, err := getChangedFiles(cwd, "HEAD")
+	files, err := git.ChangedFiles(cwd, "HEAD")
 	// Note: This may fail if there's no HEAD commit, which is fine for an empty repo
 	if err == nil {
 		// Result can be nil or empty slice when no changes - both are valid
@@ -78,7 +79,7 @@ func TestGetChangedFiles(t *testing.T) {
 
 func TestGetChangedFilesNonGitDir(t *testing.T) {
 	tmpDir := t.TempDir()
-	_, err := getChangedFiles(tmpDir, "main")
+	_, err := git.ChangedFiles(tmpDir, "main")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "git diff failed")
 }
@@ -143,7 +144,7 @@ func TestGetChangedFilesWithBranch(t *testing.T) {
 	setupTestGitRepoWithBranch(t, tmpDir)
 
 	// Test getting changed files vs main
-	files, err := getChangedFiles(tmpDir, "main")
+	files, err := git.ChangedFiles(tmpDir, "main")
 	require.NoError(t, err)
 	assert.Contains(t, files, "new_file.go")
 }

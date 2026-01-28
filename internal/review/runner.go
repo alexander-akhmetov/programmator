@@ -182,10 +182,15 @@ func (r *Runner) runAgentsParallel(ctx context.Context, agents []AgentConfig, wo
 
 	wg.Wait()
 
-	// Check for any critical errors
+	// Check for context cancellation
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	// Check for any agent errors
 	for _, err := range errors {
-		if err != nil && ctx.Err() != nil {
-			return nil, ctx.Err()
+		if err != nil {
+			return nil, err
 		}
 	}
 

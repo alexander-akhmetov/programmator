@@ -2,6 +2,7 @@ package review
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -72,7 +73,7 @@ func FormatIssuesMarkdown(results []*Result) string {
 				b.WriteString(issue.File)
 				if issue.Line > 0 {
 					b.WriteString(":")
-					b.WriteString(itoa(issue.Line))
+					b.WriteString(strconv.Itoa(issue.Line))
 				}
 				b.WriteString("` - ")
 			}
@@ -94,20 +95,5 @@ func pluralize(n int, singular, plural string) string {
 	if n == 1 {
 		return "1 " + singular
 	}
-	return itoa(n) + " " + plural
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	if n < 0 {
-		return "-" + itoa(-n)
-	}
-	var digits []byte
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	return string(digits)
+	return strconv.Itoa(n) + " " + plural
 }

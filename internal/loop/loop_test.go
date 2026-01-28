@@ -747,7 +747,7 @@ func TestRunContextCancellation(t *testing.T) {
 // Tests for RunReviewOnly
 
 func TestRunReviewOnlyPassesWithNoIssues(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
 
 	// Mock the review runner to return no issues
@@ -764,7 +764,7 @@ func TestRunReviewOnlyPassesWithNoIssues(t *testing.T) {
 }
 
 func TestRunReviewOnlyFailsMaxIterations(t *testing.T) {
-	config := safety.Config{MaxIterations: 2, StagnationLimit: 10, Timeout: 60}
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 2}
 	l := New(config, "/tmp", nil, nil, false)
 
 	// Mock review runner to always return issues
@@ -786,11 +786,11 @@ func TestRunReviewOnlyFailsMaxIterations(t *testing.T) {
 
 	require.NoError(t, err)
 	require.False(t, result.Passed)
-	require.Equal(t, safety.ExitReasonMaxIterations, result.ExitReason)
+	require.Equal(t, safety.ExitReasonMaxReviewRetries, result.ExitReason)
 }
 
 func TestRunReviewOnlyBlocked(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
 
 	// Mock review runner to return issues
@@ -816,7 +816,7 @@ func TestRunReviewOnlyBlocked(t *testing.T) {
 }
 
 func TestRunReviewOnlyFixAndPass(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
 
 	// Mock review runner: first call returns issues, second call passes
@@ -852,7 +852,7 @@ func TestRunReviewOnlyFixAndPass(t *testing.T) {
 }
 
 func TestRunReviewOnlyStopRequested(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
 
 	l.Stop()
@@ -864,7 +864,7 @@ func TestRunReviewOnlyStopRequested(t *testing.T) {
 }
 
 func TestRunReviewOnlyInvokerError(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
 
 	// Mock review runner to return issues
@@ -883,7 +883,7 @@ func TestRunReviewOnlyInvokerError(t *testing.T) {
 }
 
 func TestRunReviewOnlyTracksFilesFixed(t *testing.T) {
-	config := safety.Config{MaxIterations: 5, StagnationLimit: 10, Timeout: 60}
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
 
 	// Mock review runner: returns issues for first 2 calls, then passes
@@ -919,7 +919,7 @@ func TestRunReviewOnlyTracksFilesFixed(t *testing.T) {
 }
 
 func TestRunReviewOnlyAutoCommit(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
 
 	// Mock review runner: first call returns issues, second call passes
@@ -1074,7 +1074,7 @@ func createMockReviewRunnerFunc(t *testing.T, resultFunc func() (hasIssues bool,
 // Additional tests for review-only mode edge cases
 
 func TestRunReviewOnlyNoStatusBlock(t *testing.T) {
-	config := safety.Config{MaxIterations: 5, StagnationLimit: 10, Timeout: 60}
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
 
 	// Mock review runner: returns issues first time, passes second time
@@ -1113,7 +1113,7 @@ func TestRunReviewOnlyNoStatusBlock(t *testing.T) {
 }
 
 func TestRunReviewOnlyReviewError(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
 
 	// Mock review runner that returns an error (via sequential execution to propagate error)
@@ -1150,7 +1150,7 @@ func TestRunReviewOnlyReviewError(t *testing.T) {
 }
 
 func TestRunReviewOnlyStagnation(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 2, Timeout: 60}
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 2, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
 
 	// Mock review runner that always returns issues
@@ -1180,7 +1180,7 @@ func TestRunReviewOnlyOutputCallback(t *testing.T) {
 		outputCollected = append(outputCollected, text)
 	}
 
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", onOutput, nil, false)
 
 	// Mock review runner that passes immediately
@@ -1205,7 +1205,7 @@ func TestRunReviewOnlyStateCallback(t *testing.T) {
 		lastState = state
 	}
 
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, stateCallback, false)
 
 	// Mock review runner: first call returns issues (so Claude is invoked and callback is triggered),
@@ -1240,7 +1240,7 @@ func TestRunReviewOnlyStateCallback(t *testing.T) {
 }
 
 func TestRunReviewOnlyDurationTracked(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
 
 	// Mock review runner that passes immediately
@@ -1256,7 +1256,7 @@ func TestRunReviewOnlyDurationTracked(t *testing.T) {
 }
 
 func TestRunReviewOnlyDeduplicatesFilesFixed(t *testing.T) {
-	config := safety.Config{MaxIterations: 5, StagnationLimit: 10, Timeout: 60}
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
 
 	// Mock review runner: returns issues for first 2 calls, then passes

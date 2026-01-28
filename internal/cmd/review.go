@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
+	"github.com/alexander-akhmetov/programmator/internal/git"
 	"github.com/alexander-akhmetov/programmator/internal/loop"
 	"github.com/alexander-akhmetov/programmator/internal/review"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
@@ -56,7 +57,7 @@ func runReview(_ *cobra.Command, _ []string) error {
 	}
 
 	// Get list of changed files
-	filesChanged, err := getChangedFiles(wd, reviewBaseBranch)
+	filesChanged, err := git.ChangedFiles(wd, reviewBaseBranch)
 	if err != nil {
 		return fmt.Errorf("failed to get changed files: %w", err)
 	}
@@ -105,32 +106,6 @@ func runReview(_ *cobra.Command, _ []string) error {
 func isGitRepo(dir string) bool {
 	cmd := exec.Command("git", "-C", dir, "rev-parse", "--git-dir")
 	return cmd.Run() == nil
-}
-
-// getChangedFiles returns list of files changed between base branch and HEAD.
-func getChangedFiles(dir, baseBranch string) ([]string, error) {
-	// First, try the diff range (base...HEAD)
-	cmd := exec.Command("git", "-C", dir, "diff", "--name-only", baseBranch+"...HEAD")
-	out, err := cmd.Output()
-	if err != nil {
-		// Fallback: try simple diff against base
-		cmd = exec.Command("git", "-C", dir, "diff", "--name-only", baseBranch)
-		out, err = cmd.Output()
-		if err != nil {
-			return nil, fmt.Errorf("git diff failed: %w", err)
-		}
-	}
-
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	var files []string
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			files = append(files, line)
-		}
-	}
-
-	return files, nil
 }
 
 // Styles for summary output

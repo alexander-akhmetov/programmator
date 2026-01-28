@@ -18,6 +18,7 @@ import (
 	"github.com/aymanbagabas/go-udiff"
 
 	"github.com/alexander-akhmetov/programmator/internal/debug"
+	gitutil "github.com/alexander-akhmetov/programmator/internal/git"
 	"github.com/alexander-akhmetov/programmator/internal/parser"
 	"github.com/alexander-akhmetov/programmator/internal/prompt"
 	"github.com/alexander-akhmetov/programmator/internal/review"
@@ -130,13 +131,6 @@ type runContext struct {
 	filesChangedSet    map[string]struct{}
 	workItem           *source.WorkItem
 	iterationSummaries []string // Track summaries for each iteration
-}
-
-// Deprecated: NewWithClient is deprecated. Use NewWithSource instead.
-func NewWithClient(config safety.Config, workingDir string, onOutput OutputCallback, onStateChange StateCallback, streaming bool, _ any) *Loop {
-	// This function exists for backwards compatibility during migration.
-	// It will be removed in a future version.
-	return NewWithSource(config, workingDir, onOutput, onStateChange, streaming, nil)
 }
 
 // checkStopRequested checks if stop was requested and handles the response.
@@ -392,19 +386,17 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 		}
 		// If action == loopBreakToClaudeInvocation, we fall through to invoke Claude
 
-		if action != loopBreakToClaudeInvocation {
-			rc.state.Iteration++
+		rc.state.Iteration++
 
-			checkResult := safety.Check(l.config, rc.state)
-			if checkResult.ShouldExit {
-				l.log(fmt.Sprintf("Safety exit: %s", checkResult.Reason))
-				_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("error: Safety exit after %d iters: %s", rc.state.Iteration, checkResult.Reason))
-				rc.result.ExitReason = checkResult.Reason
-				rc.result.ExitMessage = checkResult.Message
-				rc.result.Iterations = rc.state.Iteration
-				rc.result.RecentSummaries = l.getRecentSummaries(rc, 5)
-				return rc.result, nil
-			}
+		checkResult := safety.Check(l.config, rc.state)
+		if checkResult.ShouldExit {
+			l.log(fmt.Sprintf("Safety exit: %s", checkResult.Reason))
+			_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("error: Safety exit after %d iters: %s", rc.state.Iteration, checkResult.Reason))
+			rc.result.ExitReason = checkResult.Reason
+			rc.result.ExitMessage = checkResult.Message
+			rc.result.Iterations = rc.state.Iteration
+			rc.result.RecentSummaries = l.getRecentSummaries(rc, 5)
+			return rc.result, nil
 		}
 
 		currentPhase := rc.workItem.CurrentPhase()
@@ -1100,6 +1092,7 @@ func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewO
 	defer cancel()
 
 	state := safety.NewState()
+	state.EnterReviewPhase()
 	result := &ReviewOnlyResult{
 		Passed:     false,
 		FilesFixed: make([]string, 0),
@@ -1146,10 +1139,11 @@ func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewO
 		}
 
 		state.Iteration++
+		state.RecordReviewIteration()
 		result.Iterations = state.Iteration
 
-		l.logIterationSeparator(state.Iteration, l.config.MaxIterations)
-		l.log(fmt.Sprintf("Review iteration %d/%d", state.Iteration, l.config.MaxIterations))
+		l.logIterationSeparator(state.Iteration, l.config.MaxReviewIterations)
+		l.log(fmt.Sprintf("Review iteration %d/%d", state.Iteration, l.config.MaxReviewIterations))
 
 		// Check safety limits
 		checkResult := safety.Check(l.config, state)
@@ -1261,7 +1255,7 @@ func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewO
 		}
 
 		// Refresh the list of changed files for next review iteration
-		refreshedFiles, err := getChangedFilesForReview(l.workingDir, baseBranch)
+		refreshedFiles, err := gitutil.ChangedFiles(l.workingDir, baseBranch)
 		if err != nil {
 			l.log(fmt.Sprintf("Warning: failed to refresh changed files: %v", err))
 		} else {
@@ -1280,7 +1274,7 @@ func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewO
 func (l *Loop) autoCommitChanges(files []string, summary string) error {
 	// Stage files
 	for _, file := range files {
-		cmd := exec.Command("git", "-C", l.workingDir, "add", file)
+		cmd := exec.Command("git", "-C", l.workingDir, "add", "--", file)
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("failed to stage %s: %w", file, err)
 		}
@@ -1299,32 +1293,6 @@ func (l *Loop) autoCommitChanges(files []string, summary string) error {
 	}
 
 	return nil
-}
-
-// getChangedFilesForReview returns the list of files changed between base branch and HEAD.
-func getChangedFilesForReview(workingDir, baseBranch string) ([]string, error) {
-	// Try three-dot diff first (changes since branching)
-	cmd := exec.Command("git", "-C", workingDir, "diff", "--name-only", baseBranch+"...HEAD")
-	out, err := cmd.Output()
-	if err != nil {
-		// Fallback to two-dot diff
-		cmd = exec.Command("git", "-C", workingDir, "diff", "--name-only", baseBranch)
-		out, err = cmd.Output()
-		if err != nil {
-			return nil, fmt.Errorf("git diff failed: %w", err)
-		}
-	}
-
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	var files []string
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			files = append(files, line)
-		}
-	}
-
-	return files, nil
 }
 
 // BuildReviewFixPrompt creates a prompt for Claude to fix review issues.

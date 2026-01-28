@@ -909,8 +909,11 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 		if repoRoot := getGitRoot(workingDir); repoRoot != "" {
 			preAllowed = append(preAllowed,
 				fmt.Sprintf("Read(%s/**)", repoRoot),
-				fmt.Sprintf("Glob(%s/**)", repoRoot),
-				fmt.Sprintf("Grep(%s/**)", repoRoot),
+				// Glob/Grep tool input is the search pattern, not a file path,
+				// so path-based patterns don't match. Allow all Glob/Grep since
+				// they are read-only operations.
+				"Glob",
+				"Grep",
 			)
 		}
 

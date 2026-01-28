@@ -153,10 +153,22 @@ func (p *Plan) AllTasksComplete() bool {
 func (p *Plan) MarkTaskComplete(taskName string) error {
 	normalizedName := normalizeTaskName(taskName)
 
+	// First pass: exact match
 	for i := range p.Tasks {
 		if !p.Tasks[i].Completed {
 			existingName := normalizeTaskName(p.Tasks[i].Name)
-			if existingName == normalizedName || strings.Contains(existingName, normalizedName) || strings.Contains(normalizedName, existingName) {
+			if existingName == normalizedName {
+				p.Tasks[i].Completed = true
+				return nil
+			}
+		}
+	}
+
+	// Second pass: existing task name contains the query (not vice versa)
+	for i := range p.Tasks {
+		if !p.Tasks[i].Completed {
+			existingName := normalizeTaskName(p.Tasks[i].Name)
+			if strings.Contains(existingName, normalizedName) {
 				p.Tasks[i].Completed = true
 				return nil
 			}
