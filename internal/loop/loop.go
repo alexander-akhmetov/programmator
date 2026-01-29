@@ -3,6 +3,7 @@ package loop
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -605,8 +606,14 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 		}
 		output, err := invoker(ctx, promptText)
 		if err != nil {
-			rc.result.ExitReason = safety.ExitReasonError
-			return rc.result, err
+			l.log(fmt.Sprintf("Claude invocation failed: %v", err))
+			l.logErrorf("Claude invocation failed: %v", err)
+			rc.state.RecordIteration(nil, "invocation_error")
+			if l.onStateChange != nil {
+				l.onStateChange(rc.state, rc.workItem, rc.result.TotalFilesChanged)
+			}
+			rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[iter %d] Claude invocation failed: %v", rc.state.Iteration, err))
+			continue
 		}
 
 		status, err := parser.Parse(output)
@@ -671,6 +678,9 @@ func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string
 		return "", err
 	}
 
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
+
 	if err := cmd.Start(); err != nil {
 		return "", err
 	}
@@ -701,7 +711,10 @@ func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string
 		if timeoutCtx.Err() == context.DeadlineExceeded {
 			return timeoutBlockedStatus(), nil
 		}
-		return "", err
+		if stderrStr := strings.TrimSpace(stderrBuf.String()); stderrStr != "" {
+			return "", fmt.Errorf("claude exited: %w\nstderr: %s", err, stderrStr)
+		}
+		return "", fmt.Errorf("claude exited: %w", err)
 	}
 
 	return output, nil
@@ -1440,8 +1453,10 @@ func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewO
 		}
 		output, err := invoker(ctx, promptText)
 		if err != nil {
-			result.ExitReason = safety.ExitReasonError
-			return result, err
+			l.log(fmt.Sprintf("Claude invocation failed: %v", err))
+			l.logErrorf("Claude invocation failed: %v", err)
+			state.RecordIteration(nil, "invocation_error")
+			continue
 		}
 
 		// Parse status from Claude's response

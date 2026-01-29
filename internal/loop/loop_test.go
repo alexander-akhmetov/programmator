@@ -156,6 +156,45 @@ func TestTimeoutBlockedStatus(t *testing.T) {
 	}
 }
 
+func TestInvokeClaudePrintCapturesStderr(t *testing.T) {
+	config := safety.Config{MaxIterations: 1, StagnationLimit: 1, Timeout: 10}
+	l := New(config, "", nil, nil, false)
+
+	// Override the claude binary with a script that writes to stderr and exits 1
+	origPath := os.Getenv("PATH")
+	tmpDir := t.TempDir()
+	script := "#!/bin/sh\necho 'some error message' >&2\nexit 1\n"
+	err := os.WriteFile(tmpDir+"/claude", []byte(script), 0o755)
+	require.NoError(t, err)
+	t.Setenv("PATH", tmpDir+":"+origPath)
+
+	ctx := context.Background()
+	_, err = l.invokeClaudePrint(ctx, "test prompt")
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "claude exited")
+	require.Contains(t, err.Error(), "some error message")
+}
+
+func TestInvokeClaudePrintErrorWithoutStderr(t *testing.T) {
+	config := safety.Config{MaxIterations: 1, StagnationLimit: 1, Timeout: 10}
+	l := New(config, "", nil, nil, false)
+
+	origPath := os.Getenv("PATH")
+	tmpDir := t.TempDir()
+	script := "#!/bin/sh\nexit 1\n"
+	err := os.WriteFile(tmpDir+"/claude", []byte(script), 0o755)
+	require.NoError(t, err)
+	t.Setenv("PATH", tmpDir+":"+origPath)
+
+	ctx := context.Background()
+	_, err = l.invokeClaudePrint(ctx, "test prompt")
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "claude exited")
+	require.NotContains(t, err.Error(), "stderr")
+}
+
 func TestResultFilesChangedList(t *testing.T) {
 	r := &Result{
 		TotalFilesChanged: []string{"a.go", "b.go"},
@@ -542,8 +581,8 @@ func TestRunWithMockInvokerError(t *testing.T) {
 
 	result, err := l.Run("test-123")
 
-	require.Error(t, err)
-	require.Equal(t, safety.ExitReasonError, result.ExitReason)
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonStagnation, result.ExitReason)
 }
 
 func TestRunMaxIterations(t *testing.T) {
@@ -878,8 +917,8 @@ func TestRunReviewOnlyInvokerError(t *testing.T) {
 
 	result, err := l.RunReviewOnly("main", []string{"file.go"})
 
-	require.Error(t, err)
-	require.Equal(t, safety.ExitReasonError, result.ExitReason)
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonStagnation, result.ExitReason)
 }
 
 func TestRunReviewOnlyTracksFilesFixed(t *testing.T) {
