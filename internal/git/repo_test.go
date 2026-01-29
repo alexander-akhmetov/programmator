@@ -57,11 +57,11 @@ func TestRepo_BranchExists(t *testing.T) {
 
 	// Main/master branch should exist
 	exists, err := repo.BranchExists("main")
-	if err != nil {
-		// Try master if main doesn't exist
-		exists, err = repo.BranchExists("master")
-	}
 	require.NoError(t, err)
+	if !exists {
+		exists, err = repo.BranchExists("master")
+		require.NoError(t, err)
+	}
 	assert.True(t, exists)
 
 	// Non-existent branch should not exist
