@@ -427,7 +427,7 @@ func (m Model) renderSidebarHeader(width int) string {
 	b.WriteString("\n")
 
 	if m.guardMode {
-		b.WriteString(guardStyle.Render("🛡 GUARD MODE"))
+		b.WriteString(guardStyle.Render("🛡  GUARD MODE"))
 		b.WriteString("\n")
 	} else if strings.Contains(m.config.ClaudeFlags, "--dangerously-skip-permissions") {
 		b.WriteString(dangerStyle.Render("⚠ SKIP PERMISSIONS"))
