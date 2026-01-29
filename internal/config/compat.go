@@ -14,6 +14,7 @@ func (c *Config) ToSafetyConfig() safety.Config {
 		Timeout:             c.Timeout,
 		ClaudeFlags:         c.ClaudeFlags,
 		ClaudeConfigDir:     c.ClaudeConfigDir,
+		AnthropicAPIKey:     c.AnthropicAPIKey,
 		MaxReviewIterations: c.Review.MaxIterations,
 	}
 }

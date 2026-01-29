@@ -33,6 +33,7 @@ type Config struct {
 	Timeout             int
 	ClaudeFlags         string
 	ClaudeConfigDir     string
+	AnthropicAPIKey     string
 	MaxReviewIterations int
 }
 

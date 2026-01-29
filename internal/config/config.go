@@ -66,6 +66,7 @@ type Config struct {
 	// Claude settings
 	ClaudeFlags     string `yaml:"claude_flags"`
 	ClaudeConfigDir string `yaml:"claude_config_dir"`
+	AnthropicAPIKey string `yaml:"anthropic_api_key"`
 
 	// Ticket settings
 	TicketCommand string `yaml:"ticket_command"` // Binary name for the ticket CLI (default: tk)
@@ -329,6 +330,11 @@ func (c *Config) applyEnv() {
 		c.sources = append(c.sources, "env:CLAUDE_CONFIG_DIR")
 	}
 
+	if v := os.Getenv("PROGRAMMATOR_ANTHROPIC_API_KEY"); v != "" {
+		c.AnthropicAPIKey = v
+		c.sources = append(c.sources, "env:PROGRAMMATOR_ANTHROPIC_API_KEY")
+	}
+
 	if v := os.Getenv("PROGRAMMATOR_TICKET_COMMAND"); v != "" {
 		c.TicketCommand = v
 		c.sources = append(c.sources, "env:PROGRAMMATOR_TICKET_COMMAND")
@@ -368,6 +374,9 @@ func (c *Config) mergeFrom(src *Config) {
 	}
 	if src.ClaudeConfigDir != "" {
 		c.ClaudeConfigDir = src.ClaudeConfigDir
+	}
+	if src.AnthropicAPIKey != "" {
+		c.AnthropicAPIKey = src.AnthropicAPIKey
 	}
 	if src.LogsDir != "" {
 		c.LogsDir = src.LogsDir

@@ -662,11 +662,7 @@ func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string
 		cmd.Dir = l.workingDir
 	}
 
-	// Explicitly pass through environment, with CLAUDE_CONFIG_DIR if configured
-	cmd.Env = os.Environ()
-	if l.config.ClaudeConfigDir != "" {
-		cmd.Env = append(cmd.Env, "CLAUDE_CONFIG_DIR="+l.config.ClaudeConfigDir)
-	}
+	cmd.Env = buildClaudeEnv(l.config.ClaudeConfigDir, l.config.AnthropicAPIKey)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -1073,6 +1069,26 @@ func formatToolArg(toolName string, input map[string]any) string {
 		}
 	}
 	return ""
+}
+
+// buildClaudeEnv builds the environment for the Claude subprocess.
+// It filters ANTHROPIC_API_KEY from the inherited environment and only
+// sets it if explicitly configured via PROGRAMMATOR_ANTHROPIC_API_KEY.
+func buildClaudeEnv(claudeConfigDir, anthropicAPIKey string) []string {
+	environ := os.Environ()
+	env := make([]string, 0, len(environ))
+	for _, e := range environ {
+		if !strings.HasPrefix(e, "ANTHROPIC_API_KEY=") {
+			env = append(env, e)
+		}
+	}
+	if claudeConfigDir != "" {
+		env = append(env, "CLAUDE_CONFIG_DIR="+claudeConfigDir)
+	}
+	if anthropicAPIKey != "" {
+		env = append(env, "ANTHROPIC_API_KEY="+anthropicAPIKey)
+	}
+	return env
 }
 
 func timeoutBlockedStatus() string {
