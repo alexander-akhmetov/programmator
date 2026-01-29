@@ -72,7 +72,7 @@ func TestTicketSource_Get(t *testing.T) {
 		RawContent: "# Test Ticket\n\n- [x] Phase 1\n- [ ] Phase 2\n",
 	}
 
-	source := NewTicketSource(mock)
+	source := NewTicketSource(mock, "")
 	item, err := source.Get("test-123")
 	require.NoError(t, err)
 
@@ -93,7 +93,7 @@ func TestTicketSource_Get(t *testing.T) {
 
 func TestTicketSource_UpdatePhase(t *testing.T) {
 	mock := newMockTicketClient()
-	source := NewTicketSource(mock)
+	source := NewTicketSource(mock, "")
 
 	err := source.UpdatePhase("test-123", "Phase 1: Design")
 	require.NoError(t, err)
@@ -103,7 +103,7 @@ func TestTicketSource_UpdatePhase(t *testing.T) {
 
 func TestTicketSource_UpdatePhase_Phaseless(t *testing.T) {
 	mock := newMockTicketClient()
-	source := NewTicketSource(mock)
+	source := NewTicketSource(mock, "")
 
 	// Empty phase name should be a no-op (phaseless ticket)
 	err := source.UpdatePhase("test-123", "")
@@ -118,7 +118,7 @@ func TestTicketSource_UpdatePhase_Phaseless(t *testing.T) {
 
 func TestTicketSource_AddNote(t *testing.T) {
 	mock := newMockTicketClient()
-	source := NewTicketSource(mock)
+	source := NewTicketSource(mock, "")
 
 	err := source.AddNote("test-123", "progress: completed task")
 	require.NoError(t, err)
@@ -128,7 +128,7 @@ func TestTicketSource_AddNote(t *testing.T) {
 
 func TestTicketSource_SetStatus(t *testing.T) {
 	mock := newMockTicketClient()
-	source := NewTicketSource(mock)
+	source := NewTicketSource(mock, "")
 
 	err := source.SetStatus("test-123", "closed")
 	require.NoError(t, err)
@@ -138,13 +138,13 @@ func TestTicketSource_SetStatus(t *testing.T) {
 
 func TestTicketSource_Type(t *testing.T) {
 	mock := newMockTicketClient()
-	source := NewTicketSource(mock)
+	source := NewTicketSource(mock, "")
 	assert.Equal(t, "ticket", source.Type())
 }
 
 func TestTicketSource_Get_NotFound(t *testing.T) {
 	mock := newMockTicketClient()
-	source := NewTicketSource(mock)
+	source := NewTicketSource(mock, "")
 
 	_, err := source.Get("nonexistent")
 	assert.Error(t, err)
@@ -186,7 +186,7 @@ func TestTicketSource_Get_Phaseless(t *testing.T) {
 		RawContent: "# Phaseless Task\n\nJust do the thing.\n",
 	}
 
-	source := NewTicketSource(mock)
+	source := NewTicketSource(mock, "")
 	item, err := source.Get("phaseless-1")
 	require.NoError(t, err)
 

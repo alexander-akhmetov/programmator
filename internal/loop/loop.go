@@ -88,6 +88,9 @@ type Loop struct {
 	// Progress logger for persistent log files
 	progressLogger *progress.Logger
 
+	// Ticket CLI command name
+	ticketCommand string
+
 	// Git workflow configuration
 	gitConfig GitWorkflowConfig
 	gitRepo   *gitutil.Repo
@@ -142,6 +145,10 @@ func (l *Loop) SetProgressLogger(logger *progress.Logger) {
 }
 
 // SetGitWorkflowConfig sets the git workflow configuration.
+func (l *Loop) SetTicketCommand(cmd string) {
+	l.ticketCommand = cmd
+}
+
 func (l *Loop) SetGitWorkflowConfig(cfg GitWorkflowConfig) {
 	l.gitConfig = cfg
 }
@@ -490,7 +497,7 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 	src := l.source
 	if src == nil {
 		// Auto-detect source type based on workItemID
-		src, workItemID = source.Detect(workItemID)
+		src, workItemID = source.Detect(workItemID, l.ticketCommand)
 	}
 	timing.Log("Loop.Run: source created")
 

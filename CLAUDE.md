@@ -6,13 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Requires Go 1.25.6+ (see `go.mod`).
 
-For ticket-based workflow, install the external `ticket` CLI:
-```bash
-brew tap alexander-akhmetov/tools git@github.com:alexander-akhmetov/homebrew-tools.git
-brew install alexander-akhmetov/tools/ticket
-```
-
-Plan files work without any external dependencies.
+Plan files work without any external dependencies. Ticket-based workflow requires the external `ticket` CLI.
 
 ## Build and Test Commands
 

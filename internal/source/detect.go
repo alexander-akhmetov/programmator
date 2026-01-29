@@ -13,7 +13,7 @@ import (
 //   - If id looks like a file path (contains "/" or "\" or ends with ".md"), treat as plan
 //   - If id exists as a file, treat as plan
 //   - Otherwise, treat as ticket
-func Detect(id string) (Source, string) {
+func Detect(id, ticketCommand string) (Source, string) {
 	// Check if it looks like a file path
 	if looksLikeFilePath(id) {
 		return NewPlanSource(id), id
@@ -26,7 +26,7 @@ func Detect(id string) (Source, string) {
 	}
 
 	// Default to ticket
-	return NewTicketSource(nil), id
+	return NewTicketSource(nil, ticketCommand), id
 }
 
 // looksLikeFilePath returns true if the string appears to be a file path.

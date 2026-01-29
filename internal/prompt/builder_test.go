@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/worksonmyai/programmator/internal/config"
-	"github.com/worksonmyai/programmator/internal/source"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/worksonmyai/programmator/internal/config"
+	"github.com/worksonmyai/programmator/internal/source"
 )
 
 func TestBuild(t *testing.T) {

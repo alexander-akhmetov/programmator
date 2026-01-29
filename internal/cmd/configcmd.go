@@ -63,6 +63,10 @@ func runConfigShow(_ *cobra.Command, _ []string) error {
 	fmt.Printf("  timeout:          %ds\n", cfg.Timeout)
 	fmt.Println()
 
+	fmt.Println("## Ticket Settings")
+	fmt.Printf("  ticket_command: %s\n", cfg.TicketCommand)
+	fmt.Println()
+
 	fmt.Println("## Claude Settings")
 	if cfg.ClaudeFlags != "" {
 		fmt.Printf("  claude_flags:     %s\n", cfg.ClaudeFlags)

@@ -12,10 +12,10 @@ type TicketSource struct {
 var _ Source = (*TicketSource)(nil)
 
 // NewTicketSource creates a new TicketSource with the given client.
-// If client is nil, a default CLIClient is created.
-func NewTicketSource(client ticket.Client) *TicketSource {
+// If client is nil, a default CLIClient is created using the given command name.
+func NewTicketSource(client ticket.Client, ticketCommand string) *TicketSource {
 	if client == nil {
-		client = ticket.NewClient()
+		client = ticket.NewClient(ticketCommand)
 	}
 	return &TicketSource{client: client}
 }

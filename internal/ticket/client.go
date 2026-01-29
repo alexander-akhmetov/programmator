@@ -37,20 +37,24 @@ type Client interface {
 
 type CLIClient struct {
 	ticketsDir string
+	command    string
 }
 
 var _ Client = (*CLIClient)(nil)
 
-func NewClient() *CLIClient {
+func NewClient(command string) *CLIClient {
 	dir := os.Getenv("TICKETS_DIR")
 	if dir == "" {
 		dir = filepath.Join(os.Getenv("HOME"), ".tickets")
 	}
-	return &CLIClient{ticketsDir: dir}
+	if command == "" {
+		command = "tk"
+	}
+	return &CLIClient{ticketsDir: dir, command: command}
 }
 
 func (c *CLIClient) Get(id string) (*Ticket, error) {
-	out, err := exec.Command("ticket", "show", id).Output()
+	out, err := exec.Command(c.command, "show", id).Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ticket %s: %w", id, err)
 	}
@@ -136,12 +140,12 @@ func normalizePhase(s string) string {
 }
 
 func (c *CLIClient) AddNote(id string, note string) error {
-	_, err := exec.Command("ticket", "add-note", id, note).Output()
+	_, err := exec.Command(c.command, "add-note", id, note).Output()
 	return err
 }
 
 func (c *CLIClient) SetStatus(id string, status string) error {
-	_, err := exec.Command("ticket", "set-status", id, status).Output()
+	_, err := exec.Command(c.command, "set-status", id, status).Output()
 	return err
 }
 

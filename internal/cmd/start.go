@@ -160,6 +160,7 @@ func runStart(_ *cobra.Command, args []string) error {
 	if progressLogger != nil {
 		t.SetProgressLogger(progressLogger)
 	}
+	t.SetTicketCommand(cfg.TicketCommand)
 
 	// Set git workflow config from CLI flags and config file
 	gitConfig := loop.GitWorkflowConfig{

@@ -280,13 +280,19 @@ func TestTicket_AllPhasesComplete(t *testing.T) {
 }
 
 func TestNewClient(t *testing.T) {
-	client := NewClient()
+	client := NewClient("")
 	if client == nil {
 		t.Fatal("expected client, got nil")
 	}
 	if client.ticketsDir == "" {
 		t.Error("expected non-empty tickets dir")
 	}
+	assert.Equal(t, "tk", client.command)
+}
+
+func TestNewClient_CustomCommand(t *testing.T) {
+	client := NewClient("ticket")
+	assert.Equal(t, "ticket", client.command)
 }
 
 func TestMockClient(t *testing.T) {
@@ -555,7 +561,7 @@ func TestNewClient_EnvHandling(t *testing.T) {
 		defer os.Setenv("TICKETS_DIR", original)
 
 		os.Setenv("TICKETS_DIR", "/custom/tickets")
-		client := NewClient()
+		client := NewClient("")
 		assert.Equal(t, "/custom/tickets", client.ticketsDir)
 	})
 
@@ -564,7 +570,7 @@ func TestNewClient_EnvHandling(t *testing.T) {
 		defer os.Setenv("TICKETS_DIR", original)
 
 		os.Unsetenv("TICKETS_DIR")
-		client := NewClient()
+		client := NewClient("")
 		home := os.Getenv("HOME")
 		assert.Equal(t, filepath.Join(home, ".tickets"), client.ticketsDir)
 	})

@@ -67,6 +67,9 @@ type Config struct {
 	ClaudeFlags     string `yaml:"claude_flags"`
 	ClaudeConfigDir string `yaml:"claude_config_dir"`
 
+	// Ticket settings
+	TicketCommand string `yaml:"ticket_command"` // Binary name for the ticket CLI (default: tk)
+
 	// Progress log settings
 	LogsDir string `yaml:"logs_dir"` // Directory for progress logs (default: ~/.programmator/logs)
 
@@ -326,6 +329,11 @@ func (c *Config) applyEnv() {
 		c.sources = append(c.sources, "env:CLAUDE_CONFIG_DIR")
 	}
 
+	if v := os.Getenv("PROGRAMMATOR_TICKET_COMMAND"); v != "" {
+		c.TicketCommand = v
+		c.sources = append(c.sources, "env:PROGRAMMATOR_TICKET_COMMAND")
+	}
+
 	if v := os.Getenv("PROGRAMMATOR_MAX_REVIEW_ITERATIONS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			c.Review.MaxIterations = n
@@ -363,6 +371,9 @@ func (c *Config) mergeFrom(src *Config) {
 	}
 	if src.LogsDir != "" {
 		c.LogsDir = src.LogsDir
+	}
+	if src.TicketCommand != "" {
+		c.TicketCommand = src.TicketCommand
 	}
 
 	// Review config merge

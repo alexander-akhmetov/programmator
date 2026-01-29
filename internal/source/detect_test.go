@@ -48,14 +48,14 @@ func TestDetect_PlanFile(t *testing.T) {
 	err := os.WriteFile(planPath, []byte(content), 0644)
 	require.NoError(t, err)
 
-	source, id := Detect(planPath)
+	source, id := Detect(planPath, "")
 	assert.IsType(t, &PlanSource{}, source)
 	assert.Equal(t, planPath, id)
 	assert.Equal(t, "plan", source.Type())
 }
 
 func TestDetect_TicketID(t *testing.T) {
-	source, id := Detect("pro-1234")
+	source, id := Detect("pro-1234", "")
 	assert.IsType(t, &TicketSource{}, source)
 	assert.Equal(t, "pro-1234", id)
 	assert.Equal(t, "ticket", source.Type())
@@ -63,7 +63,7 @@ func TestDetect_TicketID(t *testing.T) {
 
 func TestDetect_RelativePath(t *testing.T) {
 	// Test with path that looks like a file but doesn't exist
-	source, id := Detect("./nonexistent/plan.md")
+	source, id := Detect("./nonexistent/plan.md", "")
 	assert.IsType(t, &PlanSource{}, source)
 	assert.Equal(t, "./nonexistent/plan.md", id)
 }
@@ -76,7 +76,7 @@ func TestDetect_ExistingFile(t *testing.T) {
 	require.NoError(t, err)
 
 	// Since it exists, should be treated as plan
-	source, id := Detect(planPath)
+	source, id := Detect(planPath, "")
 	assert.IsType(t, &PlanSource{}, source)
 	assert.NotEmpty(t, id)
 }

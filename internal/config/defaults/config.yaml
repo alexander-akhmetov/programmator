@@ -13,6 +13,9 @@ timeout: 900              # Seconds per Claude invocation
 claude_flags: ""          # Additional flags passed to claude command
 claude_config_dir: ""     # Custom Claude config directory (empty = default)
 
+# Ticket settings
+ticket_command: "tk"      # Binary name for the ticket CLI (tk or ticket)
+
 # Progress log settings
 logs_dir: ""              # Directory for progress logs (default: ~/.programmator/logs)
 

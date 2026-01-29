@@ -844,6 +844,7 @@ type TUI struct {
 	reviewConfig           *review.Config
 	progressLogger         *progress.Logger
 	gitWorkflowConfig      *loop.GitWorkflowConfig
+	ticketCommand          string
 }
 
 func New(config safety.Config) *TUI {
@@ -889,6 +890,10 @@ func (t *TUI) SetProgressLogger(logger *progress.Logger) {
 // SetGitWorkflowConfig sets the git workflow configuration.
 func (t *TUI) SetGitWorkflowConfig(cfg loop.GitWorkflowConfig) {
 	t.gitWorkflowConfig = &cfg
+}
+
+func (t *TUI) SetTicketCommand(cmd string) {
+	t.ticketCommand = cmd
 }
 
 func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
@@ -985,6 +990,9 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 	}
 	if t.gitWorkflowConfig != nil {
 		l.SetGitWorkflowConfig(*t.gitWorkflowConfig)
+	}
+	if t.ticketCommand != "" {
+		l.SetTicketCommand(t.ticketCommand)
 	}
 
 	t.model.SetLoop(l)
