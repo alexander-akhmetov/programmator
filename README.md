@@ -41,11 +41,26 @@ programmator start <ticket-id> -d /path/to/project
 # Limit iterations
 programmator start <ticket-id> -n 10
 
+# Auto-commit after each phase and create a branch
+programmator start ./plan.md --auto-commit
+
 # Show active sessions
 programmator status
 
 # View logs for a ticket/plan
 programmator logs <ticket-id>
+
+# Tail the active log in real-time
+programmator logs --follow
+
+# Create a plan interactively via Claude Q&A
+programmator plan create "Add authentication to the API"
+
+# Show resolved configuration
+programmator config show
+
+# Print version
+programmator --version
 ```
 
 Programmator auto-detects the source type:
@@ -92,7 +107,22 @@ Key elements:
 
 ## Configuration
 
-Environment variables:
+Programmator uses a unified YAML config with multi-level merge:
+
+1. **Embedded defaults** (built into binary)
+2. **Global config** (`~/.config/programmator/config.yaml`)
+3. **Environment variables** (legacy support)
+4. **Local config** (`.programmator/config.yaml` in project directory)
+5. **CLI flags** (highest priority)
+
+On first run, a default config file is created at `~/.config/programmator/config.yaml`.
+
+Show resolved configuration with source annotations:
+```bash
+programmator config show
+```
+
+### Environment Variables (Legacy)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -102,6 +132,21 @@ Environment variables:
 | `PROGRAMMATOR_CLAUDE_FLAGS` | `--dangerously-skip-permissions` | Flags passed to Claude |
 | `TICKETS_DIR` | `~/.tickets` | Where ticket files live |
 | `CLAUDE_CONFIG_DIR` | - | Custom Claude config directory (passed to Claude subprocess) |
+
+### Prompt Templates
+
+Prompts are customizable via `text/template` files. Override any prompt by placing a file in:
+- `~/.config/programmator/prompts/` (global)
+- `.programmator/prompts/` (per-project)
+
+Available templates: `phased.md`, `phaseless.md`, `review_fix.md`, `plan_create.md`.
+
+### Auto Git Workflow
+
+Opt-in via config or CLI flags:
+- `--auto-commit`: Creates a `programmator/<slug>` branch, commits after each phase
+- `--move-completed`: Moves completed plans to `plans/completed/`
+- `--branch <name>`: Custom branch name
 
 ## How It Works
 
@@ -158,4 +203,20 @@ go test -race ./...
 gofmt -l .        # Check formatting
 gofmt -w .        # Auto-format
 go vet ./...      # Static analysis
+
+# E2E test prep (creates toy projects in /tmp)
+make e2e-prep      # Plan-based run
+make e2e-review    # Review mode
+make e2e-plan      # Interactive plan creation
 ```
+
+## Releasing
+
+Push a git tag to trigger a GitHub Actions release via GoReleaser:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+Binaries are published for linux/darwin (amd64/arm64) and a Homebrew formula is updated automatically.

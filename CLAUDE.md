@@ -26,13 +26,22 @@ go install ./cmd/programmator
 # Run without installing
 go run ./cmd/programmator start <ticket-id>      # ticket
 go run ./cmd/programmator start ./plan.md        # plan file
+go run ./cmd/programmator start ./plan.md --auto-commit  # with auto git workflow
 go run ./cmd/programmator status
 go run ./cmd/programmator logs <ticket-id>
+go run ./cmd/programmator logs --follow           # tail active log
+go run ./cmd/programmator plan create "description"  # interactive plan creation
+go run ./cmd/programmator config show             # show resolved config
 
 # Lint (CI uses golangci-lint)
 golangci-lint run
 gofmt -l .                        # Check formatting
 go vet ./...                      # Static analysis
+
+# E2E test prep
+make e2e-prep                     # Create toy project for plan-based run
+make e2e-review                   # Create toy project for review mode
+make e2e-plan                     # Create toy project for plan creation
 ```
 
 ## Architecture
@@ -53,15 +62,19 @@ main.go (entry) → Loop.Run() → [for each iteration]:
 
 ### Key Components
 
-- **internal/loop/loop.go**: Main orchestration. Manages iteration state, invokes Claude via os/exec, handles streaming JSON output. Supports pause/resume and process memory monitoring.
+- **internal/loop/loop.go**: Main orchestration. Manages iteration state, invokes Claude via os/exec, handles streaming JSON output. Supports pause/resume, process memory monitoring, auto-commit after phases, and progress logging.
 - **internal/source/**: Abstraction layer for work sources. `Source` interface with `TicketSource` and `PlanSource` implementations.
 - **internal/source/detect.go**: Auto-detects source type from CLI argument (file path → plan, otherwise → ticket).
 - **internal/ticket/client.go**: Wrapper around external `ticket` CLI. Parses markdown tickets with checkbox phases (`- [ ]`/`- [x]`). Has mock implementation for testing.
-- **internal/plan/plan.go**: Parses standalone markdown plan files with checkbox tasks and optional validation commands.
-- **internal/prompt/builder.go**: Builds prompts using `PromptTemplate`. Instructs Claude to output `PROGRAMMATOR_STATUS` block.
-- **internal/parser/parser.go**: Extracts and parses `PROGRAMMATOR_STATUS` YAML block from Claude output. Status values: CONTINUE, DONE, BLOCKED.
+- **internal/plan/plan.go**: Parses standalone markdown plan files with checkbox tasks and optional validation commands. Supports `MoveTo()` for completed plan lifecycle.
+- **internal/prompt/builder.go**: Builds prompts using Go `text/template` with named variables. Loads templates from embedded defaults, global, or local override files.
+- **internal/parser/parser.go**: Extracts and parses `PROGRAMMATOR_STATUS` YAML block from Claude output. Status values: CONTINUE, DONE, BLOCKED. Also parses `PROGRAMMATOR_QUESTION` and `PROGRAMMATOR_PLAN_READY` signals for interactive plan creation.
 - **internal/safety/safety.go**: Exit conditions: max iterations, stagnation (no file changes), repeated errors.
 - **internal/tui/tui.go**: Bubbletea-based TUI with status panel, markdown rendering via glamour, and real-time token usage display.
+- **internal/config/**: Unified YAML configuration with multi-level merge (embedded defaults → global → env vars → local → CLI flags). Includes prompt template loading with fallback chain.
+- **internal/progress/**: Persistent run logging. `Logger` writes timestamped entries to `~/.programmator/logs/`. Includes file locking (`flock_unix.go`) for active session detection.
+- **internal/input/**: User input collection for interactive plan creation. `Collector` interface with `TerminalCollector` (fzf with numbered fallback).
+- **internal/git/repo.go**: Git operations wrapper (`Repo` struct) for branch creation, checkout, add, commit, and file moves. Used by auto-commit workflow.
 
 ### Status Protocol
 
@@ -96,7 +109,11 @@ PROGRAMMATOR_STATUS:
 - [ ] Task 2: Implement
 ```
 
-## Environment Variables
+## Configuration
+
+Unified YAML config with multi-level merge: embedded defaults → `~/.config/programmator/config.yaml` → env vars → `.programmator/config.yaml` → CLI flags. Run `programmator config show` to see resolved values.
+
+### Environment Variables (Legacy)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -106,6 +123,10 @@ PROGRAMMATOR_STATUS:
 | `PROGRAMMATOR_CLAUDE_FLAGS` | `--dangerously-skip-permissions` | Flags passed to Claude |
 | `TICKETS_DIR` | `~/.tickets` | Where ticket files live |
 | `CLAUDE_CONFIG_DIR` | - | Custom Claude config directory |
+
+### Prompt Templates
+
+Prompts use Go `text/template` syntax. Override by placing files in `~/.config/programmator/prompts/` (global) or `.programmator/prompts/` (local). Templates: `phased.md`, `phaseless.md`, `review_fix.md`, `plan_create.md`.
 
 ## Testing
 
