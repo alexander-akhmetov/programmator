@@ -115,7 +115,7 @@ Every run writes a persistent log to `~/.programmator/logs/` with timestamped en
 
 Programmator uses a unified YAML config with multi-level merge (highest priority last):
 
-1. Embedded defaults (built into binary)
+1. [Embedded defaults](internal/config/defaults/config.yaml) (built into binary)
 2. Global config (`~/.config/programmator/config.yaml`)
 3. Environment variables
 4. Local config (`.programmator/config.yaml` in project directory)
@@ -127,7 +127,28 @@ On first run, a default config file is created at `~/.config/programmator/config
 programmator config show
 ```
 
+### Config Keys
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `max_iterations` | `50` | Maximum loop iterations before forced exit |
+| `stagnation_limit` | `3` | Exit after N consecutive iterations with no file changes |
+| `timeout` | `900` | Seconds per Claude invocation |
+| `claude_flags` | `""` | Additional flags passed to the `claude` command |
+| `claude_config_dir` | `""` | Custom Claude config directory (empty = default) |
+| `ticket_command` | `tk` | Binary name for the ticket CLI (`tk` or `ticket`) |
+| `logs_dir` | `""` | Directory for progress logs (default: `~/.programmator/logs`) |
+| `git.auto_commit` | `false` | Auto-commit after each phase completion |
+| `git.move_completed_plans` | `false` | Move completed plans to a `completed/` directory |
+| `git.completed_plans_dir` | `""` | Directory for completed plans (default: `plans/completed`) |
+| `git.branch_prefix` | `""` | Prefix for auto-created branches (default: `programmator/`) |
+| `review.enabled` | `false` | Enable code review after task phases complete |
+| `review.max_iterations` | `3` | Maximum review fix iterations |
+| `review.passes` | see [defaults](internal/config/defaults/config.yaml) | Review pass definitions with agent names and focus areas |
+
 ### Environment Variables
+
+Each config key can also be set via environment variable with a `PROGRAMMATOR_` prefix (uppercase, dots become underscores):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
