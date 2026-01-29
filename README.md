@@ -60,12 +60,7 @@ programmator plan create "Add authentication to the API"
 
 ## Tickets
 
-For persistent issue tracking, Programmator integrates with the external `ticket` CLI:
-
-```bash
-brew tap alexander-akhmetov/tools git@github.com:alexander-akhmetov/homebrew-tools.git
-brew install alexander-akhmetov/tools/ticket
-```
+For persistent issue tracking, Programmator integrates with the external [ticket](https://github.com/wedow/ticket) CLI:
 
 Tickets are markdown files with YAML frontmatter. Phases are checkboxes in a Design section:
 ```markdown
