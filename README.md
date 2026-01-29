@@ -1,8 +1,5 @@
 # Programmator
 
-> [!WARNING]
-> YOLO alert! By default, Programmator runs Claude Code with an experimental permissions system check. You can also run it with `--dangerously-skip-permissions`, which allows autonomous file modifications without confirmation prompts, but, as the name suggests, is dangerous.
-
 Autonomous Claude Code loop orchestrator driven by plan files or tickets.
 
 ## Quickstart
