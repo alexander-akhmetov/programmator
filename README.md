@@ -3,88 +3,73 @@
 > [!WARNING]
 > YOLO alert! By default, Programmator runs Claude Code with an experimental permissions system check. You can also run it with `--dangerously-skip-permissions`, which allows autonomous file modifications without confirmation prompts, but, as the name suggests, is dangerous.
 
-Autonomous Claude Code loop orchestrator driven by tickets or plan files.
+Autonomous Claude Code loop orchestrator driven by plan files or tickets.
 
-## Overview
+## Quickstart
 
-Programmator orchestrates autonomous Claude Code sessions using either:
-- **Tickets**: Integration with the external `ticket` CLI for persistent issue tracking
-- **Plan files**: Lightweight markdown files for standalone tasks
-
-Both define the work via checkbox phases. Programmator loops through phases until all are complete or safety limits are reached.
-
-## Installation
-
+Install:
 ```bash
 brew tap alexander-akhmetov/tools git@github.com:alexander-akhmetov/homebrew-tools.git
 brew install alexander-akhmetov/tools/programmator
 ```
 
 Or build from source:
-
 ```bash
 go install ./cmd/programmator
 ```
 
-## Usage
+Write a plan file (`plan.md`):
+```markdown
+# Plan: Fix calculator bugs
 
-```bash
-# Start working on a ticket
-programmator start <ticket-id>
+## Validation Commands
+- `go test ./...`
 
-# Start working on a plan file
-programmator start ./docs/plan.md
-
-# Start with specific working directory
-programmator start <ticket-id> -d /path/to/project
-
-# Limit iterations
-programmator start <ticket-id> -n 10
-
-# Auto-commit after each phase and create a branch
-programmator start ./plan.md --auto-commit
-
-# Show active sessions
-programmator status
-
-# View logs for a ticket/plan
-programmator logs <ticket-id>
-
-# Tail the active log in real-time
-programmator logs --follow
-
-# Create a plan interactively via Claude Q&A
-programmator plan create "Add authentication to the API"
-
-# Show resolved configuration
-programmator config show
-
-# Print version
-programmator --version
+## Tasks
+- [ ] Fix add() to return a + b instead of a - b
+- [ ] Fix off-by-one error in loop
+- [ ] Add missing nil check in User handler
 ```
 
-Programmator auto-detects the source type:
-- File paths (contain `/`, end with `.md`, or exist on disk) → Plan file
-- Everything else → Ticket ID
-
-## Source Formats
-
-### Tickets
-
-Requires the `ticket` CLI:
+Run it:
 ```bash
-brew tap alexander-akhmetov/tools git@github.com:alexander-akhmetov/homebrew-tools.git
-brew install alexander-akhmetov/tools/ticket
+programmator start ./plan.md
 ```
 
-See `templates/ticket.md` for the expected format. Key elements:
-- **Design section**: Contains `- [ ]` checkboxes for phases
-- **Phases**: Programmator works through them sequentially
-- **Notes**: Progress is logged here automatically
+Programmator picks up the first unchecked task, invokes Claude Code to complete it, marks it done, and moves to the next one. When all tasks are checked off (or safety limits are hit), it stops.
 
-### Plan Files
+## How It Works
 
-Standalone markdown files with checkbox tasks. No external dependencies.
+```mermaid
+flowchart TD
+    A[programmator start ./plan.md] --> B[Parse plan & find uncompleted task]
+    B --> C{Uncompleted task?}
+    C -->|Found| D[Build prompt with plan context]
+    C -->|All done| K[Exit: COMPLETE]
+    D --> E[Invoke Claude Code]
+    E --> F[Parse PROGRAMMATOR_STATUS block]
+    F --> G{Status?}
+    G -->|CONTINUE| H[Log progress]
+    G -->|DONE| I[Mark task complete ✓]
+    G -->|BLOCKED| J[Exit: BLOCKED]
+    H --> L{Safety check}
+    I --> L
+    L -->|OK| B
+    L -->|Max iterations| M[Exit: MAX_ITERATIONS]
+    L -->|No changes| N[Exit: STAGNATION]
+```
+
+Each iteration:
+1. Reads the source (plan file or ticket) and finds the first uncompleted task
+2. Builds a prompt with the task context and instructions
+3. Invokes Claude Code in autonomous mode
+4. Parses Claude's `PROGRAMMATOR_STATUS` output block (YAML with status, files changed, summary)
+5. Updates the task checkbox and logs progress
+6. Checks safety limits, then loops back
+
+## Plan Files
+
+The simplest way to use Programmator. A plan file is a markdown file with checkbox tasks:
 
 ```markdown
 # Plan: Feature Name
@@ -97,32 +82,84 @@ Standalone markdown files with checkbox tasks. No external dependencies.
 - [ ] Task 1: Investigate current implementation
 - [ ] Task 2: Implement the feature
 - [ ] Task 3: Add tests
-- [x] Task 4: Cleanup (completed)
+- [x] Task 4: Cleanup (already completed, will be skipped)
 ```
 
-Key elements:
 - **Title**: First `# ` heading (optional `Plan:` prefix)
-- **Validation Commands**: Commands run after each task completion (optional)
+- **Validation Commands**: Run after each task completion (optional)
 - **Tasks**: Checkbox items (`- [ ]` / `- [x]`) anywhere in the file
+
+You can also create plans interactively — Claude analyzes your codebase and asks clarifying questions to build the plan for you:
+
+```bash
+programmator plan create "Add authentication to the API"
+```
+
+## Tickets
+
+For persistent issue tracking, Programmator integrates with the external `ticket` CLI:
+
+```bash
+brew tap alexander-akhmetov/tools git@github.com:alexander-akhmetov/homebrew-tools.git
+brew install alexander-akhmetov/tools/ticket
+```
+
+Tickets are markdown files with YAML frontmatter. Phases are checkboxes in a Design section:
+```markdown
+## Design
+- [ ] Phase 1: Investigation
+- [x] Phase 2: Implementation (completed)
+```
+
+Programmator auto-detects the source type from the argument:
+- File paths (contain `/`, end with `.md`, or exist on disk) → Plan file
+- Everything else → Ticket ID
+
+```bash
+programmator start ./plan.md       # plan file
+programmator start pro-1a2b        # ticket
+```
+
+## Monitoring
+
+```bash
+# Show active sessions
+programmator status
+
+# View logs for a source (ticket or plan)
+programmator logs <source-id>
+
+# Tail the active log in real-time
+programmator logs --follow
+```
+
+Every run writes a persistent log to `~/.programmator/logs/` with timestamped entries per iteration.
+
+## Safety Gates
+
+- **Max iterations**: Prevents runaway loops (default: 50)
+- **Stagnation detection**: Exits if no files change for N iterations (default: 3)
+- **Error repetition**: Exits if same error occurs 3 times
+- **Timeout**: Kills Claude if a single invocation takes too long (default: 900s)
+- **Ctrl+C**: Graceful stop after current iteration
 
 ## Configuration
 
-Programmator uses a unified YAML config with multi-level merge:
+Programmator uses a unified YAML config with multi-level merge (highest priority last):
 
-1. **Embedded defaults** (built into binary)
-2. **Global config** (`~/.config/programmator/config.yaml`)
-3. **Environment variables** (legacy support)
-4. **Local config** (`.programmator/config.yaml` in project directory)
-5. **CLI flags** (highest priority)
+1. Embedded defaults (built into binary)
+2. Global config (`~/.config/programmator/config.yaml`)
+3. Environment variables
+4. Local config (`.programmator/config.yaml` in project directory)
+5. CLI flags
 
-On first run, a default config file is created at `~/.config/programmator/config.yaml`.
+On first run, a default config file is created at `~/.config/programmator/config.yaml`. See resolved values with:
 
-Show resolved configuration with source annotations:
 ```bash
 programmator config show
 ```
 
-### Environment Variables (Legacy)
+### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -135,7 +172,7 @@ programmator config show
 
 ### Prompt Templates
 
-Prompts are customizable via `text/template` files. Override any prompt by placing a file in:
+Prompts are customizable via Go `text/template` files. Override any prompt by placing a file in:
 - `~/.config/programmator/prompts/` (global)
 - `.programmator/prompts/` (per-project)
 
@@ -148,66 +185,20 @@ Opt-in via config or CLI flags:
 - `--move-completed`: Moves completed plans to `plans/completed/`
 - `--branch <name>`: Custom branch name
 
-## How It Works
-
-```mermaid
-flowchart TD
-    A[programmator start ticket-id] --> B[Fetch ticket & parse phases]
-    B --> C{Find uncompleted phase}
-    C -->|Found| D[Build prompt with ticket context]
-    C -->|All done| K[Exit: COMPLETE]
-    D --> E[Invoke Claude Code]
-    E --> F[Parse PROGRAMMATOR_STATUS block]
-    F --> G{Status?}
-    G -->|CONTINUE| H[Update ticket notes]
-    G -->|DONE| I[Mark phase complete]
-    G -->|BLOCKED| J[Exit: BLOCKED]
-    H --> L{Safety check}
-    I --> L
-    L -->|OK| B
-    L -->|Max iterations| M[Exit: MAX_ITERATIONS]
-    L -->|No changes| N[Exit: STAGNATION]
-```
-
-1. Programmator reads the ticket and finds the first uncompleted phase
-2. Builds a prompt with ticket context and instructions
-3. Invokes Claude Code in autonomous mode
-4. Parses Claude's `PROGRAMMATOR_STATUS` output block
-5. Updates the ticket phase checkboxes and adds progress notes
-6. Repeats until all phases complete or safety limits reached
-
-## Safety Gates
-
-- **Max iterations**: Prevents runaway loops
-- **Stagnation detection**: Exits if no files change for N iterations
-- **Error repetition**: Exits if same error occurs 3 times
-- **Timeout**: Kills Claude if it takes too long
-- **Ctrl+C**: Graceful stop after current iteration
-
 ## Development
 
 ```bash
-# Build
-go build ./...
-
-# Run tests
-go test ./...
-
-# Run single package tests
-go test ./internal/parser -v
-
-# Run tests with race detector
-go test -race ./...
-
-# Lint and format
-gofmt -l .        # Check formatting
-gofmt -w .        # Auto-format
-go vet ./...      # Static analysis
+go build ./...                # Build
+go test ./...                 # Run tests
+go test -race ./...           # Run tests with race detector
+go test ./internal/parser -v  # Single package
+golangci-lint run             # Lint
+go vet ./...                  # Static analysis
 
 # E2E test prep (creates toy projects in /tmp)
-make e2e-prep      # Plan-based run
-make e2e-review    # Review mode
-make e2e-plan      # Interactive plan creation
+make e2e-prep                 # Plan-based run
+make e2e-review               # Review mode
+make e2e-plan                 # Interactive plan creation
 ```
 
 ## Releasing
