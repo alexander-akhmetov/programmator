@@ -135,4 +135,4 @@ Push a git tag to trigger GitHub Actions release via GoReleaser:
 git tag v1.0.0
 git push origin v1.0.0
 ```
-Publishes binaries for linux/darwin (amd64/arm64) and updates the Homebrew formula.
+Publishes binaries for linux/darwin (amd64/arm64).

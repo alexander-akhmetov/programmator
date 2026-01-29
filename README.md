@@ -1,5 +1,8 @@
 # Programmator
 
+[![CI](https://github.com/worksonmyai/programmator/actions/workflows/ci.yml/badge.svg)](https://github.com/worksonmyai/programmator/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Autonomous Claude Code loop orchestrator driven by plan files or tickets.
 
 ## Quickstart
@@ -200,4 +203,4 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-Binaries are published for linux/darwin (amd64/arm64) and a Homebrew formula is updated automatically.
+Binaries are published for linux/darwin (amd64/arm64).
