@@ -1579,13 +1579,10 @@ func (l *Loop) buildReviewFixPrompt(baseBranch string, filesChanged []string, is
 	if l.promptBuilder != nil {
 		return l.promptBuilder.BuildReviewFix(baseBranch, filesChanged, issuesMarkdown, iteration)
 	}
-	// Fall back to the default builder if no custom builder is set
-	return BuildReviewFixPrompt(baseBranch, filesChanged, issuesMarkdown, iteration), nil
+	return defaultReviewFixPrompt(baseBranch, filesChanged, issuesMarkdown, iteration), nil
 }
 
-// BuildReviewFixPrompt creates a prompt for Claude to fix review issues.
-// Deprecated: Use Loop.buildReviewFixPrompt with a prompt.Builder instead.
-func BuildReviewFixPrompt(baseBranch string, filesChanged []string, issuesMarkdown string, iteration int) string {
+func defaultReviewFixPrompt(baseBranch string, filesChanged []string, issuesMarkdown string, iteration int) string {
 	filesList := strings.Join(filesChanged, "\n  - ")
 
 	return fmt.Sprintf(`You are reviewing and fixing code issues found by automated code review.

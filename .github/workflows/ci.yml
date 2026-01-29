@@ -21,6 +21,15 @@ jobs:
         with:
           version: latest
 
+      - name: go mod tidy
+        run: go mod tidy -diff
+
+      - name: govulncheck
+        run: go tool govulncheck ./...
+
+      - name: deadcode
+        run: go tool deadcode -test ./...
+
   test:
     runs-on: ubuntu-latest
     steps:

@@ -993,13 +993,13 @@ func TestRunReviewOnlyAutoCommit(t *testing.T) {
 	// Auto-commit would have been attempted but might fail in test env - that's OK
 }
 
-func TestBuildReviewFixPrompt(t *testing.T) {
+func TestDefaultReviewFixPrompt(t *testing.T) {
 	baseBranch := "main"
 	filesChanged := []string{"main.go", "utils.go"}
 	issuesMarkdown := "### quality\n- Error not handled at main.go:42"
 	iteration := 2
 
-	prompt := BuildReviewFixPrompt(baseBranch, filesChanged, issuesMarkdown, iteration)
+	prompt := defaultReviewFixPrompt(baseBranch, filesChanged, issuesMarkdown, iteration)
 
 	require.Contains(t, prompt, "Base branch: main")
 	require.Contains(t, prompt, "Review iteration: 2")
@@ -1010,8 +1010,8 @@ func TestBuildReviewFixPrompt(t *testing.T) {
 	require.Contains(t, prompt, "commit_made: true")
 }
 
-func TestBuildReviewFixPromptFormatting(t *testing.T) {
-	prompt := BuildReviewFixPrompt("develop", []string{"file.go"}, "some issues", 1)
+func TestDefaultReviewFixPromptFormatting(t *testing.T) {
+	prompt := defaultReviewFixPrompt("develop", []string{"file.go"}, "some issues", 1)
 
 	// Check structure
 	require.Contains(t, prompt, "## Context")

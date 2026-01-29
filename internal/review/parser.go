@@ -91,7 +91,7 @@ func FormatIssuesMarkdown(results []*Result) string {
 	return b.String()
 }
 
-func pluralize(n int, singular, plural string) string {
+func pluralize(n int, singular, plural string) string { //nolint:unparam // generic helper
 	if n == 1 {
 		return "1 " + singular
 	}

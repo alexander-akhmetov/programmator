@@ -189,11 +189,11 @@ func (l *Logger) writef(format string, args ...any) {
 
 func (l *Logger) elapsed() string {
 	d := time.Since(l.startTime).Round(time.Second)
-	h := d / time.Hour
-	d -= h * time.Hour
-	m := d / time.Minute
-	d -= m * time.Minute
-	s := d / time.Second
+	h := int64(d / time.Hour)
+	d -= time.Duration(h) * time.Hour
+	m := int64(d / time.Minute)
+	d -= time.Duration(m) * time.Minute
+	s := int64(d / time.Second)
 
 	if h > 0 {
 		return fmt.Sprintf("%dh%dm%ds", h, m, s)

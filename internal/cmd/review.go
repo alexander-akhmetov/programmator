@@ -96,8 +96,11 @@ func runReview(_ *cobra.Command, _ []string) error {
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not create progress logger: %v\n", err)
-	} else {
-		defer progressLogger.Close()
+	}
+	closeLogger := func() {
+		if progressLogger != nil {
+			progressLogger.Close()
+		}
 	}
 
 	// Create loop for review-only mode
@@ -113,12 +116,14 @@ func runReview(_ *cobra.Command, _ []string) error {
 	// Run review-only loop
 	result, err := reviewLoop.RunReviewOnly(reviewBaseBranch, filesChanged)
 	if err != nil {
+		closeLogger()
 		return fmt.Errorf("review failed: %w", err)
 	}
 
 	// Print summary
 	printReviewOnlySummary(result)
 
+	closeLogger()
 	if !result.Passed {
 		os.Exit(1) // Non-zero exit for CI integration
 	}
@@ -161,9 +166,9 @@ var (
 
 func formatReviewDuration(d time.Duration) string {
 	d = d.Round(time.Second)
-	m := d / time.Minute
-	d -= m * time.Minute
-	s := d / time.Second
+	m := int64(d / time.Minute)
+	d -= time.Duration(m) * time.Minute
+	s := int64(d / time.Second)
 
 	if m > 0 {
 		return fmt.Sprintf("%dm%ds", m, s)

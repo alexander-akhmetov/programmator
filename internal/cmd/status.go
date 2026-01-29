@@ -46,7 +46,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 	if err := json.Unmarshal(data, &session); err != nil {
 		fmt.Println("No active programmator sessions (corrupted session file)")
 		os.Remove(path)
-		return nil
+		return nil //nolint:nilerr // intentional: corrupted file is not a user-facing error
 	}
 
 	if !isProcessRunning(session.PID) {

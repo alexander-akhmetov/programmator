@@ -18,8 +18,3 @@ func Logf(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	fmt.Fprintf(os.Stderr, "[DEBUG %s] %s\n", timestamp, msg)
 }
-
-// Enabled returns true if debug logging is enabled
-func Enabled() bool {
-	return enabled
-}

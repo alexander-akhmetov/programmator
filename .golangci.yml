@@ -23,7 +23,13 @@ linters:
     - revive
     - staticcheck
     - unconvert
+    - unparam
     - unused
+    - copyloopvar
+    - durationcheck
+    - gocritic
+    - nilerr
+    - whitespace
   settings:
     errcheck:
       exclude-functions:
@@ -34,6 +40,9 @@ linters:
       errorf: false
       asserts: false
       comparison: true
+    gocritic:
+      disabled-checks:
+        - ifElseChain
     gosec:
       includes:
         - G104
