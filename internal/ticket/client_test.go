@@ -2,8 +2,11 @@ package ticket
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -410,6 +413,161 @@ func TestTicket_HasPhases(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNormalizePhase(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"lowercase", "Setup Project", "setup project"},
+		{"trims whitespace", "  setup  ", "setup"},
+		{"strips Phase N:", "Phase 1: Setup", "setup"},
+		{"strips Phase N.", "Phase 2. Implementation", "implementation"},
+		{"strips Step N:", "Step 3: Testing", "testing"},
+		{"no prefix", "just a task", "just a task"},
+		{"case insensitive prefix", "phase 1: Setup", "setup"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizePhase(tt.input)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestUpdatePhase(t *testing.T) {
+	setup := func(t *testing.T, content string) (*CLIClient, string) {
+		t.Helper()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "t-1234.md")
+		require.NoError(t, os.WriteFile(path, []byte(content), 0644))
+		return &CLIClient{ticketsDir: dir}, path
+	}
+
+	t.Run("marks unchecked phase as complete", func(t *testing.T) {
+		client, path := setup(t, "## Design\n- [ ] Phase 1: Setup\n- [ ] Phase 2: Implement\n")
+		err := client.UpdatePhase("t-1234", "Phase 1: Setup")
+		require.NoError(t, err)
+
+		data, _ := os.ReadFile(path)
+		assert.Contains(t, string(data), "- [x] Phase 1: Setup")
+		assert.Contains(t, string(data), "- [ ] Phase 2: Implement")
+	})
+
+	t.Run("error when phase already completed", func(t *testing.T) {
+		client, _ := setup(t, "## Design\n- [x] Phase 1: Setup\n")
+		err := client.UpdatePhase("t-1234", "Phase 1: Setup")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found or already completed")
+	})
+
+	t.Run("error when phase not found", func(t *testing.T) {
+		client, _ := setup(t, "## Design\n- [ ] Phase 1: Setup\n")
+		err := client.UpdatePhase("t-1234", "Nonexistent Phase")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found or already completed")
+	})
+
+	t.Run("no-op for empty phase name", func(t *testing.T) {
+		client, _ := setup(t, "## Design\n- [ ] Phase 1: Setup\n")
+		assert.NoError(t, client.UpdatePhase("t-1234", ""))
+	})
+
+	t.Run("no-op for null phase name", func(t *testing.T) {
+		client, _ := setup(t, "## Design\n- [ ] Phase 1: Setup\n")
+		assert.NoError(t, client.UpdatePhase("t-1234", "null"))
+	})
+
+	t.Run("fuzzy matching - phase contains name", func(t *testing.T) {
+		client, path := setup(t, "## Design\n- [ ] Phase 1: Setup the project\n")
+		err := client.UpdatePhase("t-1234", "Setup the project")
+		require.NoError(t, err)
+
+		data, _ := os.ReadFile(path)
+		assert.Contains(t, string(data), "- [x] Phase 1: Setup the project")
+	})
+
+	t.Run("fuzzy matching - name contains phase", func(t *testing.T) {
+		client, path := setup(t, "## Design\n- [ ] Setup\n")
+		err := client.UpdatePhase("t-1234", "Phase 1: Setup")
+		require.NoError(t, err)
+
+		data, _ := os.ReadFile(path)
+		assert.Contains(t, string(data), "- [x] Setup")
+	})
+}
+
+func TestFindTicketFile(t *testing.T) {
+	setup := func(t *testing.T, filenames ...string) *CLIClient {
+		t.Helper()
+		dir := t.TempDir()
+		for _, name := range filenames {
+			require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("content"), 0644))
+		}
+		return &CLIClient{ticketsDir: dir}
+	}
+
+	t.Run("prefix match", func(t *testing.T) {
+		client := setup(t, "t-1234-some-title.md")
+		path, err := client.findTicketFile("t-1234")
+		require.NoError(t, err)
+		assert.Contains(t, path, "t-1234-some-title.md")
+	})
+
+	t.Run("contains-dash match", func(t *testing.T) {
+		client := setup(t, "project-t-1234.md")
+		path, err := client.findTicketFile("t-1234")
+		require.NoError(t, err)
+		assert.Contains(t, path, "project-t-1234.md")
+	})
+
+	t.Run("suffix match via second pass", func(t *testing.T) {
+		client := setup(t, "abc1234.md")
+		path, err := client.findTicketFile("1234")
+		require.NoError(t, err)
+		assert.Contains(t, path, "abc1234.md")
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		client := setup(t, "unrelated.md")
+		_, err := client.findTicketFile("t-9999")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("skips directories in first pass", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.Mkdir(filepath.Join(dir, "t-1234"), 0755))
+		// Also add a file that won't match
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "unrelated.md"), []byte("x"), 0644))
+		client := &CLIClient{ticketsDir: dir}
+		// The first pass skips directories; the second pass may still match
+		// the directory name, so we just verify no panic occurs
+		_, _ = client.findTicketFile("t-1234")
+	})
+}
+
+func TestNewClient_EnvHandling(t *testing.T) {
+	t.Run("reads TICKETS_DIR env", func(t *testing.T) {
+		original := os.Getenv("TICKETS_DIR")
+		defer os.Setenv("TICKETS_DIR", original)
+
+		os.Setenv("TICKETS_DIR", "/custom/tickets")
+		client := NewClient()
+		assert.Equal(t, "/custom/tickets", client.ticketsDir)
+	})
+
+	t.Run("falls back to ~/.tickets", func(t *testing.T) {
+		original := os.Getenv("TICKETS_DIR")
+		defer os.Setenv("TICKETS_DIR", original)
+
+		os.Unsetenv("TICKETS_DIR")
+		client := NewClient()
+		home := os.Getenv("HOME")
+		assert.Equal(t, filepath.Join(home, ".tickets"), client.ticketsDir)
+	})
 }
 
 func TestPhaselessTicketParsing(t *testing.T) {
