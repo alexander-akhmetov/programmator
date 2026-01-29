@@ -1139,11 +1139,10 @@ func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewO
 		}
 
 		state.Iteration++
-		state.RecordReviewIteration()
 		result.Iterations = state.Iteration
 
 		l.logIterationSeparator(state.Iteration, l.config.MaxReviewIterations)
-		l.log(fmt.Sprintf("Review iteration %d/%d", state.Iteration, l.config.MaxReviewIterations))
+		l.log(fmt.Sprintf("Review iteration %d/%d", state.ReviewIterations+1, l.config.MaxReviewIterations))
 
 		// Check safety limits
 		checkResult := safety.Check(l.config, state)
@@ -1156,6 +1155,9 @@ func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewO
 		// Run review
 		l.log("Running code review...")
 		reviewResult, err := l.reviewRunner.Run(ctx, l.workingDir, filesChanged)
+
+		// Record iteration AFTER review runs so the count reflects completed reviews
+		state.RecordReviewIteration()
 		if err != nil {
 			l.log(fmt.Sprintf("Review error: %v", err))
 			result.LastReviewErr = err
