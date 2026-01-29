@@ -20,6 +20,7 @@ import (
 	"github.com/alexander-akhmetov/programmator/internal/debug"
 	gitutil "github.com/alexander-akhmetov/programmator/internal/git"
 	"github.com/alexander-akhmetov/programmator/internal/parser"
+	"github.com/alexander-akhmetov/programmator/internal/progress"
 	"github.com/alexander-akhmetov/programmator/internal/prompt"
 	"github.com/alexander-akhmetov/programmator/internal/review"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
@@ -41,6 +42,15 @@ type OutputCallback func(text string)
 type StateCallback func(state *safety.State, workItem *source.WorkItem, filesChanged []string)
 type ProcessStatsCallback func(pid int, memoryKB int64)
 type ClaudeInvoker func(ctx context.Context, promptText string) (string, error)
+
+// GitWorkflowConfig holds configuration for automatic git operations.
+type GitWorkflowConfig struct {
+	AutoCommit         bool   // Auto-commit after each phase completion
+	MoveCompletedPlans bool   // Move completed plans to completed/ directory
+	CompletedPlansDir  string // Directory for completed plans (default: plans/completed)
+	BranchPrefix       string // Prefix for auto-created branches (default: programmator/)
+	AutoBranch         bool   // Auto-create branch on start
+}
 
 type Loop struct {
 	config               safety.Config
@@ -71,6 +81,16 @@ type Loop struct {
 	reviewRunner     *review.Runner
 	pendingReviewFix bool   // true when Claude needs to fix review issues before next review
 	lastReviewIssues string // formatted issues from last review for Claude to fix
+
+	// Prompt builder (uses customizable templates)
+	promptBuilder *prompt.Builder
+
+	// Progress logger for persistent log files
+	progressLogger *progress.Logger
+
+	// Git workflow configuration
+	gitConfig GitWorkflowConfig
+	gitRepo   *gitutil.Repo
 }
 
 // SetSource sets the source for the loop (for testing).
@@ -109,6 +129,131 @@ func (l *Loop) SetSkipReview(skip bool) {
 // SetReviewOnly enables review-only mode (skips task phases).
 func (l *Loop) SetReviewOnly(reviewOnly bool) {
 	l.reviewOnly = reviewOnly
+}
+
+// SetPromptBuilder sets a custom prompt builder (for customizable templates).
+func (l *Loop) SetPromptBuilder(builder *prompt.Builder) {
+	l.promptBuilder = builder
+}
+
+// SetProgressLogger sets the progress logger for persistent log files.
+func (l *Loop) SetProgressLogger(logger *progress.Logger) {
+	l.progressLogger = logger
+}
+
+// SetGitWorkflowConfig sets the git workflow configuration.
+func (l *Loop) SetGitWorkflowConfig(cfg GitWorkflowConfig) {
+	l.gitConfig = cfg
+}
+
+// setupGitWorkflow initializes the git repo and optionally creates a branch.
+func (l *Loop) setupGitWorkflow(sourceID string, isPlan bool) error {
+	// Initialize git repo
+	l.gitRepo = gitutil.NewRepo(l.workingDir)
+
+	// Only create branch if auto-branch is enabled
+	if !l.gitConfig.AutoBranch {
+		return nil
+	}
+
+	// Generate branch name
+	prefix := l.gitConfig.BranchPrefix
+	if prefix == "" {
+		prefix = "programmator/"
+	}
+
+	branchName := gitutil.BranchNameFromSource(sourceID, isPlan)
+	if !strings.HasPrefix(branchName, prefix) {
+		// BranchNameFromSource already adds "programmator/", replace with configured prefix
+		branchName = prefix + strings.TrimPrefix(branchName, "programmator/")
+	}
+
+	// Create or checkout the branch
+	l.log(fmt.Sprintf("Setting up branch: %s", branchName))
+	l.logProgressf("Setting up branch: %s", branchName)
+
+	if err := l.gitRepo.CreateBranch(branchName); err != nil {
+		return fmt.Errorf("create branch: %w", err)
+	}
+
+	return nil
+}
+
+// autoCommitPhase commits changes after a phase is completed.
+func (l *Loop) autoCommitPhase(phaseName string, filesChanged []string) error {
+	if !l.gitConfig.AutoCommit || l.gitRepo == nil || len(filesChanged) == 0 {
+		return nil
+	}
+
+	// Build commit message
+	commitMsg := fmt.Sprintf("phase: %s", phaseName)
+
+	l.log(fmt.Sprintf("Auto-committing: %s", commitMsg))
+	l.logProgressf("Auto-committing: %s", commitMsg)
+
+	if err := l.gitRepo.AddAndCommit(filesChanged, commitMsg); err != nil {
+		return fmt.Errorf("auto-commit: %w", err)
+	}
+
+	return nil
+}
+
+// moveCompletedPlan moves a completed plan file to the completed directory.
+func (l *Loop) moveCompletedPlan(rc *runContext) error {
+	if !l.gitConfig.MoveCompletedPlans {
+		return nil
+	}
+
+	// Only move plan files, not tickets
+	planSource, ok := rc.source.(*source.PlanSource)
+	if !ok {
+		return nil
+	}
+
+	// Determine destination directory
+	destDir := l.gitConfig.CompletedPlansDir
+	if destDir == "" {
+		// Default: plans/completed relative to working directory
+		destDir = filepath.Join(l.workingDir, "plans", "completed")
+	} else if !filepath.IsAbs(destDir) {
+		// Make relative paths relative to working directory
+		destDir = filepath.Join(l.workingDir, destDir)
+	}
+
+	// Get the original file path for git operations
+	originalPath := planSource.FilePath()
+
+	// Move the plan
+	newPath, err := planSource.MoveTo(destDir)
+	if err != nil {
+		return fmt.Errorf("move plan: %w", err)
+	}
+
+	l.log(fmt.Sprintf("Moved completed plan to: %s", newPath))
+	l.logProgressf("Moved completed plan to: %s", newPath)
+
+	// If auto-commit is enabled, commit the move
+	if l.gitConfig.AutoCommit && l.gitRepo != nil {
+		// Use git mv by staging the deletion and addition
+		// The file was moved with os.Rename, so we need to stage the changes
+		relOriginal, _ := filepath.Rel(l.workingDir, originalPath)
+		relNew, _ := filepath.Rel(l.workingDir, newPath)
+
+		// Stage the move (git will detect it as a rename)
+		if err := l.gitRepo.Add(relOriginal, relNew); err != nil {
+			l.log(fmt.Sprintf("Warning: failed to stage plan move: %v", err))
+		}
+
+		commitMsg := "chore: move completed plan to completed/"
+		if err := l.gitRepo.Commit(commitMsg); err != nil {
+			l.log(fmt.Sprintf("Warning: failed to commit plan move: %v", err))
+		} else {
+			l.log("Committed plan move")
+			l.logProgressf("Committed plan move")
+		}
+	}
+
+	return nil
 }
 
 // loopAction indicates what the main loop should do next.
@@ -234,6 +379,13 @@ func (l *Loop) completeAllPhases(rc *runContext) loopAction {
 	l.log("All phases complete!")
 	_ = rc.source.SetStatus(rc.workItemID, "closed")
 	_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: Completed all phases in %d iterations", rc.state.Iteration))
+
+	// Move completed plan if configured
+	if err := l.moveCompletedPlan(rc); err != nil {
+		l.log(fmt.Sprintf("Warning: failed to move completed plan: %v", err))
+		l.logErrorf("failed to move completed plan: %v", err)
+	}
+
 	rc.result.ExitReason = safety.ExitReasonComplete
 	rc.result.Iterations = rc.state.Iteration
 	return loopReturn
@@ -244,6 +396,7 @@ func (l *Loop) completeAllPhases(rc *runContext) loopAction {
 func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) loopAction {
 	l.log(fmt.Sprintf("Status: %s", status.Status))
 	l.log(fmt.Sprintf("Summary: %s", status.Summary))
+	l.logStatus(string(status.Status), status.Summary, status.FilesChanged)
 
 	rc.result.FinalStatus = status
 	l.recordPhaseProgress(rc, status)
@@ -294,11 +447,19 @@ func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) 
 func (l *Loop) recordPhaseProgress(rc *runContext, status *parser.ParsedStatus) {
 	if status.PhaseCompleted != "" {
 		l.log(fmt.Sprintf("Phase completed: %s", status.PhaseCompleted))
+		l.logPhaseComplete(status.PhaseCompleted)
 		if err := rc.source.UpdatePhase(rc.workItemID, status.PhaseCompleted); err != nil {
 			l.log(fmt.Sprintf("Warning: failed to update phase '%s': %v", status.PhaseCompleted, err))
+			l.logErrorf("failed to update phase '%s': %v", status.PhaseCompleted, err)
 		}
 		rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[iter %d] Completed: %s", rc.state.Iteration, status.PhaseCompleted))
 		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: [iter %d] Completed %s", rc.state.Iteration, status.PhaseCompleted))
+
+		// Auto-commit after phase completion if enabled
+		if err := l.autoCommitPhase(status.PhaseCompleted, status.FilesChanged); err != nil {
+			l.log(fmt.Sprintf("Warning: auto-commit failed: %v", err))
+			l.logErrorf("auto-commit failed: %v", err)
+		}
 	} else {
 		rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[iter %d] %s", rc.state.Iteration, status.Summary))
 		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: [iter %d] %s", rc.state.Iteration, status.Summary))
@@ -337,7 +498,11 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 		ExitReason:        safety.ExitReasonComplete,
 		TotalFilesChanged: make([]string, 0),
 	}
-	defer func() { result.Duration = time.Since(startTime) }()
+	defer func() {
+		result.Duration = time.Since(startTime)
+		// Log exit to progress file
+		l.logExit(string(result.ExitReason), result.ExitMessage, result.Iterations, result.TotalFilesChanged)
+	}()
 
 	timing.Log("Loop.Run: fetching work item")
 	workItem, err := src.Get(workItemID)
@@ -348,7 +513,14 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 	}
 
 	l.log(fmt.Sprintf("Starting on %s %s: %s", src.Type(), workItemID, workItem.Title))
+	l.logProgressf("Starting on %s %s: %s", src.Type(), workItemID, workItem.Title)
 	_ = src.SetStatus(workItemID, "in_progress")
+
+	// Set up git repo and optionally create branch
+	if err := l.setupGitWorkflow(workItemID, src.Type() == "plan"); err != nil {
+		l.log(fmt.Sprintf("Warning: git workflow setup failed: %v", err))
+		l.logErrorf("git workflow setup failed: %v", err)
+	}
 
 	rc := &runContext{
 		ctx:             ctx,
@@ -402,9 +574,12 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 		currentPhase := rc.workItem.CurrentPhase()
 		l.logIterationSeparator(rc.state.Iteration, l.config.MaxIterations)
 		l.log(fmt.Sprintf("Iteration %d/%d", rc.state.Iteration, l.config.MaxIterations))
+		phaseName := ""
 		if currentPhase != nil {
+			phaseName = currentPhase.Name
 			l.log(fmt.Sprintf("Current phase: %s", currentPhase.Name))
 		}
+		l.logIteration(rc.state.Iteration, l.config.MaxIterations, phaseName)
 
 		promptText := prompt.Build(rc.workItem, rc.progressNotes)
 
@@ -930,6 +1105,62 @@ func (l *Loop) logIterationSeparator(iteration, maxIterations int) {
 	}
 }
 
+// logProgressf writes to the progress log file if a logger is configured.
+func (l *Loop) logProgressf(format string, args ...any) {
+	if l.progressLogger != nil {
+		l.progressLogger.Printf(format, args...)
+	}
+}
+
+// logIteration logs the start of an iteration to the progress file.
+func (l *Loop) logIteration(n, maxIter int, phase string) {
+	if l.progressLogger != nil {
+		l.progressLogger.Iteration(n, maxIter, phase)
+	}
+}
+
+// logStatus logs a status update to the progress file.
+func (l *Loop) logStatus(status, summary string, filesChanged []string) {
+	if l.progressLogger != nil {
+		l.progressLogger.Status(status, summary, filesChanged)
+	}
+}
+
+// logPhaseComplete logs phase completion to the progress file.
+func (l *Loop) logPhaseComplete(phase string) {
+	if l.progressLogger != nil {
+		l.progressLogger.PhaseComplete(phase)
+	}
+}
+
+// logErrorf logs an error to the progress file.
+func (l *Loop) logErrorf(format string, args ...any) {
+	if l.progressLogger != nil {
+		l.progressLogger.Errorf(format, args...)
+	}
+}
+
+// logExit logs the exit reason and stats to the progress file.
+func (l *Loop) logExit(reason, message string, iterations int, filesChanged []string) {
+	if l.progressLogger != nil {
+		l.progressLogger.Exit(reason, message, iterations, filesChanged)
+	}
+}
+
+// logReviewStart logs the start of a review iteration to the progress file.
+func (l *Loop) logReviewStart(iteration, maxIter int) {
+	if l.progressLogger != nil {
+		l.progressLogger.ReviewStart(iteration, maxIter)
+	}
+}
+
+// logReviewResult logs review results to the progress file.
+func (l *Loop) logReviewResult(passed bool, issueCount int) {
+	if l.progressLogger != nil {
+		l.progressLogger.ReviewResult(passed, issueCount)
+	}
+}
+
 func (r *Result) FilesChangedList() []string {
 	return r.TotalFilesChanged
 }
@@ -1047,6 +1278,7 @@ func (l *Loop) runReview(ctx context.Context, _ string, _ source.Source, state *
 	}
 
 	l.log(fmt.Sprintf("Running review iteration %d/%d", state.ReviewIterations+1, l.config.MaxReviewIterations))
+	l.logReviewStart(state.ReviewIterations+1, l.config.MaxReviewIterations)
 
 	result, err := l.reviewRunner.Run(ctx, l.workingDir, filesChanged)
 
@@ -1055,8 +1287,11 @@ func (l *Loop) runReview(ctx context.Context, _ string, _ source.Source, state *
 
 	if err != nil {
 		state.ExitReviewPhase()
+		l.logErrorf("review failed: %v", err)
 		return nil, err
 	}
+
+	l.logReviewResult(result.Passed, result.TotalIssues)
 
 	if result.Passed {
 		state.ExitReviewPhase()
@@ -1179,7 +1414,11 @@ func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewO
 
 		// Build prompt for Claude to fix issues
 		issuesMarkdown := review.FormatIssuesMarkdown(reviewResult.Results)
-		promptText := BuildReviewFixPrompt(baseBranch, filesChanged, issuesMarkdown, state.Iteration)
+		promptText, err := l.buildReviewFixPrompt(baseBranch, filesChanged, issuesMarkdown, state.Iteration)
+		if err != nil {
+			result.ExitReason = safety.ExitReasonError
+			return result, fmt.Errorf("build review fix prompt: %w", err)
+		}
 
 		l.currentState = state
 		if l.onStateChange != nil {
@@ -1297,7 +1536,17 @@ func (l *Loop) autoCommitChanges(files []string, summary string) error {
 	return nil
 }
 
+// buildReviewFixPrompt creates a prompt for Claude to fix review issues using the template.
+func (l *Loop) buildReviewFixPrompt(baseBranch string, filesChanged []string, issuesMarkdown string, iteration int) (string, error) {
+	if l.promptBuilder != nil {
+		return l.promptBuilder.BuildReviewFix(baseBranch, filesChanged, issuesMarkdown, iteration)
+	}
+	// Fall back to the default builder if no custom builder is set
+	return BuildReviewFixPrompt(baseBranch, filesChanged, issuesMarkdown, iteration), nil
+}
+
 // BuildReviewFixPrompt creates a prompt for Claude to fix review issues.
+// Deprecated: Use Loop.buildReviewFixPrompt with a prompt.Builder instead.
 func BuildReviewFixPrompt(baseBranch string, filesChanged []string, issuesMarkdown string, iteration int) string {
 	filesList := strings.Join(filesChanged, "\n  - ")
 

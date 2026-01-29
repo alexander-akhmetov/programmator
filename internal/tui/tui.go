@@ -21,6 +21,8 @@ import (
 	"github.com/alexander-akhmetov/programmator/internal/debug"
 	"github.com/alexander-akhmetov/programmator/internal/loop"
 	"github.com/alexander-akhmetov/programmator/internal/permission"
+	"github.com/alexander-akhmetov/programmator/internal/progress"
+	"github.com/alexander-akhmetov/programmator/internal/review"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
 	"github.com/alexander-akhmetov/programmator/internal/source"
 	"github.com/alexander-akhmetov/programmator/internal/timing"
@@ -839,6 +841,9 @@ type TUI struct {
 	allowPatterns          []string
 	skipReview             bool
 	reviewOnly             bool
+	reviewConfig           *review.Config
+	progressLogger         *progress.Logger
+	gitWorkflowConfig      *loop.GitWorkflowConfig
 }
 
 func New(config safety.Config) *TUI {
@@ -870,6 +875,20 @@ func (t *TUI) SetSkipReview(skip bool) {
 
 func (t *TUI) SetReviewOnly(reviewOnly bool) {
 	t.reviewOnly = reviewOnly
+}
+
+func (t *TUI) SetReviewConfig(cfg review.Config) {
+	t.reviewConfig = &cfg
+}
+
+// SetProgressLogger sets the progress logger for persistent log files.
+func (t *TUI) SetProgressLogger(logger *progress.Logger) {
+	t.progressLogger = logger
+}
+
+// SetGitWorkflowConfig sets the git workflow configuration.
+func (t *TUI) SetGitWorkflowConfig(cfg loop.GitWorkflowConfig) {
+	t.gitWorkflowConfig = &cfg
 }
 
 func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
@@ -958,6 +977,15 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 	l.SetGuardMode(t.guardMode)
 	l.SetSkipReview(t.skipReview)
 	l.SetReviewOnly(t.reviewOnly)
+	if t.reviewConfig != nil {
+		l.SetReviewConfig(*t.reviewConfig)
+	}
+	if t.progressLogger != nil {
+		l.SetProgressLogger(t.progressLogger)
+	}
+	if t.gitWorkflowConfig != nil {
+		l.SetGitWorkflowConfig(*t.gitWorkflowConfig)
+	}
 
 	t.model.SetLoop(l)
 	timing.Log("TUI.Run: loop created")

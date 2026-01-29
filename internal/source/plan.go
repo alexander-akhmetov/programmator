@@ -57,6 +57,29 @@ func (s *PlanSource) Type() string {
 	return "plan"
 }
 
+// FilePath returns the plan file path.
+func (s *PlanSource) FilePath() string {
+	return s.filePath
+}
+
+// MoveTo moves the plan file to a new directory.
+// Returns the new file path.
+func (s *PlanSource) MoveTo(destDir string) (string, error) {
+	p, err := plan.ParseFile(s.filePath)
+	if err != nil {
+		return "", err
+	}
+
+	newPath, err := p.MoveTo(destDir)
+	if err != nil {
+		return "", err
+	}
+
+	// Update our file path reference
+	s.filePath = newPath
+	return newPath, nil
+}
+
 // planToWorkItem converts a plan.Plan to a WorkItem.
 func planToWorkItem(p *plan.Plan) *WorkItem {
 	phases := make([]Phase, len(p.Tasks))

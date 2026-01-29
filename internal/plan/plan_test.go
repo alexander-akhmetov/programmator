@@ -402,3 +402,73 @@ func TestParse_RealWorldFormat(t *testing.T) {
 	assert.Equal(t, []string{"go test ./...", "golangci-lint run"}, plan.ValidationCommands)
 	assert.Len(t, plan.Tasks, 3)
 }
+
+func TestMoveTo(t *testing.T) {
+	// Create temp directory structure
+	tmpDir := t.TempDir()
+	plansDir := filepath.Join(tmpDir, "plans")
+	completedDir := filepath.Join(tmpDir, "plans", "completed")
+	require.NoError(t, os.MkdirAll(plansDir, 0755))
+
+	// Create a plan file
+	planPath := filepath.Join(plansDir, "test-plan.md")
+	content := `# Plan: Test
+
+- [ ] Task 1
+`
+	err := os.WriteFile(planPath, []byte(content), 0644)
+	require.NoError(t, err)
+
+	// Parse the plan
+	plan, err := ParseFile(planPath)
+	require.NoError(t, err)
+
+	// Move to completed directory
+	newPath, err := plan.MoveTo(completedDir)
+	require.NoError(t, err)
+
+	// Verify the new path
+	expectedPath := filepath.Join(completedDir, "test-plan.md")
+	assert.Equal(t, expectedPath, newPath)
+	assert.Equal(t, expectedPath, plan.FilePath)
+
+	// Verify the file exists at new location
+	_, err = os.Stat(newPath)
+	assert.NoError(t, err)
+
+	// Verify the file doesn't exist at old location
+	_, err = os.Stat(planPath)
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestMoveTo_DestinationExists(t *testing.T) {
+	tmpDir := t.TempDir()
+	plansDir := filepath.Join(tmpDir, "plans")
+	completedDir := filepath.Join(tmpDir, "plans", "completed")
+	require.NoError(t, os.MkdirAll(plansDir, 0755))
+	require.NoError(t, os.MkdirAll(completedDir, 0755))
+
+	// Create source file
+	planPath := filepath.Join(plansDir, "test-plan.md")
+	require.NoError(t, os.WriteFile(planPath, []byte("# Plan\n- [ ] Task"), 0644))
+
+	// Create destination file (conflict)
+	destPath := filepath.Join(completedDir, "test-plan.md")
+	require.NoError(t, os.WriteFile(destPath, []byte("# Old Plan"), 0644))
+
+	// Parse the plan
+	plan, err := ParseFile(planPath)
+	require.NoError(t, err)
+
+	// Move should fail
+	_, err = plan.MoveTo(completedDir)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
+}
+
+func TestMoveTo_NoFilePath(t *testing.T) {
+	plan := &Plan{}
+	_, err := plan.MoveTo("/some/dir")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no file path")
+}

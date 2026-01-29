@@ -4,7 +4,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alexander-akhmetov/programmator/internal/config"
 	"github.com/alexander-akhmetov/programmator/internal/source"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBuild(t *testing.T) {
@@ -163,6 +166,137 @@ func TestBuildPhaseList(t *testing.T) {
 			if got != tt.want {
 				t.Errorf("BuildPhaseList() = %q, want %q", got, tt.want)
 			}
+		})
+	}
+}
+
+func TestNewBuilder(t *testing.T) {
+	// Test with nil prompts (uses embedded defaults)
+	builder, err := NewBuilder(nil)
+	require.NoError(t, err)
+	require.NotNil(t, builder)
+
+	// Test building a prompt with the builder
+	workItem := &source.WorkItem{
+		ID:         "test-123",
+		Title:      "Test Item",
+		RawContent: "Test content",
+		Phases: []source.Phase{
+			{Name: "Phase 1", Completed: false},
+		},
+	}
+
+	result, err := builder.Build(workItem, nil)
+	require.NoError(t, err)
+	assert.Contains(t, result, "test-123")
+	assert.Contains(t, result, "Test Item")
+	assert.Contains(t, result, "Phase 1")
+}
+
+func TestNewBuilder_WithCustomPrompts(t *testing.T) {
+	customPrompts := &config.Prompts{
+		Phased:    "Custom phased: {{.ID}} - {{.Title}}",
+		Phaseless: "Custom phaseless: {{.ID}}",
+		ReviewFix: "Custom review: {{.BaseBranch}}",
+	}
+
+	builder, err := NewBuilder(customPrompts)
+	require.NoError(t, err)
+	require.NotNil(t, builder)
+
+	// Test phased prompt
+	workItem := &source.WorkItem{
+		ID:     "custom-1",
+		Title:  "Custom Title",
+		Phases: []source.Phase{{Name: "Phase", Completed: false}},
+	}
+	result, err := builder.Build(workItem, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "Custom phased: custom-1 - Custom Title", result)
+
+	// Test phaseless prompt
+	phaselessItem := &source.WorkItem{
+		ID:     "custom-2",
+		Title:  "Phaseless",
+		Phases: nil,
+	}
+	result, err = builder.Build(phaselessItem, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "Custom phaseless: custom-2", result)
+}
+
+func TestBuilder_BuildReviewFix(t *testing.T) {
+	builder, err := NewBuilder(nil)
+	require.NoError(t, err)
+
+	result, err := builder.BuildReviewFix("main", []string{"file1.go", "file2.go"}, "Issue 1\nIssue 2", 3)
+	require.NoError(t, err)
+
+	assert.Contains(t, result, "main")
+	assert.Contains(t, result, "file1.go")
+	assert.Contains(t, result, "file2.go")
+	assert.Contains(t, result, "Issue 1")
+	assert.Contains(t, result, "3")
+}
+
+func TestFormatNotes(t *testing.T) {
+	tests := []struct {
+		name     string
+		notes    []string
+		expected string
+	}{
+		{
+			name:     "empty notes",
+			notes:    nil,
+			expected: "(No previous notes)",
+		},
+		{
+			name:     "single note",
+			notes:    []string{"Note 1"},
+			expected: "- Note 1",
+		},
+		{
+			name:     "multiple notes",
+			notes:    []string{"Note 1", "Note 2"},
+			expected: "- Note 1\n- Note 2",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatNotes(tt.notes)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func TestFormatFilesList(t *testing.T) {
+	tests := []struct {
+		name     string
+		files    []string
+		expected string
+	}{
+		{
+			name:     "empty files",
+			files:    nil,
+			expected: "(no files)",
+		},
+		{
+			name:     "single file",
+			files:    []string{"file.go"},
+			expected: "  - file.go",
+		},
+		{
+			name:     "multiple files",
+			files:    []string{"a.go", "b.go"},
+			expected: "  - a.go\n  - b.go",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatFilesList(tt.files)
+			assert.Equal(t, tt.expected, got)
 		})
 	}
 }

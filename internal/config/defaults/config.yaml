@@ -1,0 +1,51 @@
+# Programmator Configuration
+# This file defines the default configuration for programmator.
+# Override at:
+#   - Global: ~/.config/programmator/config.yaml
+#   - Local:  .programmator/config.yaml (project-specific)
+
+# Loop settings
+max_iterations: 50        # Maximum loop iterations before forced exit
+stagnation_limit: 3       # Exit after N consecutive iterations with no file changes
+timeout: 900              # Seconds per Claude invocation
+
+# Claude settings
+claude_flags: ""          # Additional flags passed to claude command
+claude_config_dir: ""     # Custom Claude config directory (empty = default)
+
+# Progress log settings
+logs_dir: ""              # Directory for progress logs (default: ~/.programmator/logs)
+
+# Git workflow settings
+git:
+  auto_commit: false         # Auto-commit after each phase completion
+  move_completed_plans: false # Move completed plans to completed/ directory
+  completed_plans_dir: ""    # Directory for completed plans (default: plans/completed)
+  branch_prefix: ""          # Prefix for auto-created branches (default: programmator/)
+
+# Review settings
+review:
+  enabled: false          # Enable code review after task phases complete
+  max_iterations: 3       # Maximum review fix iterations
+  passes:
+    - name: code_review
+      parallel: true
+      agents:
+        - name: quality
+          focus:
+            - error handling
+            - code clarity
+            - test coverage
+        - name: security
+          focus:
+            - input validation
+            - secrets
+            - injection
+    - name: linter
+      parallel: false
+      agents:
+        - name: linter
+          focus:
+            - lint errors
+            - formatting
+            - static analysis

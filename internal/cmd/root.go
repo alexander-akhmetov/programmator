@@ -2,8 +2,25 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 )
+
+// Version information set from main.
+var (
+	version = "dev"
+	commit  = "unknown"
+	date    = "unknown"
+)
+
+// SetVersionInfo sets the version information for the CLI.
+func SetVersionInfo(v, c, d string) {
+	version = v
+	commit = c
+	date = d
+	rootCmd.Version = fmt.Sprintf("%s (%s, %s)", version, commit, date)
+}
 
 var rootCmd = &cobra.Command{
 	Use:   "programmator",
@@ -23,4 +40,6 @@ func init() {
 	rootCmd.AddCommand(reviewCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(logsCmd)
+	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(planCmd)
 }

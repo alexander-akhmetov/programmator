@@ -226,3 +226,36 @@ func (p *Plan) ID() string {
 	base := filepath.Base(p.FilePath)
 	return strings.TrimSuffix(base, filepath.Ext(base))
 }
+
+// MoveTo moves the plan file to a new directory.
+// The file name is preserved, only the directory changes.
+// Returns the new file path.
+func (p *Plan) MoveTo(destDir string) (string, error) {
+	if p.FilePath == "" {
+		return "", fmt.Errorf("plan has no file path")
+	}
+
+	// Ensure destination directory exists
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return "", fmt.Errorf("create destination directory: %w", err)
+	}
+
+	// Build new path
+	base := filepath.Base(p.FilePath)
+	newPath := filepath.Join(destDir, base)
+
+	// Check if destination already exists
+	if _, err := os.Stat(newPath); err == nil {
+		return "", fmt.Errorf("destination file already exists: %s", newPath)
+	}
+
+	// Move the file
+	if err := os.Rename(p.FilePath, newPath); err != nil {
+		return "", fmt.Errorf("move file: %w", err)
+	}
+
+	// Update the plan's file path
+	p.FilePath = newPath
+
+	return newPath, nil
+}

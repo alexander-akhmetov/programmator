@@ -2,140 +2,178 @@
 package prompt
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
+	"text/template"
 
+	"github.com/alexander-akhmetov/programmator/internal/config"
 	"github.com/alexander-akhmetov/programmator/internal/source"
 )
 
-const phasedPromptTemplate = `You are working on ticket %s: %s
+// Builder creates prompts using customizable templates.
+type Builder struct {
+	phasedTmpl     *template.Template
+	phaselessTmpl  *template.Template
+	reviewFixTmpl  *template.Template
+	planCreateTmpl *template.Template
+}
 
-## Current State
-%s
+// NewBuilder creates a prompt builder from loaded prompts.
+// If prompts is nil, embedded defaults are used.
+func NewBuilder(prompts *config.Prompts) (*Builder, error) {
+	if prompts == nil {
+		// Load embedded defaults
+		var err error
+		prompts, err = config.LoadPrompts("", "")
+		if err != nil {
+			return nil, fmt.Errorf("load embedded prompts: %w", err)
+		}
+	}
 
-## Progress Notes
-%s
+	phasedTmpl, err := template.New("phased").Parse(prompts.Phased)
+	if err != nil {
+		return nil, fmt.Errorf("parse phased template: %w", err)
+	}
 
-## Instructions
-1. Read the ticket phases above (in the Design section)
-2. Work on the FIRST uncompleted phase: [ ] (not [x])
-3. Complete ONE phase per session - implement, test, verify
-4. When done with the phase, output your status
+	phaselessTmpl, err := template.New("phaseless").Parse(prompts.Phaseless)
+	if err != nil {
+		return nil, fmt.Errorf("parse phaseless template: %w", err)
+	}
 
-## Current Phase
-%s
+	reviewFixTmpl, err := template.New("review_fix").Parse(prompts.ReviewFix)
+	if err != nil {
+		return nil, fmt.Errorf("parse review_fix template: %w", err)
+	}
 
-## Session End Protocol
-When you've completed your work for this iteration, you MUST end with exactly this block:
+	planCreateTmpl, err := template.New("plan_create").Parse(prompts.PlanCreate)
+	if err != nil {
+		return nil, fmt.Errorf("parse plan_create template: %w", err)
+	}
 
-` + "```" + `
-PROGRAMMATOR_STATUS:
-  phase_completed: "%s"
-  status: CONTINUE
-  files_changed:
-    - file1.py
-    - file2.py
-  summary: "One line describing what you did"
-` + "```" + `
+	return &Builder{
+		phasedTmpl:     phasedTmpl,
+		phaselessTmpl:  phaselessTmpl,
+		reviewFixTmpl:  reviewFixTmpl,
+		planCreateTmpl: planCreateTmpl,
+	}, nil
+}
 
-Status values:
-- CONTINUE: Phase done or in progress, more work remains
-- DONE: ALL phases complete, project finished
-- BLOCKED: Cannot proceed without human intervention (add error: field)
+// Data contains the data for rendering prompt templates.
+type Data struct {
+	ID               string
+	Title            string
+	RawContent       string
+	Notes            string
+	CurrentPhase     string // Formatted phase name (e.g., "**Phase 1**" or "All phases complete")
+	CurrentPhaseName string // Raw phase name for status block (e.g., "Phase 1" or "null")
+}
 
-If blocked:
-` + "```" + `
-PROGRAMMATOR_STATUS:
-  phase_completed: null
-  status: BLOCKED
-  files_changed: []
-  summary: "What was attempted"
-  error: "Description of what's blocking progress"
-` + "```" + `
-`
+// ReviewFixData contains the data for rendering review fix prompts.
+type ReviewFixData struct {
+	BaseBranch     string
+	Iteration      int
+	FilesList      string
+	IssuesMarkdown string
+}
 
-const phaselessPromptTemplate = `You are working on ticket %s: %s
-
-## Current State
-%s
-
-## Progress Notes
-%s
-
-## Instructions
-Work on the task described above. Complete the work and report your status when done.
-
-## Session End Protocol
-When you've completed your work for this iteration, you MUST end with exactly this block:
-
-` + "```" + `
-PROGRAMMATOR_STATUS:
-  phase_completed: null
-  status: CONTINUE
-  files_changed:
-    - file1.py
-    - file2.py
-  summary: "One line describing what you did"
-` + "```" + `
-
-Status values:
-- CONTINUE: Making progress, more work remains
-- DONE: Task complete
-- BLOCKED: Cannot proceed without human intervention (add error: field)
-
-If blocked:
-` + "```" + `
-PROGRAMMATOR_STATUS:
-  phase_completed: null
-  status: BLOCKED
-  files_changed: []
-  summary: "What was attempted"
-  error: "Description of what's blocking progress"
-` + "```" + `
-`
+// PlanCreateData contains the data for rendering plan creation prompts.
+type PlanCreateData struct {
+	Description     string // User's description of what they want to accomplish
+	PreviousAnswers string // Formatted list of previous Q&A exchanges
+}
 
 // Build creates a prompt from a work item and optional progress notes.
-func Build(w *source.WorkItem, notes []string) string {
-	notesStr := "(No previous notes)"
-	if len(notes) > 0 {
-		noteLines := make([]string, 0, len(notes))
-		for _, note := range notes {
-			noteLines = append(noteLines, fmt.Sprintf("- %s", note))
-		}
-		notesStr = strings.Join(noteLines, "\n")
+func (b *Builder) Build(w *source.WorkItem, notes []string) (string, error) {
+	data := Data{
+		ID:         w.ID,
+		Title:      w.Title,
+		RawContent: w.RawContent,
+		Notes:      formatNotes(notes),
 	}
 
 	// Use phaseless template when there are no phases
 	if !w.HasPhases() {
-		return fmt.Sprintf(
-			phaselessPromptTemplate,
-			w.ID,
-			w.Title,
-			w.RawContent,
-			notesStr,
-		)
+		return b.render(b.phaselessTmpl, data)
 	}
 
 	// Use phased template when phases exist
 	currentPhase := w.CurrentPhase()
-	phaseName := "null"
-	currentPhaseStr := "All phases complete"
 	if currentPhase != nil {
-		phaseName = currentPhase.Name
-		currentPhaseStr = fmt.Sprintf("**%s**", currentPhase.Name)
+		data.CurrentPhase = currentPhase.Name
+		data.CurrentPhaseName = currentPhase.Name
+	} else {
+		data.CurrentPhase = "All phases complete"
+		data.CurrentPhaseName = "null"
 	}
 
-	return fmt.Sprintf(
-		phasedPromptTemplate,
-		w.ID,
-		w.Title,
-		w.RawContent,
-		notesStr,
-		currentPhaseStr,
-		phaseName,
-	)
+	return b.render(b.phasedTmpl, data)
 }
 
+// BuildReviewFix creates a prompt for fixing review issues.
+func (b *Builder) BuildReviewFix(baseBranch string, filesChanged []string, issuesMarkdown string, iteration int) (string, error) {
+	data := ReviewFixData{
+		BaseBranch:     baseBranch,
+		Iteration:      iteration,
+		FilesList:      formatFilesList(filesChanged),
+		IssuesMarkdown: issuesMarkdown,
+	}
+	return b.render(b.reviewFixTmpl, data)
+}
+
+// BuildPlanCreate creates a prompt for interactive plan creation.
+func (b *Builder) BuildPlanCreate(description string, previousAnswers []QA) (string, error) {
+	data := PlanCreateData{
+		Description:     description,
+		PreviousAnswers: formatQA(previousAnswers),
+	}
+	return b.render(b.planCreateTmpl, data)
+}
+
+// QA represents a question-answer pair from previous interactions.
+type QA struct {
+	Question string
+	Answer   string
+}
+
+func formatQA(qa []QA) string {
+	if len(qa) == 0 {
+		return ""
+	}
+	var lines []string
+	for _, pair := range qa {
+		lines = append(lines, fmt.Sprintf("- **Q:** %s\n  **A:** %s", pair.Question, pair.Answer))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (b *Builder) render(tmpl *template.Template, data any) (string, error) {
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+func formatNotes(notes []string) string {
+	if len(notes) == 0 {
+		return "(No previous notes)"
+	}
+	noteLines := make([]string, 0, len(notes))
+	for _, note := range notes {
+		noteLines = append(noteLines, fmt.Sprintf("- %s", note))
+	}
+	return strings.Join(noteLines, "\n")
+}
+
+func formatFilesList(files []string) string {
+	if len(files) == 0 {
+		return "(no files)"
+	}
+	return "  - " + strings.Join(files, "\n  - ")
+}
+
+// BuildPhaseList creates a formatted list of phases with checkboxes.
 func BuildPhaseList(phases []source.Phase) string {
 	lines := make([]string, 0, len(phases))
 	for _, p := range phases {
@@ -146,4 +184,26 @@ func BuildPhaseList(phases []source.Phase) string {
 		lines = append(lines, fmt.Sprintf("- %s %s", checkbox, p.Name))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// DefaultBuilder is a package-level builder using embedded defaults.
+// It is lazily initialized on first use.
+var defaultBuilder *Builder
+
+// Build creates a prompt using the default builder (embedded templates).
+// This is a convenience function for backward compatibility.
+func Build(w *source.WorkItem, notes []string) string {
+	if defaultBuilder == nil {
+		var err error
+		defaultBuilder, err = NewBuilder(nil)
+		if err != nil {
+			// Fall back to simple format if templates fail
+			return fmt.Sprintf("Work item %s: %s\n\n%s", w.ID, w.Title, w.RawContent)
+		}
+	}
+	result, err := defaultBuilder.Build(w, notes)
+	if err != nil {
+		return fmt.Sprintf("Work item %s: %s\n\n%s", w.ID, w.Title, w.RawContent)
+	}
+	return result
 }

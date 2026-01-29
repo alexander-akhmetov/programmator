@@ -365,3 +365,244 @@ func TestStatusString(t *testing.T) {
 		t.Errorf("StatusBlocked.String() = %q, want BLOCKED", StatusBlocked.String())
 	}
 }
+
+func TestParseQuestionPayload(t *testing.T) {
+	tests := []struct {
+		name         string
+		output       string
+		wantQuestion string
+		wantOptions  []string
+		wantContext  string
+		wantErr      string
+	}{
+		{
+			name: "valid question with options",
+			output: `Some output
+<<<PROGRAMMATOR:QUESTION>>>
+{"question": "Which auth method?", "options": ["JWT", "OAuth2", "API keys"]}
+<<<PROGRAMMATOR:END>>>
+more output`,
+			wantQuestion: "Which auth method?",
+			wantOptions:  []string{"JWT", "OAuth2", "API keys"},
+		},
+		{
+			name: "question with context",
+			output: `<<<PROGRAMMATOR:QUESTION>>>
+{"question": "Which database?", "options": ["PostgreSQL", "MySQL"], "context": "I see you have existing MySQL config"}
+<<<PROGRAMMATOR:END>>>`,
+			wantQuestion: "Which database?",
+			wantOptions:  []string{"PostgreSQL", "MySQL"},
+			wantContext:  "I see you have existing MySQL config",
+		},
+		{
+			name:    "no question signal",
+			output:  "Some output without any signals",
+			wantErr: "no question signal found",
+		},
+		{
+			name: "missing END marker",
+			output: `<<<PROGRAMMATOR:QUESTION>>>
+{"question": "Test?", "options": ["A", "B"]}`,
+			wantErr: "missing END marker",
+		},
+		{
+			name: "invalid JSON",
+			output: `<<<PROGRAMMATOR:QUESTION>>>
+{invalid json}
+<<<PROGRAMMATOR:END>>>`,
+			wantErr: "invalid JSON",
+		},
+		{
+			name: "missing question field",
+			output: `<<<PROGRAMMATOR:QUESTION>>>
+{"options": ["A", "B"]}
+<<<PROGRAMMATOR:END>>>`,
+			wantErr: "missing question field",
+		},
+		{
+			name: "empty options",
+			output: `<<<PROGRAMMATOR:QUESTION>>>
+{"question": "Test?", "options": []}
+<<<PROGRAMMATOR:END>>>`,
+			wantErr: "missing or empty options field",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseQuestionPayload(tt.output)
+
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Errorf("ParseQuestionPayload() expected error containing %q", tt.wantErr)
+					return
+				}
+				if !containsStr(err.Error(), tt.wantErr) {
+					t.Errorf("ParseQuestionPayload() error = %q, want to contain %q", err.Error(), tt.wantErr)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("ParseQuestionPayload() unexpected error: %v", err)
+				return
+			}
+
+			if got.Question != tt.wantQuestion {
+				t.Errorf("Question = %q, want %q", got.Question, tt.wantQuestion)
+			}
+
+			if len(got.Options) != len(tt.wantOptions) {
+				t.Errorf("Options length = %d, want %d", len(got.Options), len(tt.wantOptions))
+			} else {
+				for i, opt := range got.Options {
+					if opt != tt.wantOptions[i] {
+						t.Errorf("Options[%d] = %q, want %q", i, opt, tt.wantOptions[i])
+					}
+				}
+			}
+
+			if got.Context != tt.wantContext {
+				t.Errorf("Context = %q, want %q", got.Context, tt.wantContext)
+			}
+		})
+	}
+}
+
+func TestParsePlanContent(t *testing.T) {
+	tests := []struct {
+		name        string
+		output      string
+		wantContent string
+		wantErr     string
+	}{
+		{
+			name: "valid plan content",
+			output: `Claude analysis...
+
+<<<PROGRAMMATOR:PLAN_READY>>>
+# Plan: Add Authentication
+
+## Tasks
+- [ ] Task 1: Set up auth middleware
+- [ ] Task 2: Add login endpoint
+<<<PROGRAMMATOR:END>>>`,
+			wantContent: `# Plan: Add Authentication
+
+## Tasks
+- [ ] Task 1: Set up auth middleware
+- [ ] Task 2: Add login endpoint`,
+		},
+		{
+			name:    "no plan ready signal",
+			output:  "Some output without plan signal",
+			wantErr: "no plan ready signal found",
+		},
+		{
+			name: "missing END marker",
+			output: `<<<PROGRAMMATOR:PLAN_READY>>>
+# Plan content`,
+			wantErr: "missing END marker",
+		},
+		{
+			name: "empty plan content",
+			output: `<<<PROGRAMMATOR:PLAN_READY>>>
+<<<PROGRAMMATOR:END>>>`,
+			wantErr: "empty plan content",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParsePlanContent(tt.output)
+
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Errorf("ParsePlanContent() expected error containing %q", tt.wantErr)
+					return
+				}
+				if !containsStr(err.Error(), tt.wantErr) {
+					t.Errorf("ParsePlanContent() error = %q, want to contain %q", err.Error(), tt.wantErr)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("ParsePlanContent() unexpected error: %v", err)
+				return
+			}
+
+			if got != tt.wantContent {
+				t.Errorf("Content = %q, want %q", got, tt.wantContent)
+			}
+		})
+	}
+}
+
+func TestHasQuestionSignal(t *testing.T) {
+	tests := []struct {
+		name   string
+		output string
+		want   bool
+	}{
+		{
+			name:   "has signal",
+			output: "Some text <<<PROGRAMMATOR:QUESTION>>> more text",
+			want:   true,
+		},
+		{
+			name:   "no signal",
+			output: "Some text without signal",
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := HasQuestionSignal(tt.output); got != tt.want {
+				t.Errorf("HasQuestionSignal() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHasPlanReadySignal(t *testing.T) {
+	tests := []struct {
+		name   string
+		output string
+		want   bool
+	}{
+		{
+			name:   "has signal",
+			output: "Some text <<<PROGRAMMATOR:PLAN_READY>>> more text",
+			want:   true,
+		},
+		{
+			name:   "no signal",
+			output: "Some text without signal",
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := HasPlanReadySignal(tt.output); got != tt.want {
+				t.Errorf("HasPlanReadySignal() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func containsStr(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && len(substr) > 0 && findSubstr(s, substr)))
+}
+
+func findSubstr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

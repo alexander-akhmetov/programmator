@@ -4,16 +4,18 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
+	"github.com/alexander-akhmetov/programmator/internal/config"
 	"github.com/alexander-akhmetov/programmator/internal/git"
 	"github.com/alexander-akhmetov/programmator/internal/loop"
+	"github.com/alexander-akhmetov/programmator/internal/progress"
 	"github.com/alexander-akhmetov/programmator/internal/review"
-	"github.com/alexander-akhmetov/programmator/internal/safety"
 )
 
 var (
@@ -73,11 +75,30 @@ func runReview(_ *cobra.Command, _ []string) error {
 	}
 	fmt.Println()
 
-	// Load configs
-	reviewConfig := review.ConfigFromEnv()
+	// Load unified config
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	safetyConfig := cfg.ToSafetyConfig()
+	reviewConfig := cfg.ToReviewConfig()
 	reviewConfig.Enabled = true // Force enable for standalone review
 
-	safetyConfig := safety.ConfigFromEnv()
+	// Create progress logger for review
+	// Use base branch + directory name as source ID
+	sourceID := fmt.Sprintf("review-%s-%s", reviewBaseBranch, filepath.Base(wd))
+	progressLogger, err := progress.NewLogger(progress.Config{
+		LogsDir:    cfg.LogsDir,
+		SourceID:   sourceID,
+		SourceType: "review",
+		WorkDir:    wd,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not create progress logger: %v\n", err)
+	} else {
+		defer progressLogger.Close()
+	}
 
 	// Create loop for review-only mode
 	reviewLoop := loop.New(safetyConfig, wd, func(text string) {
@@ -85,6 +106,9 @@ func runReview(_ *cobra.Command, _ []string) error {
 	}, nil, true)
 	reviewLoop.SetReviewConfig(reviewConfig)
 	reviewLoop.SetReviewOnly(true)
+	if progressLogger != nil {
+		reviewLoop.SetProgressLogger(progressLogger)
+	}
 
 	// Run review-only loop
 	result, err := reviewLoop.RunReviewOnly(reviewBaseBranch, filesChanged)

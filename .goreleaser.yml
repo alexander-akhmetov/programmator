@@ -1,0 +1,62 @@
+version: 2
+
+project_name: programmator
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+builds:
+  - id: programmator
+    binary: programmator
+    main: ./cmd/programmator
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: programmator
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+# Using brews for CLI tool distribution (Homebrew Formula).
+# homebrew_casks is for macOS apps with DMGs/signed binaries.
+brews:
+  - name: programmator
+    repository:
+      owner: alexander-akhmetov
+      name: homebrew-tools
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: "https://github.com/alexander-akhmetov/programmator"
+    description: "Ticket-driven autonomous Claude Code loop orchestrator"
+    license: "MIT"
+    install: |
+      bin.install "programmator"
+    test: |
+      system "#{bin}/programmator", "--version"

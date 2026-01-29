@@ -11,8 +11,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
+	"github.com/alexander-akhmetov/programmator/internal/config"
 	"github.com/alexander-akhmetov/programmator/internal/loop"
+	"github.com/alexander-akhmetov/programmator/internal/progress"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
+	"github.com/alexander-akhmetov/programmator/internal/source"
 	"github.com/alexander-akhmetov/programmator/internal/timing"
 	"github.com/alexander-akhmetov/programmator/internal/tui"
 )
@@ -27,6 +30,11 @@ var (
 	allowPatterns   []string
 	skipReview      bool
 	reviewOnly      bool
+
+	// Git workflow flags
+	autoCommit         bool
+	moveCompletedPlans bool
+	autoBranch         bool
 )
 
 var startCmd = &cobra.Command{
@@ -64,6 +72,11 @@ func init() {
 	startCmd.Flags().BoolVar(&guardMode, "guard", true, "Guard mode: skip permissions but block destructive commands via dcg (default: enabled)")
 	startCmd.Flags().BoolVar(&skipReview, "skip-review", false, "Skip the code review phase after all task phases complete")
 	startCmd.Flags().BoolVar(&reviewOnly, "review-only", false, "Run only the code review phase (skip task phases)")
+
+	// Git workflow flags
+	startCmd.Flags().BoolVar(&autoCommit, "auto-commit", false, "Auto-commit changes after each phase completion")
+	startCmd.Flags().BoolVar(&moveCompletedPlans, "move-completed", false, "Move completed plan files to plans/completed/")
+	startCmd.Flags().BoolVar(&autoBranch, "branch", false, "Create a new branch (programmator/<source>) before starting")
 }
 
 func runStart(_ *cobra.Command, args []string) error {
@@ -72,16 +85,16 @@ func runStart(_ *cobra.Command, args []string) error {
 	ticketID := args[0]
 
 	timing.Log("runStart: loading config")
-	config := safety.ConfigFromEnv()
-	if maxIterations > 0 {
-		config.MaxIterations = maxIterations
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
 	}
-	if stagnationLimit > 0 {
-		config.StagnationLimit = stagnationLimit
-	}
-	if timeout > 0 {
-		config.Timeout = timeout
-	}
+
+	// Apply CLI flag overrides
+	cfg.ApplyCLIFlags(maxIterations, stagnationLimit, timeout)
+
+	// Convert to legacy safety.Config for compatibility
+	safetyConfig := cfg.ToSafetyConfig()
 
 	wd := workingDir
 	if wd == "" {
@@ -103,29 +116,63 @@ func runStart(_ *cobra.Command, args []string) error {
 			fmt.Fprintln(os.Stderr, "Warning: dcg not found, falling back to interactive permissions. Install: https://github.com/Dicklesworthstone/destructive_command_guard")
 			guardMode = false
 		} else {
-			if config.ClaudeFlags == "" {
-				config.ClaudeFlags = "--dangerously-skip-permissions"
-			} else if !strings.Contains(config.ClaudeFlags, "--dangerously-skip-permissions") {
-				config.ClaudeFlags += " --dangerously-skip-permissions"
+			if safetyConfig.ClaudeFlags == "" {
+				safetyConfig.ClaudeFlags = "--dangerously-skip-permissions"
+			} else if !strings.Contains(safetyConfig.ClaudeFlags, "--dangerously-skip-permissions") {
+				safetyConfig.ClaudeFlags += " --dangerously-skip-permissions"
 			}
 		}
 	}
 
 	if skipPermissions {
-		if config.ClaudeFlags == "" {
-			config.ClaudeFlags = "--dangerously-skip-permissions"
-		} else if !strings.Contains(config.ClaudeFlags, "--dangerously-skip-permissions") {
-			config.ClaudeFlags += " --dangerously-skip-permissions"
+		if safetyConfig.ClaudeFlags == "" {
+			safetyConfig.ClaudeFlags = "--dangerously-skip-permissions"
+		} else if !strings.Contains(safetyConfig.ClaudeFlags, "--dangerously-skip-permissions") {
+			safetyConfig.ClaudeFlags += " --dangerously-skip-permissions"
 		}
 	}
 
+	// Create progress logger
+	sourceType := "ticket"
+	if source.IsPlanPath(ticketID) {
+		sourceType = "plan"
+	}
+	progressLogger, err := progress.NewLogger(progress.Config{
+		LogsDir:    cfg.LogsDir,
+		SourceID:   ticketID,
+		SourceType: sourceType,
+		WorkDir:    wd,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not create progress logger: %v\n", err)
+	} else {
+		defer progressLogger.Close()
+	}
+
 	timing.Log("runStart: creating TUI")
-	t := tui.New(config)
+	t := tui.New(safetyConfig)
 	t.SetInteractivePermissions(!skipPermissions && !guardMode)
 	t.SetGuardMode(guardMode)
 	t.SetAllowPatterns(allowPatterns)
 	t.SetSkipReview(skipReview)
 	t.SetReviewOnly(reviewOnly)
+	t.SetReviewConfig(cfg.ToReviewConfig())
+	if progressLogger != nil {
+		t.SetProgressLogger(progressLogger)
+	}
+
+	// Set git workflow config from CLI flags and config file
+	gitConfig := loop.GitWorkflowConfig{
+		AutoCommit:         autoCommit || cfg.Git.AutoCommit,
+		MoveCompletedPlans: moveCompletedPlans || cfg.Git.MoveCompletedPlans,
+		CompletedPlansDir:  cfg.Git.CompletedPlansDir,
+		BranchPrefix:       cfg.Git.BranchPrefix,
+		AutoBranch:         autoBranch,
+	}
+	if gitConfig.AutoCommit || gitConfig.MoveCompletedPlans || gitConfig.AutoBranch {
+		t.SetGitWorkflowConfig(gitConfig)
+	}
+
 	timing.Log("TUI created, calling Run")
 	result, err := t.Run(ticketID, wd)
 	timing.Log("runStart: TUI.Run returned")
