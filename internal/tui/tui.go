@@ -298,7 +298,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.runState != stateStopped {
 			m.runState = stateComplete
 		}
-		return m, tea.Quit
+		if msg.Result != nil {
+			exitLine := fmt.Sprintf("\n[PROG]Loop finished: %s", msg.Result.ExitReason)
+			if msg.Result.ExitMessage != "" {
+				exitLine += fmt.Sprintf(" (%s)", msg.Result.ExitMessage)
+			}
+			exitLine += "\n"
+			m.logs = append(m.logs, exitLine)
+			m.logViewport.SetContent(m.wrapLogs())
+			m.logViewport.GotoBottom()
+		}
+		if msg.Err != nil {
+			m.logs = append(m.logs, fmt.Sprintf("\n[PROG]Loop error: %v\n", msg.Err))
+			m.logViewport.SetContent(m.wrapLogs())
+			m.logViewport.GotoBottom()
+		}
+		return m, nil
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -613,6 +628,13 @@ func (m Model) renderSidebarFooter() string {
 		b.WriteString("\n")
 		b.WriteString(labelStyle.Render("Exit: "))
 		b.WriteString(valueStyle.Render(string(m.result.ExitReason)))
+		if m.result.ExitMessage != "" {
+			b.WriteString("\n")
+			b.WriteString(labelStyle.Render("Reason: "))
+			b.WriteString(valueStyle.Render(m.result.ExitMessage))
+		}
+		b.WriteString("\n\n")
+		b.WriteString(lipgloss.NewStyle().Faint(true).Render("Press q to quit"))
 	}
 
 	if m.err != nil {
@@ -670,6 +692,12 @@ func (m Model) renderPhasesContent(width int, height int) string {
 
 	if showTo < len(m.workItem.Phases)-1 {
 		b.WriteString(labelStyle.Render(fmt.Sprintf("  ↓ %d more\n", len(m.workItem.Phases)-1-showTo)))
+	}
+
+	if m.runState == stateComplete {
+		b.WriteString("\n")
+		b.WriteString(runningStyle.Render("  ✓ Done"))
+		b.WriteString("\n")
 	}
 
 	return b.String()

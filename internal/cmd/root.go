@@ -28,6 +28,7 @@ var rootCmd = &cobra.Command{
 	Long: `Programmator reads a ticket, identifies the current phase, invokes Claude Code
 with a structured prompt, parses the response, and loops until all phases are
 complete or safety limits are reached.`,
+	SilenceUsage: true,
 }
 
 func Execute() error {
