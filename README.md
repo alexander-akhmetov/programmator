@@ -178,6 +178,11 @@ Opt-in via config or CLI flags:
 - `--move-completed`: Moves completed plans to `plans/completed/`
 - `--branch <name>`: Custom branch name
 
+## Documentation
+
+- [E2E Tests](docs/e2e_tests.md) — manual integration tests, how to run and create them
+- [Prompt Templates](docs/prompt_templates.md) — override chain, template variables, customization
+
 ## Development
 
 ```bash
