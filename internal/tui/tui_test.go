@@ -7,9 +7,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexander-akhmetov/programmator/internal/loop"
-	"github.com/alexander-akhmetov/programmator/internal/safety"
-	"github.com/alexander-akhmetov/programmator/internal/source"
+	"github.com/worksonmyai/programmator/internal/loop"
+	"github.com/worksonmyai/programmator/internal/safety"
+	"github.com/worksonmyai/programmator/internal/source"
 )
 
 func TestNewModel(t *testing.T) {

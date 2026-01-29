@@ -1,7 +1,7 @@
 package source
 
 import (
-	"github.com/alexander-akhmetov/programmator/internal/ticket"
+	"github.com/worksonmyai/programmator/internal/ticket"
 )
 
 // TicketSource adapts a ticket.Client to the Source interface.

@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexander-akhmetov/programmator/internal/ticket"
+	"github.com/worksonmyai/programmator/internal/ticket"
 )
 
 // mockTicketClient implements ticket.Client for testing.

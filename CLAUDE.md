@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Prerequisites
 
+Requires Go 1.25.6+ (see `go.mod`).
+
 For ticket-based workflow, install the external `ticket` CLI:
 ```bash
 brew tap alexander-akhmetov/tools git@github.com:alexander-akhmetov/homebrew-tools.git
@@ -130,4 +132,13 @@ Prompts use Go `text/template` syntax. Override by placing files in `~/.config/p
 
 ## Testing
 
-Tests use `stretchr/testify` for assertions. The ticket package has a mock client (`client_mock.go`) for testing without the external CLI.
+Tests use `stretchr/testify` for assertions. The ticket package has a mock client (`client_mock.go`) for testing without the external CLI. CI runs `go test -race` and `golangci-lint`.
+
+## Releasing
+
+Push a git tag to trigger GitHub Actions release via GoReleaser:
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+Publishes binaries for linux/darwin (amd64/arm64) and updates the Homebrew formula.

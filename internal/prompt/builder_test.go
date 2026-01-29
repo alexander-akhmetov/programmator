@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/alexander-akhmetov/programmator/internal/config"
-	"github.com/alexander-akhmetov/programmator/internal/source"
+	"github.com/worksonmyai/programmator/internal/config"
+	"github.com/worksonmyai/programmator/internal/source"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

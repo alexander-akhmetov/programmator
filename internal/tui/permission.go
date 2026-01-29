@@ -8,8 +8,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/alexander-akhmetov/programmator/internal/debug"
-	"github.com/alexander-akhmetov/programmator/internal/permission"
+	"github.com/worksonmyai/programmator/internal/debug"
+	"github.com/worksonmyai/programmator/internal/permission"
 )
 
 var (

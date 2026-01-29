@@ -1,7 +1,7 @@
 package source
 
 import (
-	"github.com/alexander-akhmetov/programmator/internal/plan"
+	"github.com/worksonmyai/programmator/internal/plan"
 )
 
 // PlanSource adapts plan files to the Source interface.

@@ -10,10 +10,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexander-akhmetov/programmator/internal/parser"
-	"github.com/alexander-akhmetov/programmator/internal/review"
-	"github.com/alexander-akhmetov/programmator/internal/safety"
-	"github.com/alexander-akhmetov/programmator/internal/source"
+	"github.com/worksonmyai/programmator/internal/parser"
+	"github.com/worksonmyai/programmator/internal/review"
+	"github.com/worksonmyai/programmator/internal/safety"
+	"github.com/worksonmyai/programmator/internal/source"
 )
 
 func TestNewLoop(t *testing.T) {

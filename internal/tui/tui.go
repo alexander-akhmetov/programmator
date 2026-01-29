@@ -18,14 +18,14 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/alexander-akhmetov/programmator/internal/debug"
-	"github.com/alexander-akhmetov/programmator/internal/loop"
-	"github.com/alexander-akhmetov/programmator/internal/permission"
-	"github.com/alexander-akhmetov/programmator/internal/progress"
-	"github.com/alexander-akhmetov/programmator/internal/review"
-	"github.com/alexander-akhmetov/programmator/internal/safety"
-	"github.com/alexander-akhmetov/programmator/internal/source"
-	"github.com/alexander-akhmetov/programmator/internal/timing"
+	"github.com/worksonmyai/programmator/internal/debug"
+	"github.com/worksonmyai/programmator/internal/loop"
+	"github.com/worksonmyai/programmator/internal/permission"
+	"github.com/worksonmyai/programmator/internal/progress"
+	"github.com/worksonmyai/programmator/internal/review"
+	"github.com/worksonmyai/programmator/internal/safety"
+	"github.com/worksonmyai/programmator/internal/source"
+	"github.com/worksonmyai/programmator/internal/timing"
 )
 
 var (

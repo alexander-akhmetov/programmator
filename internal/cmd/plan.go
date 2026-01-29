@@ -14,11 +14,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
-	"github.com/alexander-akhmetov/programmator/internal/config"
-	"github.com/alexander-akhmetov/programmator/internal/input"
-	"github.com/alexander-akhmetov/programmator/internal/parser"
-	"github.com/alexander-akhmetov/programmator/internal/progress"
-	"github.com/alexander-akhmetov/programmator/internal/prompt"
+	"github.com/worksonmyai/programmator/internal/config"
+	"github.com/worksonmyai/programmator/internal/input"
+	"github.com/worksonmyai/programmator/internal/parser"
+	"github.com/worksonmyai/programmator/internal/progress"
+	"github.com/worksonmyai/programmator/internal/prompt"
 )
 
 var (

@@ -4,7 +4,7 @@ package main
 import (
 	"os"
 
-	"github.com/alexander-akhmetov/programmator/internal/cmd"
+	"github.com/worksonmyai/programmator/internal/cmd"
 )
 
 // Version information set via ldflags at build time.

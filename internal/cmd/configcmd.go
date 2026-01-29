@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/alexander-akhmetov/programmator/internal/config"
+	"github.com/worksonmyai/programmator/internal/config"
 )
 
 var configCmd = &cobra.Command{

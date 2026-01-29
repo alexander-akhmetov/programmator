@@ -17,15 +17,15 @@ import (
 
 	"github.com/aymanbagabas/go-udiff"
 
-	"github.com/alexander-akhmetov/programmator/internal/debug"
-	gitutil "github.com/alexander-akhmetov/programmator/internal/git"
-	"github.com/alexander-akhmetov/programmator/internal/parser"
-	"github.com/alexander-akhmetov/programmator/internal/progress"
-	"github.com/alexander-akhmetov/programmator/internal/prompt"
-	"github.com/alexander-akhmetov/programmator/internal/review"
-	"github.com/alexander-akhmetov/programmator/internal/safety"
-	"github.com/alexander-akhmetov/programmator/internal/source"
-	"github.com/alexander-akhmetov/programmator/internal/timing"
+	"github.com/worksonmyai/programmator/internal/debug"
+	gitutil "github.com/worksonmyai/programmator/internal/git"
+	"github.com/worksonmyai/programmator/internal/parser"
+	"github.com/worksonmyai/programmator/internal/progress"
+	"github.com/worksonmyai/programmator/internal/prompt"
+	"github.com/worksonmyai/programmator/internal/review"
+	"github.com/worksonmyai/programmator/internal/safety"
+	"github.com/worksonmyai/programmator/internal/source"
+	"github.com/worksonmyai/programmator/internal/timing"
 )
 
 type Result struct {

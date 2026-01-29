@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexander-akhmetov/programmator/internal/permission"
+	"github.com/worksonmyai/programmator/internal/permission"
 )
 
 func TestBuildAllowOptions_FileTools(t *testing.T) {

@@ -1,4 +1,4 @@
-module github.com/alexander-akhmetov/programmator
+module github.com/worksonmyai/programmator
 
 go 1.25.6
 

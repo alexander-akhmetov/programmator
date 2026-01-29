@@ -11,11 +11,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
-	"github.com/alexander-akhmetov/programmator/internal/config"
-	"github.com/alexander-akhmetov/programmator/internal/git"
-	"github.com/alexander-akhmetov/programmator/internal/loop"
-	"github.com/alexander-akhmetov/programmator/internal/progress"
-	"github.com/alexander-akhmetov/programmator/internal/review"
+	"github.com/worksonmyai/programmator/internal/config"
+	"github.com/worksonmyai/programmator/internal/git"
+	"github.com/worksonmyai/programmator/internal/loop"
+	"github.com/worksonmyai/programmator/internal/progress"
+	"github.com/worksonmyai/programmator/internal/review"
 )
 
 var (

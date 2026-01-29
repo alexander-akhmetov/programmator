@@ -4,13 +4,8 @@ Autonomous Claude Code loop orchestrator driven by plan files or tickets.
 
 ## Quickstart
 
-Install:
-```bash
-brew tap alexander-akhmetov/tools git@github.com:alexander-akhmetov/homebrew-tools.git
-brew install alexander-akhmetov/tools/programmator
-```
+Build from source:
 
-Or build from source:
 ```bash
 go install ./cmd/programmator
 ```
@@ -34,35 +29,6 @@ programmator start ./plan.md
 ```
 
 Programmator picks up the first unchecked task, invokes Claude Code to complete it, marks it done, and moves to the next one. When all tasks are checked off (or safety limits are hit), it stops.
-
-## How It Works
-
-```mermaid
-flowchart TD
-    A[programmator start ./plan.md] --> B[Parse plan & find uncompleted task]
-    B --> C{Uncompleted task?}
-    C -->|Found| D[Build prompt with plan context]
-    C -->|All done| K[Exit: COMPLETE]
-    D --> E[Invoke Claude Code]
-    E --> F[Parse PROGRAMMATOR_STATUS block]
-    F --> G{Status?}
-    G -->|CONTINUE| H[Log progress]
-    G -->|DONE| I[Mark task complete ✓]
-    G -->|BLOCKED| J[Exit: BLOCKED]
-    H --> L{Safety check}
-    I --> L
-    L -->|OK| B
-    L -->|Max iterations| M[Exit: MAX_ITERATIONS]
-    L -->|No changes| N[Exit: STAGNATION]
-```
-
-Each iteration:
-1. Reads the source (plan file or ticket) and finds the first uncompleted task
-2. Builds a prompt with the task context and instructions
-3. Invokes Claude Code in autonomous mode
-4. Parses Claude's `PROGRAMMATOR_STATUS` output block (YAML with status, files changed, summary)
-5. Updates the task checkbox and logs progress
-6. Checks safety limits, then loops back
 
 ## Plan Files
 
@@ -116,6 +82,16 @@ Programmator auto-detects the source type from the argument:
 programmator start ./plan.md       # plan file
 programmator start pro-1a2b        # ticket
 ```
+
+## How It Works
+
+Each iteration:
+1. Reads the source (plan file or ticket) and finds the first uncompleted task
+2. Builds a prompt with the task context and instructions
+3. Invokes Claude Code in autonomous mode
+4. Parses Claude's `PROGRAMMATOR_STATUS` output block (YAML with status, files changed, summary)
+5. Updates the task checkbox and logs progress
+6. Checks safety limits, then loops back
 
 ## Monitoring
 
@@ -197,10 +173,6 @@ make e2e-prep                 # Plan-based run
 make e2e-review               # Review mode
 make e2e-plan                 # Interactive plan creation
 ```
-
-## License
-
-MIT. See `LICENSE`.
 
 ## Releasing
 

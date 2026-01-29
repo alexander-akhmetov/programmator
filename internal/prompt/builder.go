@@ -7,8 +7,8 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/alexander-akhmetov/programmator/internal/config"
-	"github.com/alexander-akhmetov/programmator/internal/source"
+	"github.com/worksonmyai/programmator/internal/config"
+	"github.com/worksonmyai/programmator/internal/source"
 )
 
 // Builder creates prompts using customizable templates.

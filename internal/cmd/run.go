@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/alexander-akhmetov/programmator/internal/permission"
+	"github.com/worksonmyai/programmator/internal/permission"
 )
 
 var (
