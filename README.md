@@ -198,6 +198,10 @@ make e2e-review               # Review mode
 make e2e-plan                 # Interactive plan creation
 ```
 
+## License
+
+MIT. See `LICENSE`.
+
 ## Releasing
 
 Push a git tag to trigger a GitHub Actions release via GoReleaser:
