@@ -3,7 +3,7 @@ module github.com/worksonmyai/programmator
 go 1.25.6
 
 require (
-	github.com/aymanbagabas/go-udiff v0.2.0
+	github.com/aymanbagabas/go-udiff v0.3.1
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.4
 	github.com/charmbracelet/glamour v0.10.0
