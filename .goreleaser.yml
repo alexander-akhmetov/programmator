@@ -39,6 +39,8 @@ snapshot:
 
 changelog:
   sort: asc
+  use: git
+  format: "{{ .Message }}"
   filters:
     exclude:
       - "^docs:"
