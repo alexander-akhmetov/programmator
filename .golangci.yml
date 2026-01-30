@@ -1,0 +1,70 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - asciicheck
+    - bodyclose
+    - dogsled
+    - errcheck
+    - errorlint
+    - exhaustive
+    - gocyclo
+    - goprintffuncname
+    - gosec
+    - govet
+    - ineffassign
+    - misspell
+    - modernize
+    - nakedret
+    - prealloc
+    - revive
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+    - copyloopvar
+    - durationcheck
+    - gocritic
+    - nilerr
+    - whitespace
+  settings:
+    errcheck:
+      exclude-functions:
+        - io.Copy
+        - io/ioutil.ReadFile
+        - io/ioutil.WriteFile
+    errorlint:
+      errorf: false
+      asserts: false
+      comparison: true
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+    gosec:
+      includes:
+        - G104
+        - G108
+        - G109
+        - G112
+        - G114
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - revive
+        text: if-return
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
