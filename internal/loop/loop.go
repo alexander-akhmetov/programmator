@@ -379,6 +379,7 @@ func (l *Loop) handleMultiPhaseReview(rc *runContext) loopAction {
 	rc.state.EnterReviewPhase()
 	if l.reviewRunner == nil {
 		l.applySettingsToReviewConfig()
+		l.applyReviewContext(rc.workItem)
 		var outputCallback review.OutputCallback
 		if l.onOutput != nil {
 			outputCallback = func(text string) {
@@ -1401,6 +1402,13 @@ func (l *Loop) applySettingsToReviewConfig() {
 	}
 }
 
+func (l *Loop) applyReviewContext(workItem *source.WorkItem) {
+	if workItem == nil {
+		return
+	}
+	l.reviewConfig.TicketContext = workItem.RawContent
+}
+
 // SetReviewRunner sets a custom review runner (useful for testing).
 func (l *Loop) SetReviewRunner(runner *review.Runner) {
 	l.reviewRunner = runner
@@ -1446,6 +1454,7 @@ func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewO
 
 	// Initialize review runner
 	if l.reviewRunner == nil {
+		l.reviewConfig.TicketContext = ""
 		l.applySettingsToReviewConfig()
 		var outputCallback review.OutputCallback
 		if l.onOutput != nil {

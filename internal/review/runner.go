@@ -127,6 +127,7 @@ func (r *Runner) defaultAgentFactory(agentCfg AgentConfig, defaultPrompt string)
 	if agentCfg.Prompt != "" {
 		prompt = agentCfg.Prompt
 	}
+	prompt = addTicketContext(prompt, r.config.TicketContext)
 	var opts []ClaudeAgentOption
 	if r.config.Timeout > 0 {
 		opts = append(opts, WithTimeout(time.Duration(r.config.Timeout)*time.Second))
@@ -138,6 +139,22 @@ func (r *Runner) defaultAgentFactory(agentCfg AgentConfig, defaultPrompt string)
 		opts = append(opts, WithSettingsJSON(r.config.SettingsJSON))
 	}
 	return NewClaudeAgent(agentCfg.Name, agentCfg.Focus, prompt, opts...)
+}
+
+func addTicketContext(prompt, ticketContext string) string {
+	ticketContext = strings.TrimSpace(ticketContext)
+	if ticketContext == "" {
+		return prompt
+	}
+
+	var b strings.Builder
+	b.WriteString(prompt)
+	b.WriteString("\n\n## Ticket Context (Full)\n")
+	b.WriteString(ticketContext)
+	b.WriteString("\n\n## Reviewer Role\n")
+	b.WriteString("This code was implemented by another agent. Your job is to review the work only. ")
+	b.WriteString("Do not implement changes or expand scope; report issues relative to the ticket requirements.")
+	return b.String()
 }
 
 // runAgentsParallel runs all agents in parallel.

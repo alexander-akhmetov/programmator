@@ -20,6 +20,7 @@ type Config struct {
 	Phases        []Phase `yaml:"phases,omitempty"`
 	ClaudeFlags   string  `yaml:"-"` // inherited from main config, not user-configured
 	SettingsJSON  string  `yaml:"-"` // pre-computed --settings JSON for guard mode
+	TicketContext string  `yaml:"-"` // full ticket/plan content for reviewer context
 }
 
 // AgentConfig defines a single review agent configuration.
