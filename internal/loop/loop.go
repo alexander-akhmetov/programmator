@@ -433,12 +433,13 @@ func (l *Loop) handleMultiPhaseReview(rc *runContext) loopAction {
 	// Check if we've exceeded phase iteration limit (after setting pending fix,
 	// so iteration_limit:1 means: run review, give Claude one fix attempt, then abort)
 	if l.currentPhaseIter > phaseMaxIter {
-		l.log(fmt.Sprintf("Review phase %s exceeded max iterations (%d)", currentPhase.Name, phaseMaxIter))
-		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("error: Review phase %s exceeded max iterations with %d issues remaining",
+		l.log(fmt.Sprintf("Review phase %s exceeded max iterations (%d) - moving to next phase", currentPhase.Name, phaseMaxIter))
+		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("warning: Review phase %s exceeded max iterations with %d issues remaining - moving on",
 			currentPhase.Name, reviewResult.TotalIssues))
-		rc.result.ExitReason = safety.ExitReasonMaxReviewRetries
-		rc.result.Iterations = rc.state.Iteration
-		return loopReturn
+		l.currentPhaseIdx++
+		l.currentPhaseIter = 0
+		rc.state.ExitReviewPhase()
+		return l.handleMultiPhaseReview(rc)
 	}
 	rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[phase %s, iter %d] Review found %d issues - please fix them:\n%s",
 		currentPhase.Name, l.currentPhaseIter, reviewResult.TotalIssues, issueNote))
@@ -1550,9 +1551,8 @@ func (l *Loop) runReviewOnlyPhase(roc *reviewOnlyContext, phase review.Phase, ph
 		l.log(fmt.Sprintf("Review found %d issues - invoking Claude to fix", reviewResult.TotalIssues))
 
 		if phaseIter >= phaseMaxIter {
-			l.log(fmt.Sprintf("Review phase %s exceeded max iterations (%d)", phase.Name, phaseMaxIter))
-			roc.result.ExitReason = safety.ExitReasonMaxReviewRetries
-			return false, true, nil
+			l.log(fmt.Sprintf("Review phase %s exceeded max iterations (%d) - moving to next phase", phase.Name, phaseMaxIter))
+			return true, false, nil
 		}
 
 		earlyReturn, err := l.invokeFixAndProcess(roc, reviewResult)

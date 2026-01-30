@@ -34,7 +34,7 @@ review:
   phases:
     # Phase 1: Comprehensive review - run all 6 agents once
     - name: comprehensive
-      iteration_limit: 1    # Single pass, then move to fix phase
+      iteration_limit: 3    # Fix-and-verify cycles before moving to next phase
       parallel: true
       agents:
         - name: quality

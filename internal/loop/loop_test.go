@@ -815,7 +815,7 @@ func TestRunReviewOnlyPassesWithNoIssues(t *testing.T) {
 func TestRunReviewOnlyFailsMaxIterations(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 20}
 	l := New(config, "/tmp", nil, nil, false)
-	// Single phase with iteration_limit: 2 so we can test exhausting it
+	// Single phase with iteration_limit: 2 — soft limit advances to next phase
 	l.SetReviewConfig(review.Config{
 		MaxIterations: 10,
 		Phases: []review.Phase{
@@ -841,8 +841,9 @@ func TestRunReviewOnlyFailsMaxIterations(t *testing.T) {
 	result, err := l.RunReviewOnly("main", []string{"file.go"})
 
 	require.NoError(t, err)
-	require.False(t, result.Passed)
-	require.Equal(t, safety.ExitReasonMaxReviewRetries, result.ExitReason)
+	// Soft limit: phase advances instead of aborting, so with a single phase all phases "complete"
+	require.True(t, result.Passed)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
 }
 
 func TestRunReviewOnlyBlocked(t *testing.T) {
@@ -1907,7 +1908,8 @@ func TestHandleMultiPhaseReview_UsesReviewConfigMaxIterations(t *testing.T) {
 	result, err := l.Run("test-123")
 
 	require.NoError(t, err)
-	require.Equal(t, safety.ExitReasonMaxReviewRetries, result.ExitReason)
+	// Soft limit: phase advances instead of aborting, completing all phases
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
 	// With reviewConfig.MaxIterations=10 and iteration_pct=50, phaseMaxIter=5.
 	// If it used config.MaxIterations (100), phaseMaxIter would be 50, which would
 	// take many more calls. With 5 iterations, Claude is invoked 5 times.
