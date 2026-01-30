@@ -163,6 +163,58 @@ func TestModelUpdateLogMsg(t *testing.T) {
 	}
 }
 
+func TestLogMsgPreservesScrollPosition(t *testing.T) {
+	model := NewModel(safety.Config{})
+	// Initialize viewport via WindowSizeMsg
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m := updated.(Model)
+
+	// Add enough logs to make viewport scrollable
+	for i := range 100 {
+		updated, _ = m.Update(LogMsg{Text: fmt.Sprintf("line %d\n", i)})
+		m = updated.(Model)
+	}
+	require.True(t, m.logViewport.AtBottom(), "should be at bottom after sequential appends")
+
+	// Scroll up
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = updated.(Model)
+	require.False(t, m.logViewport.AtBottom(), "should not be at bottom after scrolling up")
+
+	yBefore := m.logViewport.YOffset
+
+	// New log arrives — scroll position must be preserved
+	updated, _ = m.Update(LogMsg{Text: "new message\n"})
+	m = updated.(Model)
+
+	require.Equal(t, yBefore, m.logViewport.YOffset, "scroll position should be preserved when user scrolled up")
+	require.False(t, m.logViewport.AtBottom(), "should still not be at bottom")
+}
+
+func TestLoopDoneMsgPreservesScrollPosition(t *testing.T) {
+	model := NewModel(safety.Config{})
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m := updated.(Model)
+
+	for i := range 100 {
+		updated, _ = m.Update(LogMsg{Text: fmt.Sprintf("line %d\n", i)})
+		m = updated.(Model)
+	}
+
+	// Scroll up
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = updated.(Model)
+
+	yBefore := m.logViewport.YOffset
+
+	// Loop finishes — scroll position must be preserved
+	result := &loop.Result{ExitReason: safety.ExitReasonComplete, Iterations: 5}
+	updated, _ = m.Update(LoopDoneMsg{Result: result})
+	m = updated.(Model)
+
+	require.Equal(t, yBefore, m.logViewport.YOffset, "scroll position should be preserved when user scrolled up")
+}
+
 func TestModelUpdateLoopDoneMsg(t *testing.T) {
 	model := NewModel(safety.Config{})
 

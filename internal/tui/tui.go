@@ -289,8 +289,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.logs) > 5000 {
 			m.logs = m.logs[len(m.logs)-5000:]
 		}
+		atBottom := m.logViewport.AtBottom()
 		m.logViewport.SetContent(m.wrapLogs())
-		m.logViewport.GotoBottom()
+		if atBottom {
+			m.logViewport.GotoBottom()
+		}
 
 	case ProcessStatsMsg:
 		m.claudePID = msg.PID
@@ -309,13 +312,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			exitLine += "\n"
 			m.logs = append(m.logs, exitLine)
+			atBottom := m.logViewport.AtBottom()
 			m.logViewport.SetContent(m.wrapLogs())
-			m.logViewport.GotoBottom()
+			if atBottom {
+				m.logViewport.GotoBottom()
+			}
 		}
 		if msg.Err != nil {
 			m.logs = append(m.logs, fmt.Sprintf("\n[PROG]Loop error: %v\n", msg.Err))
+			atBottom := m.logViewport.AtBottom()
 			m.logViewport.SetContent(m.wrapLogs())
-			m.logViewport.GotoBottom()
+			if atBottom {
+				m.logViewport.GotoBottom()
+			}
 		}
 		return m, nil
 
