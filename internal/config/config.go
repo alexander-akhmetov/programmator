@@ -133,11 +133,6 @@ func Load() (*Config, error) {
 // Local config (.programmator/) overrides global config (~/.config/programmator/) per-field.
 // If localDir is empty, only global config is used.
 func LoadWithDirs(globalDir, localDir string) (*Config, error) {
-	// Install defaults to global dir if not exists
-	if err := InstallDefaults(globalDir); err != nil {
-		return nil, fmt.Errorf("install defaults: %w", err)
-	}
-
 	// Load in order: embedded → global → env → local
 	// Each layer only overwrites fields that were explicitly set
 
@@ -191,34 +186,6 @@ func DefaultConfigDir() string {
 		return filepath.Join(".", ".config", "programmator")
 	}
 	return filepath.Join(home, ".config", "programmator")
-}
-
-// InstallDefaults creates the config directory and installs default config if not exists.
-func InstallDefaults(configDir string) error {
-	// Create config directory
-	if err := os.MkdirAll(configDir, 0o700); err != nil {
-		return fmt.Errorf("create config dir: %w", err)
-	}
-
-	// Create prompts directory (for user overrides)
-	promptsDir := filepath.Join(configDir, "prompts")
-	if err := os.MkdirAll(promptsDir, 0o700); err != nil {
-		return fmt.Errorf("create prompts dir: %w", err)
-	}
-
-	// Install default config file if not exists
-	configPath := filepath.Join(configDir, "config.yaml")
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		data, err := defaultsFS.ReadFile("defaults/config.yaml")
-		if err != nil {
-			return fmt.Errorf("read embedded config: %w", err)
-		}
-		if err := os.WriteFile(configPath, data, 0o600); err != nil {
-			return fmt.Errorf("write config file: %w", err)
-		}
-	}
-
-	return nil
 }
 
 // loadEmbedded loads config from the embedded defaults.

@@ -122,16 +122,3 @@ func TestStripComments(t *testing.T) {
 		})
 	}
 }
-
-func TestInstallPromptDefaults(t *testing.T) {
-	configDir := t.TempDir()
-
-	err := InstallPromptDefaults(configDir)
-	require.NoError(t, err)
-
-	// Check prompts directory was created
-	promptsDir := filepath.Join(configDir, "prompts")
-	info, err := os.Stat(promptsDir)
-	require.NoError(t, err)
-	assert.True(t, info.IsDir())
-}

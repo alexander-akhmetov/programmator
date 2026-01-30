@@ -22,44 +22,6 @@ func TestLoadEmbedded(t *testing.T) {
 	assert.Len(t, cfg.Review.Phases, 3)
 }
 
-func TestInstallDefaults(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	err := InstallDefaults(tmpDir)
-	require.NoError(t, err)
-
-	// Check config file was created
-	configPath := filepath.Join(tmpDir, "config.yaml")
-	_, err = os.Stat(configPath)
-	require.NoError(t, err)
-
-	// Read and verify content
-	data, err := os.ReadFile(configPath)
-	require.NoError(t, err)
-	assert.Contains(t, string(data), "max_iterations: 50")
-}
-
-func TestInstallDefaultsIdempotent(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// First install
-	err := InstallDefaults(tmpDir)
-	require.NoError(t, err)
-
-	// Modify the config
-	configPath := filepath.Join(tmpDir, "config.yaml")
-	err = os.WriteFile(configPath, []byte("max_iterations: 100\n"), 0o600)
-	require.NoError(t, err)
-
-	// Second install should not overwrite
-	err = InstallDefaults(tmpDir)
-	require.NoError(t, err)
-
-	data, err := os.ReadFile(configPath)
-	require.NoError(t, err)
-	assert.Contains(t, string(data), "max_iterations: 100")
-}
-
 func TestLoadWithDirs_GlobalOnly(t *testing.T) {
 	tmpDir := t.TempDir()
 

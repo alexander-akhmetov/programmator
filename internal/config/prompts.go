@@ -154,14 +154,3 @@ func stripComments(content string) string {
 	}
 	return strings.Join(lines, "\n")
 }
-
-// InstallPromptDefaults creates the prompts directory and optionally installs
-// default prompt files. Unlike config.yaml, prompt files are NOT auto-installed
-// to allow users to selectively override specific prompts.
-func InstallPromptDefaults(configDir string) error {
-	promptsDir := filepath.Join(configDir, "prompts")
-	if err := os.MkdirAll(promptsDir, 0o700); err != nil {
-		return fmt.Errorf("create prompts dir: %w", err)
-	}
-	return nil
-}
