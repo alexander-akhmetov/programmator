@@ -19,8 +19,8 @@ func TestLoadEmbedded(t *testing.T) {
 	assert.Equal(t, 900, cfg.Timeout)
 	assert.Equal(t, "", cfg.ClaudeFlags)
 	assert.Equal(t, false, cfg.Review.Enabled)
-	assert.Equal(t, 3, cfg.Review.MaxIterations)
-	assert.Len(t, cfg.Review.Passes, 2)
+	assert.Equal(t, 50, cfg.Review.MaxIterations) // Used as base for iteration_pct calculations
+	assert.Len(t, cfg.Review.Phases, 3)
 }
 
 func TestInstallDefaults(t *testing.T) {
@@ -221,9 +221,10 @@ func TestReviewConfig(t *testing.T) {
 review:
   enabled: true
   max_iterations: 5
-  passes:
-    - name: custom_review
+  phases:
+    - name: custom_phase
       parallel: true
+      iteration_limit: 2
       agents:
         - name: custom_agent
           focus:
@@ -237,10 +238,12 @@ review:
 
 	assert.True(t, cfg.Review.Enabled)
 	assert.Equal(t, 5, cfg.Review.MaxIterations)
-	require.Len(t, cfg.Review.Passes, 1)
-	assert.Equal(t, "custom_review", cfg.Review.Passes[0].Name)
-	require.Len(t, cfg.Review.Passes[0].Agents, 1)
-	assert.Equal(t, "custom_agent", cfg.Review.Passes[0].Agents[0].Name)
+	require.Len(t, cfg.Review.Phases, 1)
+	assert.Equal(t, "custom_phase", cfg.Review.Phases[0].Name)
+	assert.True(t, cfg.Review.Phases[0].Parallel)
+	assert.Equal(t, 2, cfg.Review.Phases[0].IterationLimit)
+	require.Len(t, cfg.Review.Phases[0].Agents, 1)
+	assert.Equal(t, "custom_agent", cfg.Review.Phases[0].Agents[0].Name)
 }
 
 func TestDefaultConfigDir(t *testing.T) {
@@ -289,4 +292,14 @@ review:
 	assert.False(t, cfg.StagnationLimitSet) // not set in YAML
 	assert.False(t, cfg.TimeoutSet)         // not set in YAML
 	assert.True(t, cfg.Review.EnabledSet)
+}
+
+func TestParseConfigWithTrackingRejectsReviewPasses(t *testing.T) {
+	data := []byte(`
+review:
+  passes: []
+`)
+	_, err := parseConfigWithTracking(data)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "review.passes")
 }

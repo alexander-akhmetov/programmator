@@ -18,19 +18,18 @@ func TestLoadPrompts_Embedded(t *testing.T) {
 	// Check that all prompts are loaded and non-empty
 	assert.NotEmpty(t, prompts.Phased, "phased prompt should be loaded")
 	assert.NotEmpty(t, prompts.Phaseless, "phaseless prompt should be loaded")
-	assert.NotEmpty(t, prompts.ReviewFix, "review_fix prompt should be loaded")
+	assert.NotEmpty(t, prompts.ReviewFirst, "review_first prompt should be loaded")
 
 	// Check that comment lines are stripped
 	assert.NotContains(t, prompts.Phased, "# Phased execution prompt")
 	assert.NotContains(t, prompts.Phaseless, "# Phaseless execution prompt")
-	assert.NotContains(t, prompts.ReviewFix, "# Review fix prompt")
 
 	// Check that template variables are present
 	assert.Contains(t, prompts.Phased, "{{.ID}}")
 	assert.Contains(t, prompts.Phased, "{{.Title}}")
 	assert.Contains(t, prompts.Phased, "{{.CurrentPhase}}")
 	assert.Contains(t, prompts.Phaseless, "{{.ID}}")
-	assert.Contains(t, prompts.ReviewFix, "{{.BaseBranch}}")
+	assert.Contains(t, prompts.ReviewFirst, "{{.BaseBranch}}")
 }
 
 func TestLoadPrompts_GlobalOverride(t *testing.T) {
@@ -52,7 +51,6 @@ func TestLoadPrompts_GlobalOverride(t *testing.T) {
 	assert.Equal(t, customPrompt, prompts.Phased)
 	// Other prompts should fall back to embedded
 	assert.Contains(t, prompts.Phaseless, "{{.ID}}")
-	assert.Contains(t, prompts.ReviewFix, "{{.BaseBranch}}")
 }
 
 func TestLoadPrompts_LocalOverridesGlobal(t *testing.T) {

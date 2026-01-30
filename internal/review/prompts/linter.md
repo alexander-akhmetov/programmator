@@ -36,3 +36,4 @@ You are a linter check agent. Your job is to detect and run appropriate linters 
 - If a linter is not available, skip it (don't report as an error)
 - Focus on actual lint issues, not on linter execution problems
 - If all linters pass with no issues, report an empty issues list
+- Report problems only - no positive observations

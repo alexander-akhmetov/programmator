@@ -6,10 +6,11 @@ Programmator uses Go `text/template` files to build the prompts sent to Claude C
 
 | Template | Used When |
 |----------|-----------|
-| `phased.md` | Work item has checkbox phases |
-| `phaseless.md` | Work item has no phases (single task) |
-| `review_fix.md` | Fixing issues found by code review |
-| `plan_create.md` | Interactive plan creation |
+| [phased.md](../internal/config/defaults/prompts/phased.md) | Work item has checkbox phases |
+| [phaseless.md](../internal/config/defaults/prompts/phaseless.md) | Work item has no phases (single task) |
+| [review_first.md](../internal/config/defaults/prompts/review_first.md) | First (comprehensive) review phase |
+| [review_second.md](../internal/config/defaults/prompts/review_second.md) | Critical/major issues review phase |
+| [plan_create.md](../internal/config/defaults/prompts/plan_create.md) | Interactive plan creation |
 
 ## Override Chain
 
@@ -36,7 +37,7 @@ You only need to create the files you want to override. Missing files fall throu
 | `{{.CurrentPhase}}` | string | Current phase name, or "All phases complete" *(phased only)* |
 | `{{.CurrentPhaseName}}` | string | Raw phase name for the status block, or "null" *(phased only)* |
 
-### review_fix.md
+### review_first.md / review_second.md
 
 | Variable | Type | Description |
 |----------|------|-------------|
@@ -119,4 +120,13 @@ PROGRAMMATOR_STATUS:
 
 ## Review Agent Prompts
 
-The review system uses separate embedded prompts (`quality.md`, `security.md`, `linter.md` in `internal/review/prompts/`). These are **not** part of the override chain and can only be changed by modifying the source.
+The review system uses separate embedded prompts in `internal/review/prompts/`. These are **not** part of the override chain and can only be changed by modifying the source.
+
+| Agent | Prompt | Focus |
+|-------|--------|-------|
+| quality | [quality.md](../internal/review/prompts/quality.md) | Bugs, logic errors, race conditions, error handling |
+| security | [security.md](../internal/review/prompts/security.md) | Injection, crypto, auth, data protection |
+| implementation | [implementation.md](../internal/review/prompts/implementation.md) | Requirement coverage, wiring, completeness |
+| testing | [testing.md](../internal/review/prompts/testing.md) | Missing tests, fake tests, edge cases |
+| simplification | [simplification.md](../internal/review/prompts/simplification.md) | Over-engineering, unnecessary abstractions |
+| linter | [linter.md](../internal/review/prompts/linter.md) | Auto-detect project type, run linters, report findings |

@@ -22,6 +22,7 @@ import (
 	"github.com/worksonmyai/programmator/internal/loop"
 	"github.com/worksonmyai/programmator/internal/permission"
 	"github.com/worksonmyai/programmator/internal/progress"
+	"github.com/worksonmyai/programmator/internal/prompt"
 	"github.com/worksonmyai/programmator/internal/review"
 	"github.com/worksonmyai/programmator/internal/safety"
 	"github.com/worksonmyai/programmator/internal/source"
@@ -871,6 +872,7 @@ type TUI struct {
 	reviewOnly             bool
 	reviewConfig           *review.Config
 	progressLogger         *progress.Logger
+	promptBuilder          *prompt.Builder
 	gitWorkflowConfig      *loop.GitWorkflowConfig
 	ticketCommand          string
 }
@@ -918,6 +920,10 @@ func (t *TUI) SetProgressLogger(logger *progress.Logger) {
 // SetGitWorkflowConfig sets the git workflow configuration.
 func (t *TUI) SetGitWorkflowConfig(cfg loop.GitWorkflowConfig) {
 	t.gitWorkflowConfig = &cfg
+}
+
+func (t *TUI) SetPromptBuilder(b *prompt.Builder) {
+	t.promptBuilder = b
 }
 
 func (t *TUI) SetTicketCommand(cmd string) {
@@ -1018,6 +1024,9 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 	}
 	if t.gitWorkflowConfig != nil {
 		l.SetGitWorkflowConfig(*t.gitWorkflowConfig)
+	}
+	if t.promptBuilder != nil {
+		l.SetPromptBuilder(t.promptBuilder)
 	}
 	if t.ticketCommand != "" {
 		l.SetTicketCommand(t.ticketCommand)

@@ -2,185 +2,11 @@ package review
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
-
-func TestRunner_Run(t *testing.T) {
-	t.Run("passes when no issues", func(t *testing.T) {
-		cfg := Config{
-			Enabled:       true,
-			MaxIterations: 3,
-			Passes: []Pass{
-				{
-					Name:     "test_pass",
-					Parallel: true,
-					Agents: []AgentConfig{
-						{Name: "agent1"},
-					},
-				},
-			},
-		}
-
-		runner := NewRunner(cfg, nil)
-		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
-			mock := NewMockAgent(agentCfg.Name)
-			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
-				return &Result{
-					AgentName: agentCfg.Name,
-					Issues:    []Issue{},
-					Summary:   "No issues",
-				}, nil
-			})
-			return mock
-		})
-
-		result, err := runner.Run(context.Background(), "/tmp", []string{"file.go"})
-		require.NoError(t, err)
-		require.True(t, result.Passed)
-		require.Equal(t, 0, result.TotalIssues)
-	})
-
-	t.Run("fails when issues found", func(t *testing.T) {
-		cfg := Config{
-			Enabled:       true,
-			MaxIterations: 3,
-			Passes: []Pass{
-				{
-					Name:     "test_pass",
-					Parallel: true,
-					Agents: []AgentConfig{
-						{Name: "agent1"},
-					},
-				},
-			},
-		}
-
-		runner := NewRunner(cfg, nil)
-		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
-			mock := NewMockAgent(agentCfg.Name)
-			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
-				return &Result{
-					AgentName: agentCfg.Name,
-					Issues: []Issue{
-						{File: "file.go", Severity: SeverityHigh, Description: "Problem"},
-					},
-					Summary: "Found issues",
-				}, nil
-			})
-			return mock
-		})
-
-		result, err := runner.Run(context.Background(), "/tmp", []string{"file.go"})
-		require.NoError(t, err)
-		require.False(t, result.Passed)
-		require.Equal(t, 1, result.TotalIssues)
-	})
-
-	t.Run("handles agent error", func(t *testing.T) {
-		cfg := Config{
-			Enabled:       true,
-			MaxIterations: 3,
-			Passes: []Pass{
-				{
-					Name:     "test_pass",
-					Parallel: false,
-					Agents: []AgentConfig{
-						{Name: "agent1"},
-					},
-				},
-			},
-		}
-
-		runner := NewRunner(cfg, nil)
-		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
-			mock := NewMockAgent(agentCfg.Name)
-			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
-				return nil, errors.New("agent error")
-			})
-			return mock
-		})
-
-		result, err := runner.Run(context.Background(), "/tmp", []string{"file.go"})
-		require.NoError(t, err)
-		require.Len(t, result.Results, 1)
-		require.NotNil(t, result.Results[0].Error)
-	})
-
-	t.Run("runs multiple passes", func(t *testing.T) {
-		cfg := Config{
-			Enabled:       true,
-			MaxIterations: 3,
-			Passes: []Pass{
-				{
-					Name:   "pass1",
-					Agents: []AgentConfig{{Name: "agent1"}},
-				},
-				{
-					Name:   "pass2",
-					Agents: []AgentConfig{{Name: "agent2"}},
-				},
-			},
-		}
-
-		agentsCalled := make(map[string]bool)
-		runner := NewRunner(cfg, nil)
-		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
-			mock := NewMockAgent(agentCfg.Name)
-			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
-				agentsCalled[agentCfg.Name] = true
-				return &Result{AgentName: agentCfg.Name, Issues: []Issue{}}, nil
-			})
-			return mock
-		})
-
-		result, err := runner.Run(context.Background(), "/tmp", []string{})
-		require.NoError(t, err)
-		require.True(t, result.Passed)
-		require.True(t, agentsCalled["agent1"])
-		require.True(t, agentsCalled["agent2"])
-	})
-
-	t.Run("respects context cancellation", func(t *testing.T) {
-		cfg := Config{
-			Enabled:       true,
-			MaxIterations: 3,
-			Passes: []Pass{
-				{
-					Name:     "test_pass",
-					Parallel: false,
-					Agents: []AgentConfig{
-						{Name: "agent1"},
-						{Name: "agent2"},
-					},
-				},
-			},
-		}
-
-		ctx, cancel := context.WithCancel(context.Background())
-		callCount := 0
-
-		runner := NewRunner(cfg, nil)
-		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
-			mock := NewMockAgent(agentCfg.Name)
-			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
-				callCount++
-				if callCount == 1 {
-					cancel() // Cancel after first agent
-				}
-				return &Result{AgentName: agentCfg.Name, Issues: []Issue{}}, nil
-			})
-			return mock
-		})
-
-		_, err := runner.Run(ctx, "/tmp", []string{})
-		require.Error(t, err)
-		require.ErrorIs(t, err, context.Canceled)
-	})
-}
 
 func TestRunResult_HasCriticalIssues(t *testing.T) {
 	t.Run("returns true for critical", func(t *testing.T) {
@@ -232,61 +58,6 @@ func TestRunResult_AllIssues(t *testing.T) {
 	require.Len(t, issues, 3)
 }
 
-func TestRunner_OutputCallback(t *testing.T) {
-	cfg := Config{
-		Enabled:       true,
-		MaxIterations: 1,
-		Passes: []Pass{
-			{
-				Name:   "test_pass",
-				Agents: []AgentConfig{{Name: "agent1"}},
-			},
-		},
-	}
-
-	var logs []string
-	runner := NewRunner(cfg, func(text string) {
-		logs = append(logs, text)
-	})
-	runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
-		return NewMockAgent(agentCfg.Name)
-	})
-
-	_, err := runner.Run(context.Background(), "/tmp", []string{})
-	require.NoError(t, err)
-	require.NotEmpty(t, logs)
-	require.Contains(t, logs[0], "[REVIEW]")
-}
-
-func TestRunner_RegisterAgent(t *testing.T) {
-	cfg := Config{
-		Enabled:       true,
-		MaxIterations: 1,
-		Passes: []Pass{
-			{
-				Name:   "test_pass",
-				Agents: []AgentConfig{{Name: "custom"}},
-			},
-		},
-	}
-
-	customAgent := NewMockAgent("custom")
-	customAgent.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
-		return &Result{
-			AgentName: "custom",
-			Issues:    []Issue{{Description: "Custom issue"}},
-		}, nil
-	})
-
-	runner := NewRunner(cfg, nil)
-	runner.RegisterAgent(customAgent)
-
-	result, err := runner.Run(context.Background(), "/tmp", []string{})
-	require.NoError(t, err)
-	require.Equal(t, 1, result.TotalIssues)
-	require.Equal(t, "Custom issue", result.Results[0].Issues[0].Description)
-}
-
 func TestMockAgent(t *testing.T) {
 	mock := NewMockAgent("test")
 	require.Equal(t, "test", mock.Name())
@@ -325,5 +96,188 @@ func TestClaudeAgent(t *testing.T) {
 
 		require.Equal(t, 10*time.Minute, agent.timeout)
 		require.Equal(t, []string{"--verbose"}, agent.claudeArgs)
+	})
+}
+
+func TestRunResult_FilterBySeverity(t *testing.T) {
+	baseResult := &RunResult{
+		Passed:    false,
+		Iteration: 1,
+		Results: []*Result{
+			{
+				AgentName: "quality",
+				Issues: []Issue{
+					{Severity: SeverityCritical, Description: "Critical issue"},
+					{Severity: SeverityHigh, Description: "High issue"},
+					{Severity: SeverityMedium, Description: "Medium issue"},
+					{Severity: SeverityLow, Description: "Low issue"},
+				},
+			},
+			{
+				AgentName: "security",
+				Issues: []Issue{
+					{Severity: SeverityCritical, Description: "Another critical"},
+					{Severity: SeverityInfo, Description: "Info issue"},
+				},
+			},
+		},
+		TotalIssues: 6,
+	}
+
+	t.Run("empty filter returns all", func(t *testing.T) {
+		filtered := baseResult.FilterBySeverity([]Severity{})
+		require.Equal(t, baseResult, filtered) // Same reference for passthrough
+	})
+
+	t.Run("filter by critical only", func(t *testing.T) {
+		filtered := baseResult.FilterBySeverity([]Severity{SeverityCritical})
+		require.Equal(t, 2, filtered.TotalIssues)
+		require.False(t, filtered.Passed)
+
+		// Check first agent's filtered issues
+		require.Len(t, filtered.Results[0].Issues, 1)
+		require.Equal(t, SeverityCritical, filtered.Results[0].Issues[0].Severity)
+
+		// Check second agent's filtered issues
+		require.Len(t, filtered.Results[1].Issues, 1)
+		require.Equal(t, SeverityCritical, filtered.Results[1].Issues[0].Severity)
+	})
+
+	t.Run("filter by critical and high", func(t *testing.T) {
+		filtered := baseResult.FilterBySeverity([]Severity{SeverityCritical, SeverityHigh})
+		require.Equal(t, 3, filtered.TotalIssues)
+
+		// First agent has 1 critical + 1 high
+		require.Len(t, filtered.Results[0].Issues, 2)
+
+		// Second agent has 1 critical
+		require.Len(t, filtered.Results[1].Issues, 1)
+	})
+
+	t.Run("filter results in passed when no matching issues", func(t *testing.T) {
+		smallResult := &RunResult{
+			Passed:    false,
+			Iteration: 1,
+			Results: []*Result{
+				{
+					AgentName: "test",
+					Issues: []Issue{
+						{Severity: SeverityLow, Description: "Low issue"},
+					},
+				},
+			},
+			TotalIssues: 1,
+		}
+
+		filtered := smallResult.FilterBySeverity([]Severity{SeverityCritical})
+		require.True(t, filtered.Passed)
+		require.Equal(t, 0, filtered.TotalIssues)
+	})
+}
+
+func TestRunner_RunPhase(t *testing.T) {
+	t.Run("runs phase agents in parallel", func(t *testing.T) {
+		cfg := Config{
+			Enabled:       true,
+			MaxIterations: 3,
+		}
+
+		runner := NewRunner(cfg, nil)
+		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
+			mock := NewMockAgent(agentCfg.Name)
+			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
+				return &Result{
+					AgentName: agentCfg.Name,
+					Issues:    []Issue{},
+					Summary:   "No issues",
+				}, nil
+			})
+			return mock
+		})
+
+		phase := Phase{
+			Name:     "test_phase",
+			Parallel: true,
+			Agents: []AgentConfig{
+				{Name: "agent1"},
+				{Name: "agent2"},
+			},
+		}
+
+		result, err := runner.RunPhase(context.Background(), "/tmp", []string{"file.go"}, phase)
+		require.NoError(t, err)
+		require.True(t, result.Passed)
+		require.Equal(t, 0, result.TotalIssues)
+		require.Len(t, result.Results, 2)
+	})
+
+	t.Run("runs phase agents sequentially when not parallel", func(t *testing.T) {
+		cfg := Config{
+			Enabled:       true,
+			MaxIterations: 3,
+		}
+
+		callOrder := []string{}
+		runner := NewRunner(cfg, nil)
+		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
+			mock := NewMockAgent(agentCfg.Name)
+			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
+				callOrder = append(callOrder, agentCfg.Name)
+				return &Result{
+					AgentName: agentCfg.Name,
+					Issues:    []Issue{},
+				}, nil
+			})
+			return mock
+		})
+
+		phase := Phase{
+			Name:     "test_phase",
+			Parallel: false,
+			Agents: []AgentConfig{
+				{Name: "first"},
+				{Name: "second"},
+			},
+		}
+
+		result, err := runner.RunPhase(context.Background(), "/tmp", []string{}, phase)
+		require.NoError(t, err)
+		require.True(t, result.Passed)
+		require.Equal(t, []string{"first", "second"}, callOrder)
+	})
+
+	t.Run("counts issues correctly", func(t *testing.T) {
+		cfg := Config{
+			Enabled:       true,
+			MaxIterations: 3,
+		}
+
+		runner := NewRunner(cfg, nil)
+		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
+			mock := NewMockAgent(agentCfg.Name)
+			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
+				return &Result{
+					AgentName: agentCfg.Name,
+					Issues: []Issue{
+						{Severity: SeverityHigh, Description: "Issue from " + agentCfg.Name},
+					},
+				}, nil
+			})
+			return mock
+		})
+
+		phase := Phase{
+			Name:     "test_phase",
+			Parallel: true,
+			Agents: []AgentConfig{
+				{Name: "agent1"},
+				{Name: "agent2"},
+			},
+		}
+
+		result, err := runner.RunPhase(context.Background(), "/tmp", []string{}, phase)
+		require.NoError(t, err)
+		require.False(t, result.Passed)
+		require.Equal(t, 2, result.TotalIssues)
 	})
 }

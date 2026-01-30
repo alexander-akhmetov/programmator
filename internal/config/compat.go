@@ -6,7 +6,6 @@ import (
 )
 
 // ToSafetyConfig converts the unified Config to a safety.Config.
-// This provides backwards compatibility during the migration.
 func (c *Config) ToSafetyConfig() safety.Config {
 	return safety.Config{
 		MaxIterations:       c.MaxIterations,
@@ -20,10 +19,9 @@ func (c *Config) ToSafetyConfig() safety.Config {
 }
 
 // ToReviewConfig converts the unified Config to a review.Config.
-// This provides backwards compatibility during the migration.
 func (c *Config) ToReviewConfig() review.Config {
-	passes := make([]review.Pass, len(c.Review.Passes))
-	for i, p := range c.Review.Passes {
+	phases := make([]review.Phase, len(c.Review.Phases))
+	for i, p := range c.Review.Phases {
 		agents := make([]review.AgentConfig, len(p.Agents))
 		for j, a := range p.Agents {
 			agents[j] = review.AgentConfig{
@@ -32,16 +30,25 @@ func (c *Config) ToReviewConfig() review.Config {
 				Prompt: a.Prompt,
 			}
 		}
-		passes[i] = review.Pass{
-			Name:     p.Name,
-			Parallel: p.Parallel,
-			Agents:   agents,
+
+		severities := make([]review.Severity, len(p.SeverityFilter))
+		for j, s := range p.SeverityFilter {
+			severities[j] = review.Severity(s)
+		}
+
+		phases[i] = review.Phase{
+			Name:           p.Name,
+			IterationLimit: p.IterationLimit,
+			IterationPct:   p.IterationPct,
+			SeverityFilter: severities,
+			Agents:         agents,
+			Parallel:       p.Parallel,
 		}
 	}
 
 	return review.Config{
 		Enabled:       c.Review.Enabled,
 		MaxIterations: c.Review.MaxIterations,
-		Passes:        passes,
+		Phases:        phases,
 	}
 }

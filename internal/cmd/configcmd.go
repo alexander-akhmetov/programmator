@@ -83,11 +83,20 @@ func runConfigShow(_ *cobra.Command, _ []string) error {
 	fmt.Println("## Review Settings")
 	fmt.Printf("  enabled:        %t\n", cfg.Review.Enabled)
 	fmt.Printf("  max_iterations: %d\n", cfg.Review.MaxIterations)
-	if len(cfg.Review.Passes) > 0 {
-		fmt.Println("  passes:")
-		for _, pass := range cfg.Review.Passes {
-			fmt.Printf("    - %s (parallel: %t)\n", pass.Name, pass.Parallel)
-			for _, agent := range pass.Agents {
+	if len(cfg.Review.Phases) > 0 {
+		fmt.Println("  phases:")
+		for _, phase := range cfg.Review.Phases {
+			fmt.Printf("    - %s (parallel: %t)\n", phase.Name, phase.Parallel)
+			if phase.IterationLimit > 0 {
+				fmt.Printf("        iteration_limit: %d\n", phase.IterationLimit)
+			}
+			if phase.IterationPct > 0 {
+				fmt.Printf("        iteration_pct: %d%%\n", phase.IterationPct)
+			}
+			if len(phase.SeverityFilter) > 0 {
+				fmt.Printf("        severity_filter: %s\n", strings.Join(phase.SeverityFilter, ", "))
+			}
+			for _, agent := range phase.Agents {
 				fmt.Printf("        agent: %s\n", agent.Name)
 				if len(agent.Focus) > 0 {
 					fmt.Printf("          focus: %s\n", strings.Join(agent.Focus, ", "))

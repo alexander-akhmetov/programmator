@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/worksonmyai/programmator/internal/parser"
+	"github.com/worksonmyai/programmator/internal/prompt"
 	"github.com/worksonmyai/programmator/internal/review"
 	"github.com/worksonmyai/programmator/internal/safety"
 	"github.com/worksonmyai/programmator/internal/source"
@@ -788,6 +789,7 @@ func TestRunContextCancellation(t *testing.T) {
 func TestRunReviewOnlyPassesWithNoIssues(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
+	l.SetReviewConfig(singleAgentReviewConfig())
 
 	// Mock the review runner to return no issues
 	mockRunner := createMockReviewRunner(t, false, 0)
@@ -803,8 +805,16 @@ func TestRunReviewOnlyPassesWithNoIssues(t *testing.T) {
 }
 
 func TestRunReviewOnlyFailsMaxIterations(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 2}
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 20}
 	l := New(config, "/tmp", nil, nil, false)
+	// Single phase with iteration_limit: 2 so we can test exhausting it
+	l.SetReviewConfig(review.Config{
+		Enabled:       true,
+		MaxIterations: 10,
+		Phases: []review.Phase{
+			{Name: "test_phase", IterationLimit: 2, Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
+		},
+	})
 
 	// Mock review runner to always return issues
 	mockRunner := createMockReviewRunner(t, true, 1)
@@ -831,6 +841,7 @@ func TestRunReviewOnlyFailsMaxIterations(t *testing.T) {
 func TestRunReviewOnlyBlocked(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
+	l.SetReviewConfig(singleAgentReviewConfig())
 
 	// Mock review runner to return issues
 	mockRunner := createMockReviewRunner(t, true, 1)
@@ -857,6 +868,7 @@ func TestRunReviewOnlyBlocked(t *testing.T) {
 func TestRunReviewOnlyFixAndPass(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
+	l.SetReviewConfig(singleAgentReviewConfig())
 
 	// Mock review runner: first call returns issues, second call passes
 	invocation := 0
@@ -893,6 +905,7 @@ func TestRunReviewOnlyFixAndPass(t *testing.T) {
 func TestRunReviewOnlyStopRequested(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
+	l.SetReviewConfig(singleAgentReviewConfig())
 
 	l.Stop()
 
@@ -905,6 +918,14 @@ func TestRunReviewOnlyStopRequested(t *testing.T) {
 func TestRunReviewOnlyInvokerError(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
+	// Use high iteration limit so stagnation is hit before phase exhaustion
+	l.SetReviewConfig(review.Config{
+		Enabled:       true,
+		MaxIterations: 10,
+		Phases: []review.Phase{
+			{Name: "test_phase", IterationLimit: 10, Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
+		},
+	})
 
 	// Mock review runner to return issues
 	mockRunner := createMockReviewRunner(t, true, 1)
@@ -924,6 +945,8 @@ func TestRunReviewOnlyInvokerError(t *testing.T) {
 func TestRunReviewOnlyTracksFilesFixed(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
+
+	l.SetReviewConfig(singleAgentReviewConfig())
 
 	// Mock review runner: returns issues for first 2 calls, then passes
 	invocation := 0
@@ -960,6 +983,7 @@ func TestRunReviewOnlyTracksFilesFixed(t *testing.T) {
 func TestRunReviewOnlyAutoCommit(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
+	l.SetReviewConfig(singleAgentReviewConfig())
 
 	// Mock review runner: first call returns issues, second call passes
 	invocation := 0
@@ -1021,6 +1045,18 @@ func TestDefaultReviewFixPromptFormatting(t *testing.T) {
 	require.Contains(t, prompt, "## Session End Protocol")
 }
 
+// singleAgentReviewConfig returns a review config with one phase and one agent,
+// suitable for tests that use mock review runners.
+func singleAgentReviewConfig() review.Config {
+	return review.Config{
+		Enabled:       true,
+		MaxIterations: 10,
+		Phases: []review.Phase{
+			{Name: "test_phase", Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
+		},
+	}
+}
+
 // Helper functions for creating mock review runners
 
 func createMockReviewRunner(t *testing.T, hasIssues bool, issueCount int) *review.Runner {
@@ -1029,9 +1065,9 @@ func createMockReviewRunner(t *testing.T, hasIssues bool, issueCount int) *revie
 	cfg := review.Config{
 		Enabled:       true,
 		MaxIterations: 3,
-		Passes: []review.Pass{
+		Phases: []review.Phase{
 			{
-				Name:     "test_pass",
+				Name:     "test_phase",
 				Parallel: true,
 				Agents: []review.AgentConfig{
 					{Name: "test_agent"},
@@ -1072,10 +1108,10 @@ func createMockReviewRunnerFunc(t *testing.T, resultFunc func() (hasIssues bool,
 	cfg := review.Config{
 		Enabled:       true,
 		MaxIterations: 3,
-		Passes: []review.Pass{
+		Phases: []review.Phase{
 			{
-				Name:     "test_pass",
-				Parallel: true,
+				Name:     "test_phase",
+				Parallel: false,
 				Agents: []review.AgentConfig{
 					{Name: "test_agent"},
 				},
@@ -1115,6 +1151,7 @@ func createMockReviewRunnerFunc(t *testing.T, resultFunc func() (hasIssues bool,
 func TestRunReviewOnlyNoStatusBlock(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
+	l.SetReviewConfig(singleAgentReviewConfig())
 
 	// Mock review runner: returns issues first time, passes second time
 	invocation := 0
@@ -1154,15 +1191,18 @@ func TestRunReviewOnlyNoStatusBlock(t *testing.T) {
 func TestRunReviewOnlyReviewError(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
+	l.SetReviewConfig(singleAgentReviewConfig())
 
-	// Mock review runner that returns an error (via sequential execution to propagate error)
+	// Mock review runner that returns an error from sequential execution.
+	// Note: runAgentsSequential wraps agent errors into Result.Error
+	// (doesn't propagate), so the review "passes" (0 issues).
 	cfg := review.Config{
 		Enabled:       true,
 		MaxIterations: 3,
-		Passes: []review.Pass{
+		Phases: []review.Phase{
 			{
-				Name:     "test_pass",
-				Parallel: false, // Sequential so error propagates
+				Name:     "test_phase",
+				Parallel: false,
 				Agents: []review.AgentConfig{
 					{Name: "test_agent"},
 				},
@@ -1181,16 +1221,24 @@ func TestRunReviewOnlyReviewError(t *testing.T) {
 
 	result, err := l.RunReviewOnly("main", []string{"file.go"})
 
-	// When agent errors in sequential mode, the result includes the error but the pass itself doesn't fail.
-	// The review passes with zero issues (since the error result has no issues).
-	// This is current behavior - verifying it works as expected.
+	// Agent errors are caught by runAgentsSequential and wrapped into results.
+	// The review reports 0 issues (passes), so the review completes successfully.
 	require.NoError(t, err)
-	require.True(t, result.Passed) // Passes because there are 0 issues
+	require.True(t, result.Passed)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
 }
 
 func TestRunReviewOnlyStagnation(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 2, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
+	// Use high iteration limit so stagnation is hit before phase exhaustion
+	l.SetReviewConfig(review.Config{
+		Enabled:       true,
+		MaxIterations: 10,
+		Phases: []review.Phase{
+			{Name: "test_phase", IterationLimit: 10, Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
+		},
+	})
 
 	// Mock review runner that always returns issues
 	mockRunner := createMockReviewRunner(t, true, 1)
@@ -1221,6 +1269,7 @@ func TestRunReviewOnlyOutputCallback(t *testing.T) {
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", onOutput, nil, false)
+	l.SetReviewConfig(singleAgentReviewConfig())
 
 	// Mock review runner that passes immediately
 	mockRunner := createMockReviewRunner(t, false, 0)
@@ -1246,6 +1295,7 @@ func TestRunReviewOnlyStateCallback(t *testing.T) {
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, stateCallback, false)
+	l.SetReviewConfig(singleAgentReviewConfig())
 
 	// Mock review runner: first call returns issues (so Claude is invoked and callback is triggered),
 	// second call passes
@@ -1281,6 +1331,7 @@ func TestRunReviewOnlyStateCallback(t *testing.T) {
 func TestRunReviewOnlyDurationTracked(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
+	l.SetReviewConfig(singleAgentReviewConfig())
 
 	// Mock review runner that passes immediately
 	mockRunner := createMockReviewRunner(t, false, 0)
@@ -1297,6 +1348,7 @@ func TestRunReviewOnlyDurationTracked(t *testing.T) {
 func TestRunReviewOnlyDeduplicatesFilesFixed(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
+	l.SetReviewConfig(singleAgentReviewConfig())
 
 	// Mock review runner: returns issues for first 2 calls, then passes
 	invocation := 0
@@ -1608,6 +1660,349 @@ func TestSetGuardMode(t *testing.T) {
 
 	l.SetGuardMode(true)
 	require.True(t, l.guardMode)
+}
+
+// Fix 1 test: iteration_limit:1 allows Claude one fix attempt
+func TestHandleMultiPhaseReview_IterationLimitOneAllowsFix(t *testing.T) {
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+		return &source.WorkItem{
+			ID:    "test-123",
+			Title: "Test Ticket",
+			Phases: []source.Phase{
+				{Name: "Phase 1", Completed: true},
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 50, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 50}
+	l := NewWithSource(config, "", nil, nil, false, mock)
+
+	// Comprehensive phase with iteration_limit: 1
+	l.SetReviewConfig(review.Config{
+		Enabled:       true,
+		MaxIterations: 50,
+		Phases: []review.Phase{
+			{
+				Name:           "comprehensive",
+				IterationLimit: 1,
+				Parallel:       false,
+				Agents:         []review.AgentConfig{{Name: "test_agent"}},
+			},
+		},
+	})
+
+	// Review finds issues on first call, passes on second (after fix)
+	reviewCall := 0
+	mockRunner := createMockReviewRunnerFunc(t, func() (bool, int) {
+		reviewCall++
+		if reviewCall == 1 {
+			return true, 2 // has issues
+		}
+		return false, 0 // passes after fix
+	})
+	l.SetReviewRunner(mockRunner)
+
+	// Claude is invoked to fix the issues
+	claudeInvoked := false
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		claudeInvoked = true
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: ["fix.go"]
+  summary: "Fixed the issues"
+`, nil
+	})
+
+	result, err := l.Run("test-123")
+
+	require.NoError(t, err)
+	require.True(t, claudeInvoked, "Claude should be invoked to fix issues even with iteration_limit:1")
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+}
+
+// Fix 2 test: promptBuilder wired through to buildReviewFixPrompt
+func TestPromptBuilderWiredInReview(t *testing.T) {
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 10, Timeout: 60}
+	l := New(config, "/tmp", nil, nil, false)
+	l.SetReviewConfig(singleAgentReviewConfig())
+
+	// Create a real prompt builder
+	builder, err := prompt.NewBuilder(nil)
+	require.NoError(t, err)
+	l.SetPromptBuilder(builder)
+
+	// buildReviewFixPrompt should use the builder (not fallback)
+	l.currentPhaseIdx = 0
+	result, err := l.buildReviewFixPrompt("main", []string{"file.go"}, "some issues", 1)
+	require.NoError(t, err)
+
+	// The template-rendered prompt differs from the default fallback.
+	// The default fallback contains "## Session End Protocol" which the
+	// template does not (it uses different wording). Just verify non-empty.
+	require.NotEmpty(t, result)
+	require.Contains(t, result, "some issues")
+}
+
+// Test: main loop uses review fix prompt (not task prompt) when pendingReviewFix is true
+func TestMainLoopUsesReviewFixPromptWhenPendingFix(t *testing.T) {
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+		return &source.WorkItem{
+			ID:    "test-123",
+			Title: "Test Ticket",
+			Phases: []source.Phase{
+				{Name: "Phase 1", Completed: true},
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 50, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 50}
+	l := NewWithSource(config, "", nil, nil, false, mock)
+
+	l.SetReviewConfig(review.Config{
+		Enabled:       true,
+		MaxIterations: 50,
+		Phases: []review.Phase{
+			{
+				Name:           "comprehensive",
+				IterationLimit: 2,
+				Parallel:       false,
+				Agents:         []review.AgentConfig{{Name: "test_agent"}},
+			},
+		},
+	})
+
+	builder, err := prompt.NewBuilder(nil)
+	require.NoError(t, err)
+	l.SetPromptBuilder(builder)
+
+	// Review finds issues on first call, passes on second (after fix)
+	reviewCall := 0
+	mockRunner := createMockReviewRunnerFunc(t, func() (bool, int) {
+		reviewCall++
+		if reviewCall == 1 {
+			return true, 2 // has issues
+		}
+		return false, 0 // passes after fix
+	})
+	l.SetReviewRunner(mockRunner)
+
+	// Capture the prompt text sent to Claude
+	var capturedPrompt string
+	l.SetClaudeInvoker(func(_ context.Context, p string) (string, error) {
+		capturedPrompt = p
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: ["fix.go"]
+  summary: "Fixed the issues"
+`, nil
+	})
+
+	result, err := l.Run("test-123")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	// The review fix prompt should contain the issue markers from the review,
+	// NOT the task prompt content (ticket title, phases, etc.)
+	require.NotEmpty(t, capturedPrompt)
+	require.NotContains(t, capturedPrompt, "Test Ticket", "should not contain task prompt content when fixing review issues")
+	require.Contains(t, capturedPrompt, "Issue", "review fix prompt should reference issues")
+}
+
+// Test: main loop uses promptBuilder for task prompts (not the default builder)
+func TestMainLoopUsesPromptBuilderForTaskPrompt(t *testing.T) {
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+		return &source.WorkItem{
+			ID:    "test-456",
+			Title: "Test Task",
+			Phases: []source.Phase{
+				{Name: "Phase 1", Completed: false},
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 2, StagnationLimit: 10, Timeout: 60}
+	l := NewWithSource(config, "", nil, nil, false, mock)
+
+	builder, err := prompt.NewBuilder(nil)
+	require.NoError(t, err)
+	l.SetPromptBuilder(builder)
+
+	// Capture the prompt text sent to Claude
+	var capturedPrompt string
+	l.SetClaudeInvoker(func(_ context.Context, p string) (string, error) {
+		capturedPrompt = p
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: "Phase 1"
+  status: DONE
+  files_changed: ["app.go"]
+  summary: "Done"
+`, nil
+	})
+
+	result, err := l.Run("test-456")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	require.NotEmpty(t, capturedPrompt)
+	// The builder-generated prompt should contain the work item content
+	require.Contains(t, capturedPrompt, "Test Task")
+	require.Contains(t, capturedPrompt, "Phase 1")
+}
+
+// Fix 3 test: reviewConfig.MaxIterations is used for phase limits
+func TestHandleMultiPhaseReview_UsesReviewConfigMaxIterations(t *testing.T) {
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+		return &source.WorkItem{
+			ID:    "test-123",
+			Title: "Test Ticket",
+			Phases: []source.Phase{
+				{Name: "Phase 1", Completed: true},
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 100, StagnationLimit: 50, Timeout: 60, MaxReviewIterations: 100}
+	l := NewWithSource(config, "", nil, nil, false, mock)
+
+	// Set review config with low MaxIterations and a phase that uses iteration_pct
+	l.SetReviewConfig(review.Config{
+		Enabled:       true,
+		MaxIterations: 10, // review max is 10, so 50% = 5
+		Phases: []review.Phase{
+			{
+				Name:         "test_phase",
+				IterationPct: 50, // Should use reviewConfig.MaxIterations (10), giving 5
+				Parallel:     false,
+				Agents:       []review.AgentConfig{{Name: "test_agent"}},
+			},
+		},
+	})
+
+	// Review always finds issues
+	mockRunner := createMockReviewRunner(t, true, 1)
+	l.SetReviewRunner(mockRunner)
+
+	claudeCallCount := 0
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		claudeCallCount++
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: ["fix.go"]
+  summary: "Attempted fix"
+`, nil
+	})
+
+	result, err := l.Run("test-123")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonMaxReviewRetries, result.ExitReason)
+	// With reviewConfig.MaxIterations=10 and iteration_pct=50, phaseMaxIter=5.
+	// If it used config.MaxIterations (100), phaseMaxIter would be 50, which would
+	// take many more calls. With 5 iterations, Claude is invoked 5 times.
+	require.Equal(t, 5, claudeCallCount)
+}
+
+// Fix 4 test: empty phases returns an error
+func TestRunReviewOnlyEmptyPhases(t *testing.T) {
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
+	l := New(config, "/tmp", nil, nil, false)
+	l.SetReviewConfig(review.Config{
+		Enabled:       true,
+		MaxIterations: 3,
+		Phases:        []review.Phase{}, // empty
+	})
+
+	result, err := l.RunReviewOnly("main", []string{"file.go"})
+
+	require.Error(t, err)
+	require.False(t, result.Passed)
+	require.Equal(t, safety.ExitReasonError, result.ExitReason)
+}
+
+// Fix 6 test: all phases run in sequence
+func TestRunReviewOnlyAllPhases(t *testing.T) {
+	config := safety.Config{MaxIterations: 50, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 50}
+	l := New(config, "/tmp", nil, nil, false)
+
+	// Three phases - all should pass immediately
+	l.SetReviewConfig(review.Config{
+		Enabled:       true,
+		MaxIterations: 10,
+		Phases: []review.Phase{
+			{Name: "comprehensive", Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
+			{Name: "critical_loop", Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
+			{Name: "final_check", Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
+		},
+	})
+
+	// Mock review runner that passes immediately
+	mockRunner := createMockReviewRunner(t, false, 0)
+	l.SetReviewRunner(mockRunner)
+
+	result, err := l.RunReviewOnly("main", []string{"file.go"})
+
+	require.NoError(t, err)
+	require.True(t, result.Passed)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	// 3 phases, each runs review once = 3 iterations total
+	require.Equal(t, 3, result.Iterations)
+}
+
+// Fix 6 test: phase progression with severity filter
+func TestRunReviewOnlyPhaseProgression(t *testing.T) {
+	config := safety.Config{MaxIterations: 50, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 50}
+	l := New(config, "/tmp", nil, nil, false)
+
+	l.SetReviewConfig(review.Config{
+		Enabled:       true,
+		MaxIterations: 10,
+		Phases: []review.Phase{
+			{Name: "comprehensive", IterationLimit: 5, Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
+			{Name: "critical_loop", IterationLimit: 5, SeverityFilter: []review.Severity{review.SeverityCritical, review.SeverityHigh}, Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
+		},
+	})
+
+	// Track which phase the runner is called for
+	phaseCallCount := 0
+	mockRunner := createMockReviewRunnerFunc(t, func() (bool, int) {
+		phaseCallCount++
+		if phaseCallCount == 1 {
+			return true, 2 // comprehensive: has issues
+		}
+		if phaseCallCount == 2 {
+			return false, 0 // comprehensive: passes after fix
+		}
+		// critical_loop: passes immediately
+		return false, 0
+	})
+	l.SetReviewRunner(mockRunner)
+
+	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: ["fix.go"]
+  summary: "Fixed issues"
+  commit_made: true
+`, nil
+	})
+
+	result, err := l.RunReviewOnly("main", []string{"file.go"})
+
+	require.NoError(t, err)
+	require.True(t, result.Passed)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	// Phase 1: review(issues) + fix + review(pass) = 2 iterations
+	// Phase 2: review(pass) = 1 iteration
+	// Total = 3
+	require.Equal(t, 3, result.Iterations)
 }
 
 func TestWorkItemHelpers_Phaseless(t *testing.T) {

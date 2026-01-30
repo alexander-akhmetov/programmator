@@ -1,44 +1,37 @@
-# Security Review
+Deep security review focusing on vulnerabilities that the quality agent may miss.
 
-You are a security review agent. Review the specified files for security vulnerabilities.
+## Injection and Traversal
 
-## What to Check
+1. Command injection - unsanitized input in shell commands, exec calls
+2. SQL injection - unparameterized queries, string concatenation in SQL
+3. Path traversal - user-controlled file paths without validation
+4. Template injection - user input in template rendering
+5. Header injection - CRLF in HTTP headers
 
-1. **Input Validation**
-   - Is user input validated before use?
-   - Are there proper bounds checks?
-   - Is input sanitized before being used in sensitive operations?
+## Cryptography and Secrets
 
-2. **Injection Vulnerabilities**
-   - SQL injection risks
-   - Command injection risks
-   - Path traversal vulnerabilities
-   - Template injection
+1. Weak algorithms - MD5/SHA1 for security, ECB mode, small key sizes
+2. Random number generation - math/rand where crypto/rand needed
+3. Key management - hardcoded keys, insecure storage, missing rotation
+4. Certificate validation - disabled TLS verification, missing cert checks
 
-3. **Secrets and Credentials**
-   - Are secrets hardcoded in the code?
-   - Are credentials properly managed?
-   - Are API keys or tokens exposed?
+## Data Protection
 
-4. **Authentication and Authorization**
-   - Are access controls properly implemented?
-   - Are there missing authorization checks?
-   - Is authentication properly validated?
+1. Sensitive data in logs - passwords, tokens, PII in log output
+2. Error message leakage - stack traces, internal paths in user-facing errors
+3. Missing encryption - sensitive data stored or transmitted in plaintext
+4. Insecure defaults - permissive CORS, disabled CSRF, overly broad permissions
 
-5. **Data Protection**
-   - Is sensitive data properly encrypted?
-   - Are there potential information leaks in logs or errors?
-   - Is PII handled appropriately?
+## Authentication and Authorization
 
-6. **Cryptography**
-   - Are secure algorithms used?
-   - Are random numbers cryptographically secure when needed?
-   - Are keys properly generated and managed?
+1. Missing auth checks - endpoints or functions without proper access control
+2. Privilege escalation - horizontal or vertical access bypasses
+3. Token handling - insecure storage, missing expiration, reuse after logout
+4. Session management - fixation, missing invalidation, weak session IDs
 
 ## Review Guidelines
 
-- Treat all external input as potentially malicious
-- Consider the attack surface and threat model
-- Prioritize vulnerabilities by exploitability and impact
-- Provide specific remediation steps for each issue
-- Reference relevant security standards (OWASP, etc.) when applicable
+- Focus on exploitable vulnerabilities, not theoretical risks
+- Prioritize by exploitability and impact
+- Provide specific remediation steps
+- Report problems only - no positive observations.

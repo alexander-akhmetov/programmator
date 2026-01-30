@@ -16,16 +16,9 @@ const (
 
 // Config holds the review configuration.
 type Config struct {
-	Enabled       bool   `yaml:"enabled"`
-	MaxIterations int    `yaml:"max_iterations"`
-	Passes        []Pass `yaml:"passes"`
-}
-
-// Pass defines a review pass with multiple agents.
-type Pass struct {
-	Name     string        `yaml:"name"`
-	Parallel bool          `yaml:"parallel"`
-	Agents   []AgentConfig `yaml:"agents"`
+	Enabled       bool    `yaml:"enabled"`
+	MaxIterations int     `yaml:"max_iterations"`
+	Phases        []Phase `yaml:"phases,omitempty"`
 }
 
 // AgentConfig defines a single review agent configuration.
@@ -35,35 +28,78 @@ type AgentConfig struct {
 	Prompt string   `yaml:"prompt,omitempty"` // custom prompt path or empty for default
 }
 
+// Phase defines a review phase with iteration limits and severity filtering.
+// Phases are the new multi-phase review system, replacing passes for more control.
+type Phase struct {
+	Name           string        `yaml:"name"`
+	IterationLimit int           `yaml:"iteration_limit,omitempty"` // static limit (takes precedence)
+	IterationPct   int           `yaml:"iteration_pct,omitempty"`   // % of max_iterations (min 3)
+	SeverityFilter []Severity    `yaml:"severity_filter,omitempty"` // empty = all severities
+	Agents         []AgentConfig `yaml:"agents"`
+	Parallel       bool          `yaml:"parallel"`
+}
+
+// MaxIterations returns the maximum iterations allowed for this phase.
+// If IterationLimit is set, it takes precedence.
+// Otherwise, IterationPct is used as a percentage of globalMax (minimum 3).
+// If neither is set, returns 3 as default.
+func (p *Phase) MaxIterations(globalMax int) int {
+	if p.IterationLimit > 0 {
+		return p.IterationLimit
+	}
+	if p.IterationPct > 0 {
+		calculated := globalMax * p.IterationPct / 100
+		if calculated < 3 {
+			return 3
+		}
+		return calculated
+	}
+	return 3 // default
+}
+
 // DefaultConfig returns the default review configuration.
 func DefaultConfig() Config {
 	return Config{
 		Enabled:       DefaultEnabled,
 		MaxIterations: DefaultMaxIterations,
-		Passes: []Pass{
-			{
-				Name:     "code_review",
-				Parallel: true,
-				Agents: []AgentConfig{
-					{
-						Name:  "quality",
-						Focus: []string{"error handling", "code clarity", "test coverage"},
-					},
-					{
-						Name:  "security",
-						Focus: []string{"input validation", "secrets", "injection"},
-					},
-				},
+		Phases:        DefaultPhases(),
+	}
+}
+
+// DefaultPhases returns the default multi-phase review configuration.
+func DefaultPhases() []Phase {
+	return []Phase{
+		{
+			Name:           "comprehensive",
+			IterationLimit: 1,
+			Parallel:       true,
+			Agents: []AgentConfig{
+				{Name: "quality", Focus: []string{"error handling", "code clarity", "resource management", "concurrency"}},
+				{Name: "security", Focus: []string{"input validation", "secrets", "injection"}},
+				{Name: "implementation", Focus: []string{"requirement coverage", "wiring", "completeness"}},
+				{Name: "testing", Focus: []string{"test coverage", "fake tests", "edge cases"}},
+				{Name: "simplification", Focus: []string{"over-engineering", "unnecessary abstractions"}},
+				{Name: "linter", Focus: []string{"lint errors", "formatting", "static analysis"}},
 			},
-			{
-				Name:     "linter",
-				Parallel: false,
-				Agents: []AgentConfig{
-					{
-						Name:  "linter",
-						Focus: []string{"lint errors", "formatting", "static analysis"},
-					},
-				},
+		},
+		{
+			Name:           "critical_loop",
+			IterationPct:   10, // max(3, maxIter*10/100)
+			SeverityFilter: []Severity{SeverityCritical, SeverityHigh},
+			Parallel:       true,
+			Agents: []AgentConfig{
+				{Name: "quality", Focus: []string{"bugs", "security", "race conditions", "error handling"}},
+				{Name: "implementation", Focus: []string{"correctness", "completeness"}},
+			},
+		},
+		{
+			Name:           "final_check",
+			IterationPct:   10,
+			SeverityFilter: []Severity{SeverityCritical, SeverityHigh},
+			Parallel:       true,
+			Agents: []AgentConfig{
+				{Name: "quality", Focus: []string{"bugs", "security", "race conditions", "error handling"}},
+				{Name: "implementation", Focus: []string{"correctness", "completeness"}},
 			},
 		},
 	}
@@ -134,9 +170,9 @@ func mergeConfigs(env, file Config) Config {
 		result.MaxIterations = env.MaxIterations
 	}
 
-	// If file has no passes defined, use default
-	if len(result.Passes) == 0 {
-		result.Passes = env.Passes
+	// If file has no phases defined, use default
+	if len(result.Phases) == 0 {
+		result.Phases = env.Phases
 	}
 
 	return result

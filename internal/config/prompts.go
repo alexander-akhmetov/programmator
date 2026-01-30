@@ -17,10 +17,11 @@ var promptsFS embed.FS
 // Prompts holds all loaded prompt templates.
 // Each prompt is a Go text/template string with named variables.
 type Prompts struct {
-	Phased     string // Template for phased execution (has checkboxed tasks)
-	Phaseless  string // Template for phaseless execution (single task)
-	ReviewFix  string // Template for fixing review issues
-	PlanCreate string // Template for interactive plan creation
+	Phased       string // Template for phased execution (has checkboxed tasks)
+	Phaseless    string // Template for phaseless execution (single task)
+	ReviewFirst  string // Template for comprehensive review phase
+	ReviewSecond string // Template for critical/major issues review phase
+	PlanCreate   string // Template for interactive plan creation
 }
 
 // promptLoader handles loading prompts with fallback chain.
@@ -55,9 +56,14 @@ func (p *promptLoader) Load(globalDir, localDir string) (*Prompts, error) {
 		return nil, fmt.Errorf("load phaseless prompt: %w", err)
 	}
 
-	prompts.ReviewFix, err = p.loadPromptWithLocalFallback(localDir, globalDir, "review_fix.md")
+	prompts.ReviewFirst, err = p.loadPromptWithLocalFallback(localDir, globalDir, "review_first.md")
 	if err != nil {
-		return nil, fmt.Errorf("load review_fix prompt: %w", err)
+		return nil, fmt.Errorf("load review_first prompt: %w", err)
+	}
+
+	prompts.ReviewSecond, err = p.loadPromptWithLocalFallback(localDir, globalDir, "review_second.md")
+	if err != nil {
+		return nil, fmt.Errorf("load review_second prompt: %w", err)
 	}
 
 	prompts.PlanCreate, err = p.loadPromptWithLocalFallback(localDir, globalDir, "plan_create.md")

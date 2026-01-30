@@ -13,6 +13,7 @@ import (
 	"github.com/worksonmyai/programmator/internal/config"
 	"github.com/worksonmyai/programmator/internal/loop"
 	"github.com/worksonmyai/programmator/internal/progress"
+	"github.com/worksonmyai/programmator/internal/prompt"
 	"github.com/worksonmyai/programmator/internal/source"
 	"github.com/worksonmyai/programmator/internal/timing"
 	"github.com/worksonmyai/programmator/internal/tui"
@@ -155,6 +156,11 @@ func runStart(_ *cobra.Command, args []string) error {
 	t.SetSkipReview(skipReview)
 	t.SetReviewOnly(reviewOnly)
 	t.SetReviewConfig(cfg.ToReviewConfig())
+	promptBuilder, err := prompt.NewBuilder(cfg.Prompts)
+	if err != nil {
+		return fmt.Errorf("failed to create prompt builder: %w", err)
+	}
+	t.SetPromptBuilder(promptBuilder)
 	if progressLogger != nil {
 		t.SetProgressLogger(progressLogger)
 	}

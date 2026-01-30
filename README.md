@@ -147,7 +147,7 @@ programmator config show
 | `git.branch_prefix` | `""` | Prefix for auto-created branches (default: `programmator/`) |
 | `review.enabled` | `false` | Enable code review after task phases complete |
 | `review.max_iterations` | `3` | Maximum review fix iterations |
-| `review.passes` | see [defaults](internal/config/defaults/config.yaml) | Review pass definitions with agent names and focus areas |
+| `review.phases` | see [defaults](internal/config/defaults/config.yaml) | Review phase definitions with agent names, filters, and focus areas |
 
 ### Environment Variables
 
@@ -169,7 +169,7 @@ Prompts are customizable via Go `text/template` files. Override any prompt by pl
 - `~/.config/programmator/prompts/` (global)
 - `.programmator/prompts/` (per-project)
 
-Available templates: `phased.md`, `phaseless.md`, `review_fix.md`, `plan_create.md`.
+Available templates: `phased.md`, `phaseless.md`, `review_first.md`, `review_second.md`, `plan_create.md`.
 
 ### Auto Git Workflow
 

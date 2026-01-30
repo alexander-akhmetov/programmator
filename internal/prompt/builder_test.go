@@ -87,7 +87,7 @@ func TestBuild(t *testing.T) {
 			notes: nil,
 			wantSubs: []string{
 				"ticket t-000: No Phases",
-				"Work on the task described above",
+				"STEP 0 - ANNOUNCE",
 				"phase_completed: null",
 			},
 			notWantSubs: []string{
@@ -105,7 +105,7 @@ func TestBuild(t *testing.T) {
 			},
 			notes: nil,
 			wantSubs: []string{
-				"Work on the task described above",
+				"STEP 0 - ANNOUNCE",
 			},
 			notWantSubs: []string{
 				"Current Phase",
@@ -195,9 +195,10 @@ func TestNewBuilder(t *testing.T) {
 
 func TestNewBuilder_WithCustomPrompts(t *testing.T) {
 	customPrompts := &config.Prompts{
-		Phased:    "Custom phased: {{.ID}} - {{.Title}}",
-		Phaseless: "Custom phaseless: {{.ID}}",
-		ReviewFix: "Custom review: {{.BaseBranch}}",
+		Phased:       "Custom phased: {{.ID}} - {{.Title}}",
+		Phaseless:    "Custom phaseless: {{.ID}}",
+		ReviewFirst:  "First review: {{.BaseBranch}} iter {{.Iteration}}",
+		ReviewSecond: "Second review: {{.BaseBranch}} iter {{.Iteration}}",
 	}
 
 	builder, err := NewBuilder(customPrompts)
@@ -225,18 +226,35 @@ func TestNewBuilder_WithCustomPrompts(t *testing.T) {
 	assert.Equal(t, "Custom phaseless: custom-2", result)
 }
 
-func TestBuilder_BuildReviewFix(t *testing.T) {
+func TestBuilder_BuildReviewFirst(t *testing.T) {
 	builder, err := NewBuilder(nil)
 	require.NoError(t, err)
 
-	result, err := builder.BuildReviewFix("main", []string{"file1.go", "file2.go"}, "Issue 1\nIssue 2", 3)
+	result, err := builder.BuildReviewFirst("main", []string{"file1.go"}, "Critical issue found", 1)
 	require.NoError(t, err)
 
 	assert.Contains(t, result, "main")
 	assert.Contains(t, result, "file1.go")
-	assert.Contains(t, result, "file2.go")
-	assert.Contains(t, result, "Issue 1")
-	assert.Contains(t, result, "3")
+	assert.Contains(t, result, "Critical issue found")
+	assert.Contains(t, result, "1")
+	// Verify it's the comprehensive review template (check for unique content)
+	assert.Contains(t, result, "CONFIRMED")
+	assert.Contains(t, result, "FALSE POSITIVE")
+}
+
+func TestBuilder_BuildReviewSecond(t *testing.T) {
+	builder, err := NewBuilder(nil)
+	require.NoError(t, err)
+
+	result, err := builder.BuildReviewSecond("main", []string{"file1.go"}, "High severity issue", 2)
+	require.NoError(t, err)
+
+	assert.Contains(t, result, "main")
+	assert.Contains(t, result, "file1.go")
+	assert.Contains(t, result, "High severity issue")
+	assert.Contains(t, result, "2")
+	// Verify it's the critical review template
+	assert.Contains(t, result, "critical and major")
 }
 
 func TestFormatNotes(t *testing.T) {

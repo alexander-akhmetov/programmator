@@ -17,14 +17,32 @@ You are working on ticket {{.ID}}: {{.Title}}
 ## Progress Notes
 {{.Notes}}
 
-## Instructions
-1. Read the ticket phases above (in the Design section)
-2. Work on the FIRST uncompleted phase: [ ] (not [x])
-3. Complete ONE phase per session - implement, test, verify
-4. When done with the phase, output your status
-
 ## Current Phase
 **{{.CurrentPhase}}**
+
+## Instructions
+
+STEP 0 - ANNOUNCE:
+Before starting work, output a brief overview (up to 200 words):
+- Which phase you picked and its title
+- What the phase will accomplish
+- Key files or components involved
+
+STEP 1 - IMPLEMENT:
+- Read the ticket/plan to understand the full context
+- Implement ALL items in the current phase
+- Write tests for the implementation
+
+STEP 2 - VALIDATE:
+- Run ALL validation commands from the plan (test suites, linters, etc.)
+- Fix any failures, repeat until ALL pass
+- ALL tests must pass and ALL linter issues must be resolved before proceeding
+
+STEP 3 - COMPLETE:
+- Check if more uncompleted phases remain
+
+CRITICAL: Complete ONE phase per iteration, then STOP.
+Do NOT continue to the next phase - the external loop will call you again.
 
 ## Session End Protocol
 When you've completed your work for this iteration, you MUST end with exactly this block:
@@ -34,15 +52,15 @@ PROGRAMMATOR_STATUS:
   phase_completed: "{{.CurrentPhaseName}}"
   status: CONTINUE
   files_changed:
-    - file1.py
-    - file2.py
+    - file1.go
+    - file2.go
   summary: "One line describing what you did"
 ```
 
 Status values:
 - CONTINUE: Phase done or in progress, more work remains
 - DONE: ALL phases complete, project finished
-- BLOCKED: Cannot proceed without human intervention (add error: field)
+- BLOCKED: Cannot proceed after reasonable fix attempts (add error: field)
 
 If blocked:
 ```

@@ -42,6 +42,53 @@ func (r *RunResult) AllIssues() []Issue {
 	return issues
 }
 
+// FilterBySeverity returns a new RunResult containing only issues matching the given severities.
+// If severities is empty, returns a copy of the original result (all issues pass through).
+func (r *RunResult) FilterBySeverity(severities []Severity) *RunResult {
+	if len(severities) == 0 {
+		// Empty filter = passthrough
+		return r
+	}
+
+	// Build a set for fast lookup
+	severitySet := make(map[Severity]struct{}, len(severities))
+	for _, s := range severities {
+		severitySet[s] = struct{}{}
+	}
+
+	filtered := &RunResult{
+		Passed:       true,
+		Iteration:    r.Iteration,
+		TotalIssues:  0,
+		Results:      make([]*Result, 0, len(r.Results)),
+		IssuesByPass: make(map[string][]*Result),
+		Duration:     r.Duration,
+	}
+
+	for _, result := range r.Results {
+		filteredResult := &Result{
+			AgentName:  result.AgentName,
+			Issues:     make([]Issue, 0),
+			Summary:    result.Summary,
+			Error:      result.Error,
+			Duration:   result.Duration,
+			TokensUsed: result.TokensUsed,
+		}
+
+		for _, issue := range result.Issues {
+			if _, ok := severitySet[issue.Severity]; ok {
+				filteredResult.Issues = append(filteredResult.Issues, issue)
+			}
+		}
+
+		filtered.Results = append(filtered.Results, filteredResult)
+		filtered.TotalIssues += len(filteredResult.Issues)
+	}
+
+	filtered.Passed = filtered.TotalIssues == 0
+	return filtered
+}
+
 // OutputCallback is called with progress messages.
 type OutputCallback func(text string)
 
@@ -80,75 +127,6 @@ func (r *Runner) defaultAgentFactory(agentCfg AgentConfig, defaultPrompt string)
 		prompt = agentCfg.Prompt
 	}
 	return NewClaudeAgent(agentCfg.Name, agentCfg.Focus, prompt)
-}
-
-// Run executes the full review pipeline.
-// It runs all passes and returns the result. The caller (main loop) is responsible
-// for iterating if issues are found.
-func (r *Runner) Run(ctx context.Context, workingDir string, filesChanged []string) (*RunResult, error) {
-	start := time.Now()
-
-	result := &RunResult{
-		Passed:       true,
-		Iteration:    1,
-		Results:      make([]*Result, 0),
-		IssuesByPass: make(map[string][]*Result),
-	}
-
-	r.log("Running review passes")
-
-	iterResults, err := r.runAllPasses(ctx, workingDir, filesChanged)
-	if err != nil {
-		result.Duration = time.Since(start)
-		return result, err
-	}
-
-	result.Results = iterResults
-
-	// Count issues
-	issueCount := 0
-	for _, res := range iterResults {
-		issueCount += len(res.Issues)
-	}
-	result.TotalIssues = issueCount
-
-	if issueCount == 0 {
-		r.log("Review passed - no issues found")
-		result.Passed = true
-		result.Duration = time.Since(start)
-		return result, nil
-	}
-
-	r.log(fmt.Sprintf("Found %d issues", issueCount))
-	result.Passed = false
-	result.Duration = time.Since(start)
-	return result, nil
-}
-
-// runAllPasses executes all configured review passes.
-func (r *Runner) runAllPasses(ctx context.Context, workingDir string, filesChanged []string) ([]*Result, error) {
-	var allResults []*Result
-
-	for _, pass := range r.config.Passes {
-		r.log(fmt.Sprintf("Running pass: %s", pass.Name))
-
-		passResults, err := r.runPass(ctx, pass, workingDir, filesChanged)
-		if err != nil {
-			return nil, fmt.Errorf("pass %s failed: %w", pass.Name, err)
-		}
-
-		allResults = append(allResults, passResults...)
-	}
-
-	return allResults, nil
-}
-
-// runPass executes a single review pass.
-func (r *Runner) runPass(ctx context.Context, pass Pass, workingDir string, filesChanged []string) ([]*Result, error) {
-	if pass.Parallel {
-		return r.runAgentsParallel(ctx, pass.Agents, workingDir, filesChanged)
-	}
-	return r.runAgentsSequential(ctx, pass.Agents, workingDir, filesChanged)
 }
 
 // runAgentsParallel runs all agents in parallel.
@@ -254,4 +232,45 @@ func (r *Runner) RegisterAgent(agent Agent) {
 	r.agentsMu.Lock()
 	defer r.agentsMu.Unlock()
 	r.agents[agent.Name()] = agent
+}
+
+// RunPhase executes a single phase and returns the result.
+func (r *Runner) RunPhase(ctx context.Context, workingDir string, filesChanged []string, phase Phase) (*RunResult, error) {
+	start := time.Now()
+
+	result := &RunResult{
+		Passed:       true,
+		Iteration:    1,
+		Results:      make([]*Result, 0),
+		IssuesByPass: make(map[string][]*Result),
+	}
+
+	r.log(fmt.Sprintf("Running phase: %s", phase.Name))
+
+	var passResults []*Result
+	var err error
+
+	if phase.Parallel {
+		passResults, err = r.runAgentsParallel(ctx, phase.Agents, workingDir, filesChanged)
+	} else {
+		passResults, err = r.runAgentsSequential(ctx, phase.Agents, workingDir, filesChanged)
+	}
+
+	if err != nil {
+		result.Duration = time.Since(start)
+		return result, err
+	}
+
+	result.Results = passResults
+
+	// Count issues
+	issueCount := 0
+	for _, res := range passResults {
+		issueCount += len(res.Issues)
+	}
+	result.TotalIssues = issueCount
+	result.Passed = issueCount == 0
+	result.Duration = time.Since(start)
+
+	return result, nil
 }

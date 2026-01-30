@@ -13,10 +13,11 @@ import (
 
 // Builder creates prompts using customizable templates.
 type Builder struct {
-	phasedTmpl     *template.Template
-	phaselessTmpl  *template.Template
-	reviewFixTmpl  *template.Template
-	planCreateTmpl *template.Template
+	phasedTmpl       *template.Template
+	phaselessTmpl    *template.Template
+	reviewFirstTmpl  *template.Template
+	reviewSecondTmpl *template.Template
+	planCreateTmpl   *template.Template
 }
 
 // NewBuilder creates a prompt builder from loaded prompts.
@@ -41,9 +42,14 @@ func NewBuilder(prompts *config.Prompts) (*Builder, error) {
 		return nil, fmt.Errorf("parse phaseless template: %w", err)
 	}
 
-	reviewFixTmpl, err := template.New("review_fix").Parse(prompts.ReviewFix)
+	reviewFirstTmpl, err := template.New("review_first").Parse(prompts.ReviewFirst)
 	if err != nil {
-		return nil, fmt.Errorf("parse review_fix template: %w", err)
+		return nil, fmt.Errorf("parse review_first template: %w", err)
+	}
+
+	reviewSecondTmpl, err := template.New("review_second").Parse(prompts.ReviewSecond)
+	if err != nil {
+		return nil, fmt.Errorf("parse review_second template: %w", err)
 	}
 
 	planCreateTmpl, err := template.New("plan_create").Parse(prompts.PlanCreate)
@@ -52,10 +58,11 @@ func NewBuilder(prompts *config.Prompts) (*Builder, error) {
 	}
 
 	return &Builder{
-		phasedTmpl:     phasedTmpl,
-		phaselessTmpl:  phaselessTmpl,
-		reviewFixTmpl:  reviewFixTmpl,
-		planCreateTmpl: planCreateTmpl,
+		phasedTmpl:       phasedTmpl,
+		phaselessTmpl:    phaselessTmpl,
+		reviewFirstTmpl:  reviewFirstTmpl,
+		reviewSecondTmpl: reviewSecondTmpl,
+		planCreateTmpl:   planCreateTmpl,
 	}, nil
 }
 
@@ -110,15 +117,26 @@ func (b *Builder) Build(w *source.WorkItem, notes []string) (string, error) {
 	return b.render(b.phasedTmpl, data)
 }
 
-// BuildReviewFix creates a prompt for fixing review issues.
-func (b *Builder) BuildReviewFix(baseBranch string, filesChanged []string, issuesMarkdown string, iteration int) (string, error) {
+// BuildReviewFirst creates a prompt for comprehensive review phase.
+func (b *Builder) BuildReviewFirst(baseBranch string, filesChanged []string, issuesMarkdown string, iteration int) (string, error) {
 	data := ReviewFixData{
 		BaseBranch:     baseBranch,
 		Iteration:      iteration,
 		FilesList:      formatFilesList(filesChanged),
 		IssuesMarkdown: issuesMarkdown,
 	}
-	return b.render(b.reviewFixTmpl, data)
+	return b.render(b.reviewFirstTmpl, data)
+}
+
+// BuildReviewSecond creates a prompt for critical/major issues review phase (multi-phase system).
+func (b *Builder) BuildReviewSecond(baseBranch string, filesChanged []string, issuesMarkdown string, iteration int) (string, error) {
+	data := ReviewFixData{
+		BaseBranch:     baseBranch,
+		Iteration:      iteration,
+		FilesList:      formatFilesList(filesChanged),
+		IssuesMarkdown: issuesMarkdown,
+	}
+	return b.render(b.reviewSecondTmpl, data)
 }
 
 // BuildPlanCreate creates a prompt for interactive plan creation.

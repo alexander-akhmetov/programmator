@@ -15,6 +15,7 @@ import (
 	"github.com/worksonmyai/programmator/internal/git"
 	"github.com/worksonmyai/programmator/internal/loop"
 	"github.com/worksonmyai/programmator/internal/progress"
+	"github.com/worksonmyai/programmator/internal/prompt"
 	"github.com/worksonmyai/programmator/internal/review"
 )
 
@@ -112,6 +113,11 @@ func runReview(_ *cobra.Command, _ []string) error {
 	if progressLogger != nil {
 		reviewLoop.SetProgressLogger(progressLogger)
 	}
+	promptBuilder, err := prompt.NewBuilder(cfg.Prompts)
+	if err != nil {
+		return fmt.Errorf("failed to create prompt builder: %w", err)
+	}
+	reviewLoop.SetPromptBuilder(promptBuilder)
 
 	// Run review-only loop
 	result, err := reviewLoop.RunReviewOnly(reviewBaseBranch, filesChanged)

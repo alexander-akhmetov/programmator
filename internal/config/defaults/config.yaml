@@ -30,26 +30,79 @@ git:
 # Review settings
 review:
   enabled: false          # Enable code review after task phases complete
-  max_iterations: 3       # Maximum review fix iterations
-  passes:
-    - name: code_review
+  max_iterations: 50      # Maximum review fix iterations (used as base for iteration_pct)
+
+  phases:
+    # Phase 1: Comprehensive review - run all 6 agents once
+    - name: comprehensive
+      iteration_limit: 1    # Single pass, then move to fix phase
       parallel: true
       agents:
         - name: quality
           focus:
             - error handling
             - code clarity
-            - test coverage
+            - resource management
+            - concurrency
         - name: security
           focus:
             - input validation
             - secrets
             - injection
-    - name: linter
-      parallel: false
-      agents:
+        - name: implementation
+          focus:
+            - requirement coverage
+            - wiring
+            - completeness
+        - name: testing
+          focus:
+            - test coverage
+            - fake tests
+            - edge cases
+        - name: simplification
+          focus:
+            - over-engineering
+            - unnecessary abstractions
         - name: linter
           focus:
             - lint errors
             - formatting
             - static analysis
+
+    # Phase 2: Critical loop - focus on high-severity issues
+    - name: critical_loop
+      iteration_pct: 10     # max(3, maxIter*10/100) = max(3, 5) = 5
+      severity_filter:
+        - critical
+        - high
+      parallel: true
+      agents:
+        - name: quality
+          focus:
+            - bugs
+            - security
+            - race conditions
+            - error handling
+        - name: implementation
+          focus:
+            - correctness
+            - completeness
+
+    # Phase 3: Final check - last verification of critical issues
+    - name: final_check
+      iteration_pct: 10
+      severity_filter:
+        - critical
+        - high
+      parallel: true
+      agents:
+        - name: quality
+          focus:
+            - bugs
+            - security
+            - race conditions
+            - error handling
+        - name: implementation
+          focus:
+            - correctness
+            - completeness

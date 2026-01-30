@@ -23,18 +23,22 @@ type ReviewAgentConfig struct {
 	Prompt string   `yaml:"prompt,omitempty"`
 }
 
-// ReviewPass defines a review pass with multiple agents.
-type ReviewPass struct {
-	Name     string              `yaml:"name"`
-	Parallel bool                `yaml:"parallel"`
-	Agents   []ReviewAgentConfig `yaml:"agents"`
+// ReviewPhase defines a review phase with iteration limits and severity filtering.
+// Phases are the new multi-phase review system, replacing passes for more control.
+type ReviewPhase struct {
+	Name           string              `yaml:"name"`
+	IterationLimit int                 `yaml:"iteration_limit,omitempty"` // static limit (takes precedence)
+	IterationPct   int                 `yaml:"iteration_pct,omitempty"`   // % of max_iterations (min 3)
+	SeverityFilter []string            `yaml:"severity_filter,omitempty"` // empty = all severities
+	Agents         []ReviewAgentConfig `yaml:"agents"`
+	Parallel       bool                `yaml:"parallel"`
 }
 
 // ReviewConfig holds review-specific configuration.
 type ReviewConfig struct {
-	Enabled       bool         `yaml:"enabled"`
-	MaxIterations int          `yaml:"max_iterations"`
-	Passes        []ReviewPass `yaml:"passes"`
+	Enabled       bool          `yaml:"enabled"`
+	MaxIterations int           `yaml:"max_iterations"`
+	Phases        []ReviewPhase `yaml:"phases,omitempty"`
 
 	// Set tracking for merge
 	EnabledSet       bool `yaml:"-"`
@@ -272,6 +276,9 @@ func parseConfigWithTracking(data []byte) (*Config, error) {
 
 	// Track review fields
 	if review, ok := raw["review"].(map[string]any); ok {
+		if _, ok := review["passes"]; ok {
+			return nil, fmt.Errorf("review.passes is no longer supported; use review.phases")
+		}
 		if _, ok := review["enabled"]; ok {
 			cfg.Review.EnabledSet = true
 		}
@@ -394,8 +401,8 @@ func (c *Config) mergeFrom(src *Config) {
 		c.Review.MaxIterations = src.Review.MaxIterations
 		c.Review.MaxIterationsSet = true
 	}
-	if len(src.Review.Passes) > 0 {
-		c.Review.Passes = src.Review.Passes
+	if len(src.Review.Phases) > 0 {
+		c.Review.Phases = src.Review.Phases
 	}
 
 	// Git config merge

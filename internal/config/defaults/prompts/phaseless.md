@@ -16,7 +16,24 @@ You are working on ticket {{.ID}}: {{.Title}}
 {{.Notes}}
 
 ## Instructions
-Work on the task described above. Complete the work and report your status when done.
+
+STEP 0 - ANNOUNCE:
+Before starting work, output a brief overview (up to 200 words):
+- What the task will accomplish
+- Key files or components involved
+
+STEP 1 - IMPLEMENT:
+- Read the task description to understand the full context
+- Implement the requested changes
+- Write tests for the implementation
+
+STEP 2 - VALIDATE:
+- Run ALL validation commands (test suites, linters, etc.)
+- Fix any failures, repeat until ALL pass
+- ALL tests must pass and ALL linter issues must be resolved
+
+STEP 3 - COMPLETE:
+- Report your status
 
 ## Session End Protocol
 When you've completed your work for this iteration, you MUST end with exactly this block:
@@ -26,15 +43,15 @@ PROGRAMMATOR_STATUS:
   phase_completed: null
   status: CONTINUE
   files_changed:
-    - file1.py
-    - file2.py
+    - file1.go
+    - file2.go
   summary: "One line describing what you did"
 ```
 
 Status values:
 - CONTINUE: Making progress, more work remains
 - DONE: Task complete
-- BLOCKED: Cannot proceed without human intervention (add error: field)
+- BLOCKED: Cannot proceed after reasonable fix attempts (add error: field)
 
 If blocked:
 ```

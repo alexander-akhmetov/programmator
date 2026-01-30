@@ -13,20 +13,21 @@ func TestDefaultConfig(t *testing.T) {
 
 	require.False(t, cfg.Enabled)
 	require.Equal(t, DefaultMaxIterations, cfg.MaxIterations)
-	require.Len(t, cfg.Passes, 2)
+	require.Len(t, cfg.Phases, 3)
 
-	// First pass: code_review
-	require.Equal(t, "code_review", cfg.Passes[0].Name)
-	require.True(t, cfg.Passes[0].Parallel)
-	require.Len(t, cfg.Passes[0].Agents, 2)
-	require.Equal(t, "quality", cfg.Passes[0].Agents[0].Name)
-	require.Equal(t, "security", cfg.Passes[0].Agents[1].Name)
+	// Phase 1: comprehensive
+	require.Equal(t, "comprehensive", cfg.Phases[0].Name)
+	require.Equal(t, 1, cfg.Phases[0].IterationLimit)
+	require.True(t, cfg.Phases[0].Parallel)
+	require.Len(t, cfg.Phases[0].Agents, 6)
 
-	// Second pass: linter
-	require.Equal(t, "linter", cfg.Passes[1].Name)
-	require.False(t, cfg.Passes[1].Parallel)
-	require.Len(t, cfg.Passes[1].Agents, 1)
-	require.Equal(t, "linter", cfg.Passes[1].Agents[0].Name)
+	// Phase 2: critical_loop
+	require.Equal(t, "critical_loop", cfg.Phases[1].Name)
+	require.Equal(t, 10, cfg.Phases[1].IterationPct)
+	require.Len(t, cfg.Phases[1].SeverityFilter, 2)
+
+	// Phase 3: final_check
+	require.Equal(t, "final_check", cfg.Phases[2].Name)
 }
 
 func TestConfigFromEnv(t *testing.T) {
@@ -75,15 +76,16 @@ func TestConfigFromEnv(t *testing.T) {
 }
 
 func TestLoadConfigFile(t *testing.T) {
-	t.Run("valid config file", func(t *testing.T) {
+	t.Run("valid config file with phases", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "review.yaml")
 
 		content := `enabled: true
 max_iterations: 5
-passes:
-  - name: custom_pass
-    parallel: false
+phases:
+  - name: custom_phase
+    iteration_limit: 2
+    parallel: true
     agents:
       - name: custom_agent
         focus:
@@ -97,12 +99,13 @@ passes:
 		require.NoError(t, err)
 		require.True(t, cfg.Enabled)
 		require.Equal(t, 5, cfg.MaxIterations)
-		require.Len(t, cfg.Passes, 1)
-		require.Equal(t, "custom_pass", cfg.Passes[0].Name)
-		require.False(t, cfg.Passes[0].Parallel)
-		require.Len(t, cfg.Passes[0].Agents, 1)
-		require.Equal(t, "custom_agent", cfg.Passes[0].Agents[0].Name)
-		require.Equal(t, []string{"focus1", "focus2"}, cfg.Passes[0].Agents[0].Focus)
+		require.Len(t, cfg.Phases, 1)
+		require.Equal(t, "custom_phase", cfg.Phases[0].Name)
+		require.True(t, cfg.Phases[0].Parallel)
+		require.Equal(t, 2, cfg.Phases[0].IterationLimit)
+		require.Len(t, cfg.Phases[0].Agents, 1)
+		require.Equal(t, "custom_agent", cfg.Phases[0].Agents[0].Name)
+		require.Equal(t, []string{"focus1", "focus2"}, cfg.Phases[0].Agents[0].Focus)
 	})
 
 	t.Run("missing file", func(t *testing.T) {
@@ -127,32 +130,93 @@ func TestMergeConfigs(t *testing.T) {
 	env := Config{
 		Enabled:       false,
 		MaxIterations: 3,
-		Passes:        []Pass{{Name: "env_pass"}},
+		Phases:        []Phase{{Name: "env_phase"}},
 	}
 
 	t.Run("file takes precedence", func(t *testing.T) {
 		file := Config{
 			Enabled:       true,
 			MaxIterations: 5,
-			Passes:        []Pass{{Name: "file_pass"}},
+			Phases:        []Phase{{Name: "file_phase"}},
 		}
 
 		result := mergeConfigs(env, file)
 		require.True(t, result.Enabled)
 		require.Equal(t, 5, result.MaxIterations)
-		require.Equal(t, "file_pass", result.Passes[0].Name)
+		require.Equal(t, "file_phase", result.Phases[0].Name)
 	})
 
 	t.Run("env used when file empty", func(t *testing.T) {
 		file := Config{
 			Enabled:       true,
 			MaxIterations: 0,
-			Passes:        nil,
+			Phases:        nil,
 		}
 
 		result := mergeConfigs(env, file)
 		require.True(t, result.Enabled)
 		require.Equal(t, 3, result.MaxIterations)
-		require.Equal(t, "env_pass", result.Passes[0].Name)
+		require.Equal(t, "env_phase", result.Phases[0].Name)
 	})
+}
+
+func TestPhaseMaxIterations(t *testing.T) {
+	t.Run("static limit takes precedence", func(t *testing.T) {
+		phase := Phase{
+			Name:           "test",
+			IterationLimit: 5,
+			IterationPct:   20, // Should be ignored
+		}
+		require.Equal(t, 5, phase.MaxIterations(50))
+	})
+
+	t.Run("percentage calculation", func(t *testing.T) {
+		phase := Phase{
+			Name:         "test",
+			IterationPct: 10,
+		}
+		// 10% of 50 = 5
+		require.Equal(t, 5, phase.MaxIterations(50))
+	})
+
+	t.Run("percentage minimum is 3", func(t *testing.T) {
+		phase := Phase{
+			Name:         "test",
+			IterationPct: 1, // 1% of 50 = 0.5, rounds to 0
+		}
+		// Should return minimum of 3
+		require.Equal(t, 3, phase.MaxIterations(50))
+	})
+
+	t.Run("default when nothing set", func(t *testing.T) {
+		phase := Phase{
+			Name: "test",
+		}
+		require.Equal(t, 3, phase.MaxIterations(50))
+	})
+}
+
+func TestDefaultConfigHasPhases(t *testing.T) {
+	cfg := DefaultConfig()
+
+	require.NotEmpty(t, cfg.Phases, "default config should have phases")
+	require.Len(t, cfg.Phases, 3, "default config should have 3 phases")
+
+	// Phase 1: comprehensive
+	require.Equal(t, "comprehensive", cfg.Phases[0].Name)
+	require.Equal(t, 1, cfg.Phases[0].IterationLimit)
+	require.True(t, cfg.Phases[0].Parallel)
+	require.Len(t, cfg.Phases[0].Agents, 6) // quality, security, implementation, testing, simplification, linter
+	require.Empty(t, cfg.Phases[0].SeverityFilter)
+
+	// Phase 2: critical_loop
+	require.Equal(t, "critical_loop", cfg.Phases[1].Name)
+	require.Equal(t, 10, cfg.Phases[1].IterationPct)
+	require.Len(t, cfg.Phases[1].SeverityFilter, 2)
+	require.Contains(t, cfg.Phases[1].SeverityFilter, SeverityCritical)
+	require.Contains(t, cfg.Phases[1].SeverityFilter, SeverityHigh)
+
+	// Phase 3: final_check
+	require.Equal(t, "final_check", cfg.Phases[2].Name)
+	require.Equal(t, 10, cfg.Phases[2].IterationPct)
 }
