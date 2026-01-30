@@ -155,7 +155,11 @@ func (l *Loop) SetGitWorkflowConfig(cfg GitWorkflowConfig) {
 // setupGitWorkflow initializes the git repo and optionally creates a branch.
 func (l *Loop) setupGitWorkflow(sourceID string, isPlan bool) error {
 	// Initialize git repo
-	l.gitRepo = gitutil.NewRepo(l.workingDir)
+	repo, err := gitutil.NewRepo(l.workingDir)
+	if err != nil {
+		return fmt.Errorf("open git repo: %w", err)
+	}
+	l.gitRepo = repo
 
 	// Only create branch if auto-branch is enabled
 	if !l.gitConfig.AutoBranch {
@@ -226,8 +230,8 @@ func (l *Loop) moveCompletedPlan(rc *runContext) error {
 		destDir = filepath.Join(l.workingDir, destDir)
 	}
 
-	// Get the original file path for git operations
-	originalPath := planSource.FilePath()
+	// Capture original path before move for staging the deletion
+	origPath := planSource.FilePath()
 
 	// Move the plan
 	newPath, err := planSource.MoveTo(destDir)
@@ -240,14 +244,20 @@ func (l *Loop) moveCompletedPlan(rc *runContext) error {
 
 	// If auto-commit is enabled, commit the move
 	if l.gitConfig.AutoCommit && l.gitRepo != nil {
-		// Use git mv by staging the deletion and addition
-		// The file was moved with os.Rename, so we need to stage the changes
-		relOriginal, _ := filepath.Rel(l.workingDir, originalPath)
-		relNew, _ := filepath.Rel(l.workingDir, newPath)
-
-		// Stage the move (git will detect it as a rename)
-		if err := l.gitRepo.Add(relOriginal, relNew); err != nil {
-			l.log(fmt.Sprintf("Warning: failed to stage plan move: %v", err))
+		// Stage the new file and the deletion of the original so the
+		// commit records the move (git add <new> alone leaves the old
+		// path as an unstaged deletion).
+		relOrig, relOrigErr := filepath.Rel(l.workingDir, origPath)
+		relNew, relNewErr := filepath.Rel(l.workingDir, newPath)
+		if relOrigErr != nil || relNewErr != nil {
+			l.log(fmt.Sprintf("Warning: failed to get relative paths for plan move: orig=%v, new=%v", relOrigErr, relNewErr))
+		} else {
+			if addErr := l.gitRepo.Add(relNew); addErr != nil {
+				l.log(fmt.Sprintf("Warning: failed to stage new plan path: %v", addErr))
+			}
+			if rmErr := l.gitRepo.Remove(relOrig); rmErr != nil {
+				l.log(fmt.Sprintf("Warning: failed to stage plan deletion: %v", rmErr))
+			}
 		}
 
 		commitMsg := "chore: move completed plan to completed/"
@@ -1366,19 +1376,23 @@ func (l *Loop) buildHookSettings() string {
 	}
 
 	if l.guardMode {
-		home, _ := os.UserHomeDir()
-		dcgConfigPath := filepath.Join(home, ".config", "dcg", "config.toml")
-		dcgCmd := fmt.Sprintf("DCG_CONFIG=%s dcg", dcgConfigPath)
-		preToolUse = append(preToolUse, map[string]any{
-			"matcher": "Bash",
-			"hooks": []map[string]any{
-				{
-					"type":    "command",
-					"command": dcgCmd,
-					"timeout": 5000,
+		home, err := os.UserHomeDir()
+		if err != nil {
+			debug.Logf("Warning: could not determine home directory for guard mode: %v", err)
+		} else {
+			dcgConfigPath := filepath.Join(home, ".config", "dcg", "config.toml")
+			dcgCmd := fmt.Sprintf("DCG_CONFIG=%s dcg", dcgConfigPath)
+			preToolUse = append(preToolUse, map[string]any{
+				"matcher": "Bash",
+				"hooks": []map[string]any{
+					{
+						"type":    "command",
+						"command": dcgCmd,
+						"timeout": 5000,
+					},
 				},
-			},
-		})
+			})
+		}
 	}
 
 	settings := map[string]any{
@@ -1680,7 +1694,12 @@ func (l *Loop) invokeFixAndProcess(roc *reviewOnlyContext, reviewResult *review.
 		}
 	}
 
-	refreshedFiles, err := gitutil.ChangedFiles(l.workingDir, roc.baseBranch)
+	var refreshedFiles []string
+	if l.gitRepo != nil {
+		refreshedFiles, err = l.gitRepo.ChangedFilesFromBase(roc.baseBranch)
+	} else {
+		refreshedFiles, err = gitutil.ChangedFiles(l.workingDir, roc.baseBranch)
+	}
 	if err != nil {
 		l.log(fmt.Sprintf("Warning: failed to refresh changed files: %v", err))
 	} else {
@@ -1696,27 +1715,16 @@ func (l *Loop) invokeFixAndProcess(roc *reviewOnlyContext, reviewResult *review.
 
 // autoCommitChanges stages and commits the specified files with a fix message.
 func (l *Loop) autoCommitChanges(files []string, summary string) error {
-	// Stage files
-	for _, file := range files {
-		cmd := exec.Command("git", "-C", l.workingDir, "add", "--", file)
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("failed to stage %s: %w", file, err)
-		}
+	if l.gitRepo == nil {
+		return fmt.Errorf("git repo not initialized")
 	}
 
-	// Create commit message
 	commitMsg := "fix: review fixes"
 	if summary != "" {
 		commitMsg = fmt.Sprintf("fix: %s", summary)
 	}
 
-	// Commit
-	cmd := exec.Command("git", "-C", l.workingDir, "commit", "-m", commitMsg)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("commit failed: %w: %s", err, string(output))
-	}
-
-	return nil
+	return l.gitRepo.AddAndCommit(files, commitMsg)
 }
 
 // buildReviewFixPrompt creates a prompt for Claude to fix review issues using the template.
