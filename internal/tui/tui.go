@@ -95,6 +95,9 @@ var (
 	diffCtxStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241"))
 
+	reviewStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("117"))
+
 	guardStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("42")).
 			Bold(true)
@@ -810,6 +813,10 @@ func (m Model) wrapLogs() string {
 			flushMarkdown()
 			msg := strings.TrimPrefix(line, "[DIFF ]")
 			processed = append(processed, diffCtxStyle.Render(msg))
+		} else if strings.HasPrefix(line, "[REVIEW]") {
+			flushMarkdown()
+			msg := strings.TrimPrefix(line, "[REVIEW]")
+			processed = append(processed, reviewStyle.Render(msg))
 		} else {
 			markdownBuffer = append(markdownBuffer, line)
 		}
