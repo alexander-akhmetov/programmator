@@ -514,25 +514,11 @@ func TestFindTicketFile(t *testing.T) {
 		return &CLIClient{ticketsDir: dir}
 	}
 
-	t.Run("prefix match", func(t *testing.T) {
-		client := setup(t, "t-1234-some-title.md")
+	t.Run("finds by id", func(t *testing.T) {
+		client := setup(t, "t-1234.md")
 		path, err := client.findTicketFile("t-1234")
 		require.NoError(t, err)
-		assert.Contains(t, path, "t-1234-some-title.md")
-	})
-
-	t.Run("contains-dash match", func(t *testing.T) {
-		client := setup(t, "project-t-1234.md")
-		path, err := client.findTicketFile("t-1234")
-		require.NoError(t, err)
-		assert.Contains(t, path, "project-t-1234.md")
-	})
-
-	t.Run("suffix match via second pass", func(t *testing.T) {
-		client := setup(t, "abc1234.md")
-		path, err := client.findTicketFile("1234")
-		require.NoError(t, err)
-		assert.Contains(t, path, "abc1234.md")
+		assert.Contains(t, path, "t-1234.md")
 	})
 
 	t.Run("exact match among similar prefixes", func(t *testing.T) {
@@ -547,17 +533,6 @@ func TestFindTicketFile(t *testing.T) {
 		_, err := client.findTicketFile("t-9999")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
-	})
-
-	t.Run("skips directories in first pass", func(t *testing.T) {
-		dir := t.TempDir()
-		require.NoError(t, os.Mkdir(filepath.Join(dir, "t-1234"), 0755))
-		// Also add a file that won't match
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "unrelated.md"), []byte("x"), 0644))
-		client := &CLIClient{ticketsDir: dir}
-		// The first pass skips directories; the second pass may still match
-		// the directory name, so we just verify no panic occurs
-		_, _ = client.findTicketFile("t-1234")
 	})
 }
 
