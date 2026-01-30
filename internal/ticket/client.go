@@ -141,32 +141,10 @@ func (c *CLIClient) UpdatePhase(id string, phaseName string) error {
 }
 
 func (c *CLIClient) findTicketFile(id string) (string, error) {
-	entries, err := os.ReadDir(c.ticketsDir)
-	if err != nil {
-		return "", fmt.Errorf("read tickets dir: %w", err)
+	path := filepath.Join(c.ticketsDir, id+".md")
+	if _, err := os.Stat(path); err == nil {
+		return path, nil
 	}
-
-	// Exact prefix match: filename starts with the full ID
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		if strings.HasPrefix(entry.Name(), id) {
-			return filepath.Join(c.ticketsDir, entry.Name()), nil
-		}
-	}
-
-	// Fallback: ID appears as a suffix or substring
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := strings.TrimSuffix(entry.Name(), ".md")
-		if strings.HasSuffix(name, id) || strings.Contains(name, id) {
-			return filepath.Join(c.ticketsDir, entry.Name()), nil
-		}
-	}
-
 	return "", fmt.Errorf("ticket file not found for id: %s", id)
 }
 
