@@ -87,13 +87,14 @@ func (c *CLIClient) UpdatePhase(id string, phaseName string) error {
 	// First, try checkbox-style phases
 	for i, line := range lines {
 		if match := phaseRegex.FindStringSubmatch(line); match != nil {
-			if match[1] == " " { // unchecked
-				existingPhase := normalizePhase(match[2])
-				if existingPhase == normalizedPhase || strings.Contains(existingPhase, normalizedPhase) || strings.Contains(normalizedPhase, existingPhase) {
-					lines[i] = strings.Replace(line, "- [ ]", "- [x]", 1)
-					found = true
-					break
+			existingPhase := normalizePhase(match[2])
+			if existingPhase == normalizedPhase || strings.Contains(existingPhase, normalizedPhase) || strings.Contains(normalizedPhase, existingPhase) {
+				if match[1] != " " {
+					return nil // already completed — idempotent
 				}
+				lines[i] = strings.Replace(line, "- [ ]", "- [x]", 1)
+				found = true
+				break
 			}
 		}
 	}
@@ -102,42 +103,38 @@ func (c *CLIClient) UpdatePhase(id string, phaseName string) error {
 	if !found {
 		for i, line := range lines {
 			if match := headingPhaseRegex.FindStringSubmatch(line); match != nil {
-				// Check if it has a checkbox marker at the end
 				checkbox := match[5]
-				if checkbox == " " || checkbox == "" { // unchecked or no checkbox
-					prefix := match[1]
-					number := match[2]
-					separator := match[3]
-					description := match[4]
+				prefix := match[1]
+				number := match[2]
+				separator := match[3]
+				description := match[4]
 
-					// Build the full name with the original separator
-					var fullName string
-					if separator != "" {
-						fullName = fmt.Sprintf("%s %s%s %s", prefix, number, separator, description)
+				var fullName string
+				if separator != "" {
+					fullName = fmt.Sprintf("%s %s%s %s", prefix, number, separator, description)
+				} else {
+					fullName = fmt.Sprintf("%s %s %s", prefix, number, description)
+				}
+				existingPhase := normalizePhase(fullName)
+
+				if existingPhase == normalizedPhase || strings.Contains(existingPhase, normalizedPhase) || strings.Contains(normalizedPhase, existingPhase) {
+					if checkbox == "x" || checkbox == "X" {
+						return nil // already completed — idempotent
+					}
+					if checkbox == " " {
+						lines[i] = strings.Replace(line, "[ ]", "[x]", 1)
 					} else {
-						fullName = fmt.Sprintf("%s %s %s", prefix, number, description)
+						lines[i] = line + " [x]"
 					}
-					existingPhase := normalizePhase(fullName)
-
-					if existingPhase == normalizedPhase || strings.Contains(existingPhase, normalizedPhase) || strings.Contains(normalizedPhase, existingPhase) {
-						// Add or update checkbox marker at end of line
-						if checkbox == " " {
-							// Replace [ ] with [x]
-							lines[i] = strings.Replace(line, "[ ]", "[x]", 1)
-						} else {
-							// Add [x] at the end
-							lines[i] = line + " [x]"
-						}
-						found = true
-						break
-					}
+					found = true
+					break
 				}
 			}
 		}
 	}
 
 	if !found {
-		return fmt.Errorf("phase not found or already completed: %s", phaseName)
+		return fmt.Errorf("phase not found: %s", phaseName)
 	}
 
 	return os.WriteFile(filePath, []byte(strings.Join(lines, "\n")), 0644)
@@ -149,18 +146,21 @@ func (c *CLIClient) findTicketFile(id string) (string, error) {
 		return "", fmt.Errorf("read tickets dir: %w", err)
 	}
 
+	// Exact prefix match: filename starts with the full ID
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
-		name := entry.Name()
-		if strings.HasPrefix(name, id) || strings.Contains(name, "-"+id) || strings.HasPrefix(name, id[:min(len(id), 4)]) {
-			return filepath.Join(c.ticketsDir, name), nil
+		if strings.HasPrefix(entry.Name(), id) {
+			return filepath.Join(c.ticketsDir, entry.Name()), nil
 		}
 	}
 
-	// Try with common prefixes
+	// Fallback: ID appears as a suffix or substring
 	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
 		name := strings.TrimSuffix(entry.Name(), ".md")
 		if strings.HasSuffix(name, id) || strings.Contains(name, id) {
 			return filepath.Join(c.ticketsDir, entry.Name()), nil

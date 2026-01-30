@@ -462,18 +462,17 @@ func TestUpdatePhase(t *testing.T) {
 		assert.Contains(t, string(data), "- [ ] Phase 2: Implement")
 	})
 
-	t.Run("error when phase already completed", func(t *testing.T) {
+	t.Run("no-op when phase already completed", func(t *testing.T) {
 		client, _ := setup(t, "## Design\n- [x] Phase 1: Setup\n")
 		err := client.UpdatePhase("t-1234", "Phase 1: Setup")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "not found or already completed")
+		assert.NoError(t, err)
 	})
 
 	t.Run("error when phase not found", func(t *testing.T) {
 		client, _ := setup(t, "## Design\n- [ ] Phase 1: Setup\n")
 		err := client.UpdatePhase("t-1234", "Nonexistent Phase")
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "not found or already completed")
+		assert.Contains(t, err.Error(), "phase not found")
 	})
 
 	t.Run("no-op for empty phase name", func(t *testing.T) {
@@ -534,6 +533,13 @@ func TestFindTicketFile(t *testing.T) {
 		path, err := client.findTicketFile("1234")
 		require.NoError(t, err)
 		assert.Contains(t, path, "abc1234.md")
+	})
+
+	t.Run("exact match among similar prefixes", func(t *testing.T) {
+		client := setup(t, "pro-0frj.md", "pro-1995.md", "pro-l54x.md", "pro-twlj.md")
+		path, err := client.findTicketFile("pro-l54x")
+		require.NoError(t, err)
+		assert.Contains(t, path, "pro-l54x.md")
 	})
 
 	t.Run("not found", func(t *testing.T) {
@@ -746,14 +752,13 @@ func TestUpdatePhase_HeadingBased(t *testing.T) {
 		assert.Contains(t, string(data), "## Step 2: Implementation [ ]")
 	})
 
-	t.Run("error when heading phase already completed", func(t *testing.T) {
+	t.Run("no-op when heading phase already completed", func(t *testing.T) {
 		content := `# Plan
 ## Step 1: Investigation [x]
 `
 		client, _ := setup(t, content)
 		err := client.UpdatePhase("t-1234", "Step 1: Investigation")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "not found or already completed")
+		assert.NoError(t, err)
 	})
 
 	t.Run("fuzzy matching for heading phases", func(t *testing.T) {
