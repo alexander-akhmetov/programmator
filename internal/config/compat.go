@@ -47,7 +47,6 @@ func (c *Config) ToReviewConfig() review.Config {
 	}
 
 	return review.Config{
-		Enabled:       c.Review.Enabled,
 		MaxIterations: c.Review.MaxIterations,
 		Phases:        phases,
 	}

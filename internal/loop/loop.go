@@ -76,7 +76,6 @@ type Loop struct {
 
 	// Review configuration
 	reviewConfig     review.Config
-	skipReview       bool
 	reviewOnly       bool
 	reviewPassed     bool
 	reviewRunner     *review.Runner
@@ -127,11 +126,6 @@ func NewWithSource(config safety.Config, workingDir string, onOutput OutputCallb
 // SetReviewConfig sets the review configuration.
 func (l *Loop) SetReviewConfig(cfg review.Config) {
 	l.reviewConfig = cfg
-}
-
-// SetSkipReview disables the review phase.
-func (l *Loop) SetSkipReview(skip bool) {
-	l.skipReview = skip
 }
 
 // SetReviewOnly enables review-only mode (skips task phases).
@@ -337,7 +331,7 @@ func (l *Loop) handleAllPhasesComplete(rc *runContext) loopAction {
 	}
 
 	// Check if we should run review
-	if l.reviewConfig.Enabled && !l.skipReview && !l.reviewPassed {
+	if !l.reviewPassed {
 		return l.handleReviewPhase(rc)
 	}
 
@@ -608,7 +602,7 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 		workItem:        workItem,
 	}
 
-	if l.reviewConfig.Enabled && !l.skipReview && len(l.reviewConfig.Phases) == 0 {
+	if len(l.reviewConfig.Phases) == 0 {
 		err := fmt.Errorf("review enabled but no review phases configured (review.phases)")
 		l.log(err.Error())
 		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("error: %s", err.Error()))
@@ -1426,9 +1420,6 @@ func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewO
 		ExitReason: safety.ExitReasonComplete,
 	}
 	defer func() { result.Duration = time.Since(startTime) }()
-
-	// Force enable review
-	l.reviewConfig.Enabled = true
 
 	if len(l.reviewConfig.Phases) == 0 {
 		err := fmt.Errorf("review enabled but no review phases configured (review.phases)")

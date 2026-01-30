@@ -178,7 +178,6 @@ func TestRunResult_FilterBySeverity(t *testing.T) {
 func TestRunner_RunPhase(t *testing.T) {
 	t.Run("runs phase agents in parallel", func(t *testing.T) {
 		cfg := Config{
-			Enabled:       true,
 			MaxIterations: 3,
 		}
 
@@ -213,7 +212,6 @@ func TestRunner_RunPhase(t *testing.T) {
 
 	t.Run("runs phase agents sequentially when not parallel", func(t *testing.T) {
 		cfg := Config{
-			Enabled:       true,
 			MaxIterations: 3,
 		}
 
@@ -248,7 +246,6 @@ func TestRunner_RunPhase(t *testing.T) {
 
 	t.Run("counts issues correctly", func(t *testing.T) {
 		cfg := Config{
-			Enabled:       true,
 			MaxIterations: 3,
 		}
 

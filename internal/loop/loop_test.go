@@ -376,6 +376,8 @@ func TestRunAllPhasesCompleteAtStart(t *testing.T) {
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
 	l := NewWithSource(config, "", nil, nil, false, mock)
+	l.SetReviewConfig(singleAgentReviewConfig())
+	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
 	result, err := l.Run("test-123")
 
@@ -443,6 +445,8 @@ func TestRunStateCallbackCalled(t *testing.T) {
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
 	l := NewWithSource(config, "", nil, stateCallback, false, mock)
+	l.SetReviewConfig(singleAgentReviewConfig())
+	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
 	_, err := l.Run("test-123")
 	require.NoError(t, err)
@@ -547,6 +551,8 @@ func TestRunWithMockInvokerNoStatus(t *testing.T) {
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 5, Timeout: 60}
 	l := NewWithSource(config, "", nil, nil, false, mock)
+	l.SetReviewConfig(singleAgentReviewConfig())
+	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
 	invokeCount := 0
 	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
@@ -809,7 +815,6 @@ func TestRunReviewOnlyFailsMaxIterations(t *testing.T) {
 	l := New(config, "/tmp", nil, nil, false)
 	// Single phase with iteration_limit: 2 so we can test exhausting it
 	l.SetReviewConfig(review.Config{
-		Enabled:       true,
 		MaxIterations: 10,
 		Phases: []review.Phase{
 			{Name: "test_phase", IterationLimit: 2, Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
@@ -920,7 +925,6 @@ func TestRunReviewOnlyInvokerError(t *testing.T) {
 	l := New(config, "/tmp", nil, nil, false)
 	// Use high iteration limit so stagnation is hit before phase exhaustion
 	l.SetReviewConfig(review.Config{
-		Enabled:       true,
 		MaxIterations: 10,
 		Phases: []review.Phase{
 			{Name: "test_phase", IterationLimit: 10, Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
@@ -1049,7 +1053,6 @@ func TestDefaultReviewFixPromptFormatting(t *testing.T) {
 // suitable for tests that use mock review runners.
 func singleAgentReviewConfig() review.Config {
 	return review.Config{
-		Enabled:       true,
 		MaxIterations: 10,
 		Phases: []review.Phase{
 			{Name: "test_phase", Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
@@ -1063,7 +1066,6 @@ func createMockReviewRunner(t *testing.T, hasIssues bool, issueCount int) *revie
 	t.Helper()
 
 	cfg := review.Config{
-		Enabled:       true,
 		MaxIterations: 3,
 		Phases: []review.Phase{
 			{
@@ -1106,7 +1108,6 @@ func createMockReviewRunnerFunc(t *testing.T, resultFunc func() (hasIssues bool,
 	t.Helper()
 
 	cfg := review.Config{
-		Enabled:       true,
 		MaxIterations: 3,
 		Phases: []review.Phase{
 			{
@@ -1197,7 +1198,6 @@ func TestRunReviewOnlyReviewError(t *testing.T) {
 	// Note: runAgentsSequential wraps agent errors into Result.Error
 	// (doesn't propagate), so the review "passes" (0 issues).
 	cfg := review.Config{
-		Enabled:       true,
 		MaxIterations: 3,
 		Phases: []review.Phase{
 			{
@@ -1233,7 +1233,6 @@ func TestRunReviewOnlyStagnation(t *testing.T) {
 	l := New(config, "/tmp", nil, nil, false)
 	// Use high iteration limit so stagnation is hit before phase exhaustion
 	l.SetReviewConfig(review.Config{
-		Enabled:       true,
 		MaxIterations: 10,
 		Phases: []review.Phase{
 			{Name: "test_phase", IterationLimit: 10, Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
@@ -1385,22 +1384,11 @@ func TestSetReviewConfig(t *testing.T) {
 	l := New(safety.Config{}, "", nil, nil, false)
 
 	cfg := review.Config{
-		Enabled:       true,
 		MaxIterations: 5,
 	}
 	l.SetReviewConfig(cfg)
 
-	require.True(t, l.reviewConfig.Enabled)
 	require.Equal(t, 5, l.reviewConfig.MaxIterations)
-}
-
-func TestSetSkipReview(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-
-	require.False(t, l.skipReview)
-
-	l.SetSkipReview(true)
-	require.True(t, l.skipReview)
 }
 
 func TestSetReviewOnly(t *testing.T) {
@@ -1680,7 +1668,6 @@ func TestHandleMultiPhaseReview_IterationLimitOneAllowsFix(t *testing.T) {
 
 	// Comprehensive phase with iteration_limit: 1
 	l.SetReviewConfig(review.Config{
-		Enabled:       true,
 		MaxIterations: 50,
 		Phases: []review.Phase{
 			{
@@ -1762,7 +1749,6 @@ func TestMainLoopUsesReviewFixPromptWhenPendingFix(t *testing.T) {
 	l := NewWithSource(config, "", nil, nil, false, mock)
 
 	l.SetReviewConfig(review.Config{
-		Enabled:       true,
 		MaxIterations: 50,
 		Phases: []review.Phase{
 			{
@@ -1872,7 +1858,6 @@ func TestHandleMultiPhaseReview_UsesReviewConfigMaxIterations(t *testing.T) {
 
 	// Set review config with low MaxIterations and a phase that uses iteration_pct
 	l.SetReviewConfig(review.Config{
-		Enabled:       true,
 		MaxIterations: 10, // review max is 10, so 50% = 5
 		Phases: []review.Phase{
 			{
@@ -1914,7 +1899,6 @@ func TestRunReviewOnlyEmptyPhases(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
 	l.SetReviewConfig(review.Config{
-		Enabled:       true,
 		MaxIterations: 3,
 		Phases:        []review.Phase{}, // empty
 	})
@@ -1933,7 +1917,6 @@ func TestRunReviewOnlyAllPhases(t *testing.T) {
 
 	// Three phases - all should pass immediately
 	l.SetReviewConfig(review.Config{
-		Enabled:       true,
 		MaxIterations: 10,
 		Phases: []review.Phase{
 			{Name: "comprehensive", Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
@@ -1961,7 +1944,6 @@ func TestRunReviewOnlyPhaseProgression(t *testing.T) {
 	l := New(config, "/tmp", nil, nil, false)
 
 	l.SetReviewConfig(review.Config{
-		Enabled:       true,
 		MaxIterations: 10,
 		Phases: []review.Phase{
 			{Name: "comprehensive", IterationLimit: 5, Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},

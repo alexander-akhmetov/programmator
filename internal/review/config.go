@@ -11,12 +11,10 @@ import (
 
 const (
 	DefaultMaxIterations = 3
-	DefaultEnabled       = false
 )
 
 // Config holds the review configuration.
 type Config struct {
-	Enabled       bool    `yaml:"enabled"`
 	MaxIterations int     `yaml:"max_iterations"`
 	Phases        []Phase `yaml:"phases,omitempty"`
 }
@@ -60,7 +58,6 @@ func (p *Phase) MaxIterations(globalMax int) int {
 // DefaultConfig returns the default review configuration.
 func DefaultConfig() Config {
 	return Config{
-		Enabled:       DefaultEnabled,
 		MaxIterations: DefaultMaxIterations,
 		Phases:        DefaultPhases(),
 	}
@@ -117,11 +114,6 @@ func ConfigFromEnv() Config {
 		}
 	}
 
-	// Check for review enabled via env
-	if v := os.Getenv("PROGRAMMATOR_REVIEW_ENABLED"); v != "" {
-		cfg.Enabled = v == "true" || v == "1"
-	}
-
 	// Try to load config file
 	configPath := os.Getenv("PROGRAMMATOR_REVIEW_CONFIG")
 	if configPath == "" {
@@ -159,11 +151,6 @@ func LoadConfigFile(path string) (Config, error) {
 // File values take precedence when set.
 func mergeConfigs(env, file Config) Config {
 	result := file
-
-	// Env Enabled=true is an explicit override
-	if env.Enabled {
-		result.Enabled = true
-	}
 
 	// Keep env overrides if file doesn't specify
 	if result.MaxIterations == 0 {

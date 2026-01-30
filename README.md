@@ -146,7 +146,6 @@ programmator config show
 | `git.move_completed_plans` | `false` | Move completed plans to a `completed/` directory |
 | `git.completed_plans_dir` | `""` | Directory for completed plans (default: `plans/completed`) |
 | `git.branch_prefix` | `""` | Prefix for auto-created branches (default: `programmator/`) |
-| `review.enabled` | `false` | Enable code review after task phases complete |
 | `review.max_iterations` | `50` | Maximum review fix iterations (used as base for `iteration_pct`) |
 | `review.phases` | see [defaults](internal/config/defaults/config.yaml) | Review phase definitions with agent names, filters, and focus areas |
 
@@ -161,7 +160,6 @@ Each config key can also be set via environment variable with a `PROGRAMMATOR_` 
 | `PROGRAMMATOR_TIMEOUT` | 900 | Seconds per Claude invocation |
 | `PROGRAMMATOR_CLAUDE_FLAGS` | `""` | Flags passed to Claude |
 | `PROGRAMMATOR_MAX_REVIEW_ITERATIONS` | 50 | Maximum review fix iterations |
-| `PROGRAMMATOR_REVIEW_ENABLED` | false | Enable code review after task phases complete |
 | `PROGRAMMATOR_TICKET_COMMAND` | `tk` | Binary name for the ticket CLI (`tk` or `ticket`) |
 | `PROGRAMMATOR_ANTHROPIC_API_KEY` | `""` | Anthropic API key passed to Claude |
 | `TICKETS_DIR` | `~/.tickets` | Where ticket files live |

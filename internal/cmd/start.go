@@ -27,7 +27,6 @@ var (
 	skipPermissions bool
 	guardMode       bool
 	allowPatterns   []string
-	skipReview      bool
 	reviewOnly      bool
 
 	// Git workflow flags
@@ -69,7 +68,6 @@ func init() {
 	startCmd.Flags().BoolVar(&skipPermissions, "dangerously-skip-permissions", false, "Skip interactive permission dialogs (grants all permissions)")
 	startCmd.Flags().StringArrayVar(&allowPatterns, "allow", nil, "Pre-allow permission patterns (e.g., 'Bash(git:*)', 'Read')")
 	startCmd.Flags().BoolVar(&guardMode, "guard", true, "Guard mode: skip permissions but block destructive commands via dcg (default: enabled)")
-	startCmd.Flags().BoolVar(&skipReview, "skip-review", false, "Skip the code review phase after all task phases complete")
 	startCmd.Flags().BoolVar(&reviewOnly, "review-only", false, "Run only the code review phase (skip task phases)")
 
 	// Git workflow flags
@@ -153,7 +151,6 @@ func runStart(_ *cobra.Command, args []string) error {
 	t.SetInteractivePermissions(!skipPermissions && !guardMode)
 	t.SetGuardMode(guardMode)
 	t.SetAllowPatterns(allowPatterns)
-	t.SetSkipReview(skipReview)
 	t.SetReviewOnly(reviewOnly)
 	t.SetReviewConfig(cfg.ToReviewConfig())
 	promptBuilder, err := prompt.NewBuilder(cfg.Prompts)

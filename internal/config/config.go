@@ -36,12 +36,10 @@ type ReviewPhase struct {
 
 // ReviewConfig holds review-specific configuration.
 type ReviewConfig struct {
-	Enabled       bool          `yaml:"enabled"`
 	MaxIterations int           `yaml:"max_iterations"`
 	Phases        []ReviewPhase `yaml:"phases,omitempty"`
 
 	// Set tracking for merge
-	EnabledSet       bool `yaml:"-"`
 	MaxIterationsSet bool `yaml:"-"`
 }
 
@@ -278,9 +276,6 @@ func parseConfigWithTracking(data []byte) (*Config, error) {
 	if review, ok := raw["review"].(map[string]any); ok {
 		// Silently ignore legacy "passes" key; users should migrate to "phases".
 		delete(review, "passes")
-		if _, ok := review["enabled"]; ok {
-			cfg.Review.EnabledSet = true
-		}
 		if _, ok := review["max_iterations"]; ok {
 			cfg.Review.MaxIterationsSet = true
 		}
@@ -353,12 +348,6 @@ func (c *Config) applyEnv() {
 			c.sources = append(c.sources, "env:PROGRAMMATOR_MAX_REVIEW_ITERATIONS")
 		}
 	}
-
-	if v := os.Getenv("PROGRAMMATOR_REVIEW_ENABLED"); v != "" {
-		c.Review.Enabled = v == "true" || v == "1"
-		c.Review.EnabledSet = true
-		c.sources = append(c.sources, "env:PROGRAMMATOR_REVIEW_ENABLED")
-	}
 }
 
 // mergeFrom merges non-empty/set values from src into c.
@@ -392,10 +381,6 @@ func (c *Config) mergeFrom(src *Config) {
 	}
 
 	// Review config merge
-	if src.Review.EnabledSet {
-		c.Review.Enabled = src.Review.Enabled
-		c.Review.EnabledSet = true
-	}
 	if src.Review.MaxIterationsSet {
 		c.Review.MaxIterations = src.Review.MaxIterations
 		c.Review.MaxIterationsSet = true

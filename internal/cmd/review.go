@@ -84,8 +84,6 @@ func runReview(_ *cobra.Command, _ []string) error {
 
 	safetyConfig := cfg.ToSafetyConfig()
 	reviewConfig := cfg.ToReviewConfig()
-	reviewConfig.Enabled = true // Force enable for standalone review
-
 	// Create progress logger for review
 	// Use base branch + directory name as source ID
 	sourceID := fmt.Sprintf("review-%s-%s", reviewBaseBranch, filepath.Base(wd))

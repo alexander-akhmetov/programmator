@@ -11,7 +11,6 @@ import (
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
-	require.False(t, cfg.Enabled)
 	require.Equal(t, DefaultMaxIterations, cfg.MaxIterations)
 	require.Len(t, cfg.Phases, 3)
 
@@ -33,12 +32,10 @@ func TestDefaultConfig(t *testing.T) {
 func TestConfigFromEnv(t *testing.T) {
 	// Clean env before test
 	os.Unsetenv("PROGRAMMATOR_MAX_REVIEW_ITERATIONS")
-	os.Unsetenv("PROGRAMMATOR_REVIEW_ENABLED")
 	os.Unsetenv("PROGRAMMATOR_REVIEW_CONFIG")
 
 	t.Run("default values", func(t *testing.T) {
 		cfg := ConfigFromEnv()
-		require.False(t, cfg.Enabled)
 		require.Equal(t, DefaultMaxIterations, cfg.MaxIterations)
 	})
 
@@ -48,22 +45,6 @@ func TestConfigFromEnv(t *testing.T) {
 
 		cfg := ConfigFromEnv()
 		require.Equal(t, 5, cfg.MaxIterations)
-	})
-
-	t.Run("env override enabled true", func(t *testing.T) {
-		os.Setenv("PROGRAMMATOR_REVIEW_ENABLED", "true")
-		defer os.Unsetenv("PROGRAMMATOR_REVIEW_ENABLED")
-
-		cfg := ConfigFromEnv()
-		require.True(t, cfg.Enabled)
-	})
-
-	t.Run("env override enabled 1", func(t *testing.T) {
-		os.Setenv("PROGRAMMATOR_REVIEW_ENABLED", "1")
-		defer os.Unsetenv("PROGRAMMATOR_REVIEW_ENABLED")
-
-		cfg := ConfigFromEnv()
-		require.True(t, cfg.Enabled)
 	})
 
 	t.Run("invalid max iterations ignored", func(t *testing.T) {
@@ -80,8 +61,7 @@ func TestLoadConfigFile(t *testing.T) {
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "review.yaml")
 
-		content := `enabled: true
-max_iterations: 5
+		content := `max_iterations: 5
 phases:
   - name: custom_phase
     iteration_limit: 2
@@ -97,7 +77,6 @@ phases:
 
 		cfg, err := LoadConfigFile(configPath)
 		require.NoError(t, err)
-		require.True(t, cfg.Enabled)
 		require.Equal(t, 5, cfg.MaxIterations)
 		require.Len(t, cfg.Phases, 1)
 		require.Equal(t, "custom_phase", cfg.Phases[0].Name)
@@ -128,33 +107,28 @@ phases:
 
 func TestMergeConfigs(t *testing.T) {
 	env := Config{
-		Enabled:       false,
 		MaxIterations: 3,
 		Phases:        []Phase{{Name: "env_phase"}},
 	}
 
 	t.Run("file takes precedence", func(t *testing.T) {
 		file := Config{
-			Enabled:       true,
 			MaxIterations: 5,
 			Phases:        []Phase{{Name: "file_phase"}},
 		}
 
 		result := mergeConfigs(env, file)
-		require.True(t, result.Enabled)
 		require.Equal(t, 5, result.MaxIterations)
 		require.Equal(t, "file_phase", result.Phases[0].Name)
 	})
 
 	t.Run("env used when file empty", func(t *testing.T) {
 		file := Config{
-			Enabled:       true,
 			MaxIterations: 0,
 			Phases:        nil,
 		}
 
 		result := mergeConfigs(env, file)
-		require.True(t, result.Enabled)
 		require.Equal(t, 3, result.MaxIterations)
 		require.Equal(t, "env_phase", result.Phases[0].Name)
 	})

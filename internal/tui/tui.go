@@ -868,7 +868,6 @@ type TUI struct {
 	interactivePermissions bool
 	guardMode              bool
 	allowPatterns          []string
-	skipReview             bool
 	reviewOnly             bool
 	reviewConfig           *review.Config
 	progressLogger         *progress.Logger
@@ -898,10 +897,6 @@ func (t *TUI) SetGuardMode(enabled bool) {
 
 func (t *TUI) SetAllowPatterns(patterns []string) {
 	t.allowPatterns = patterns
-}
-
-func (t *TUI) SetSkipReview(skip bool) {
-	t.skipReview = skip
 }
 
 func (t *TUI) SetReviewOnly(reviewOnly bool) {
@@ -1014,7 +1009,6 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 		l.SetPermissionSocketPath(permServer.SocketPath())
 	}
 	l.SetGuardMode(t.guardMode)
-	l.SetSkipReview(t.skipReview)
 	l.SetReviewOnly(t.reviewOnly)
 	if t.reviewConfig != nil {
 		l.SetReviewConfig(*t.reviewConfig)

@@ -81,7 +81,6 @@ func runConfigShow(_ *cobra.Command, _ []string) error {
 	fmt.Println()
 
 	fmt.Println("## Review Settings")
-	fmt.Printf("  enabled:        %t\n", cfg.Review.Enabled)
 	fmt.Printf("  max_iterations: %d\n", cfg.Review.MaxIterations)
 	if len(cfg.Review.Phases) > 0 {
 		fmt.Println("  phases:")

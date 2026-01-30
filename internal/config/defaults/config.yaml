@@ -29,7 +29,6 @@ git:
 
 # Review settings
 review:
-  enabled: false          # Enable code review after task phases complete
   max_iterations: 50      # Maximum review fix iterations (used as base for iteration_pct)
 
   phases:

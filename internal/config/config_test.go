@@ -18,7 +18,6 @@ func TestLoadEmbedded(t *testing.T) {
 	assert.Equal(t, 3, cfg.StagnationLimit)
 	assert.Equal(t, 900, cfg.Timeout)
 	assert.Equal(t, "", cfg.ClaudeFlags)
-	assert.Equal(t, false, cfg.Review.Enabled)
 	assert.Equal(t, 50, cfg.Review.MaxIterations) // Used as base for iteration_pct calculations
 	assert.Len(t, cfg.Review.Phases, 3)
 }
@@ -219,7 +218,6 @@ func TestReviewConfig(t *testing.T) {
 
 	configContent := `
 review:
-  enabled: true
   max_iterations: 5
   phases:
     - name: custom_phase
@@ -236,7 +234,6 @@ review:
 	cfg, err := LoadWithDirs(tmpDir, "")
 	require.NoError(t, err)
 
-	assert.True(t, cfg.Review.Enabled)
 	assert.Equal(t, 5, cfg.Review.MaxIterations)
 	require.Len(t, cfg.Review.Phases, 1)
 	assert.Equal(t, "custom_phase", cfg.Review.Phases[0].Name)
@@ -282,8 +279,6 @@ func TestSources(t *testing.T) {
 func TestParseConfigWithTracking(t *testing.T) {
 	data := []byte(`
 max_iterations: 100
-review:
-  enabled: true
 `)
 	cfg, err := parseConfigWithTracking(data)
 	require.NoError(t, err)
@@ -291,7 +286,6 @@ review:
 	assert.True(t, cfg.MaxIterationsSet)
 	assert.False(t, cfg.StagnationLimitSet) // not set in YAML
 	assert.False(t, cfg.TimeoutSet)         // not set in YAML
-	assert.True(t, cfg.Review.EnabledSet)
 }
 
 func TestParseConfigWithTrackingIgnoresReviewPasses(t *testing.T) {

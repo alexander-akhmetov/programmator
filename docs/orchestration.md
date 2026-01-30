@@ -40,11 +40,6 @@ How programmator drives Claude Code through tasks and reviews, step by step.
            └───────────┬───────────┘
                        │ yes
                        ▼
-              ┌─────────────────┐
-              │ Review enabled? │──no──→ Done
-              └────────┬────────┘
-                       │ yes
-                       ▼
                (review flow below)
 ```
 
@@ -76,7 +71,7 @@ Same status protocol but `phase_completed: null`.
 
 ## 2. Review Flow (after task phases)
 
-Review runs automatically when all task phases complete (unless `--skip-review`).
+Review runs automatically when all task phases complete.
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -235,7 +230,6 @@ Default review phases, iteration limits, and agents are in `internal/config/defa
 ```yaml
 # ~/.config/programmator/config.yaml or .programmator/config.yaml
 review:
-  enabled: true
   max_iterations: 50
   phases:
     - name: comprehensive
