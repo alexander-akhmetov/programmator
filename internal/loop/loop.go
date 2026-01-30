@@ -372,10 +372,10 @@ func (l *Loop) handleMultiPhaseReview(rc *runContext) loopAction {
 
 	l.log(fmt.Sprintf("Review phase %d/%d: %s (iter %d/%d)",
 		l.currentPhaseIdx+1, len(phases), currentPhase.Name,
-		l.currentPhaseIter+1, phaseMaxIter))
+		l.currentPhaseIter+1, phaseMaxIter+1))
 
 	// Run the current phase's agents
-	l.logReviewStart(l.currentPhaseIter+1, phaseMaxIter)
+	l.logReviewStart(l.currentPhaseIter+1, phaseMaxIter+1)
 	rc.state.EnterReviewPhase()
 	if l.reviewRunner == nil {
 		l.applySettingsToReviewConfig()
@@ -1520,8 +1520,8 @@ func (l *Loop) runReviewOnlyPhase(roc *reviewOnlyContext, phase review.Phase, ph
 		}
 
 		l.logIterationSeparator(roc.state.Iteration, l.config.MaxReviewIterations)
-		l.log(fmt.Sprintf("Review phase %s, iter %d/%d", phase.Name, phaseIter+1, phaseMaxIter))
-		l.logReviewStart(phaseIter+1, phaseMaxIter)
+		l.log(fmt.Sprintf("Review phase %s, iter %d/%d", phase.Name, phaseIter+1, phaseMaxIter+1))
+		l.logReviewStart(phaseIter+1, phaseMaxIter+1)
 
 		// Run review
 		l.log("Running code review...")
