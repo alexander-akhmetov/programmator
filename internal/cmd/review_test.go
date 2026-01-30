@@ -82,6 +82,7 @@ func TestGetChangedFilesNonGitDir(t *testing.T) {
 	_, err := git.ChangedFiles(tmpDir, "main")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "git diff failed")
+	assert.Contains(t, err.Error(), "all diff commands failed")
 }
 
 func TestRunReviewNotGitRepo(t *testing.T) {

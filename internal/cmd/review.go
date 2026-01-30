@@ -74,7 +74,7 @@ func runReview(_ *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	fmt.Printf("Reviewing %d changed files (diff %s...HEAD):\n", len(filesChanged), reviewBaseBranch)
+	fmt.Printf("Reviewing %d changed files (vs %s):\n", len(filesChanged), reviewBaseBranch)
 	for _, f := range filesChanged {
 		fmt.Printf("  • %s\n", f)
 	}
