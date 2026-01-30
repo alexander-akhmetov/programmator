@@ -182,6 +182,7 @@ Opt-in via config or CLI flags:
 
 ## Documentation
 
+- [How it works](docs/orchestration.md)
 - [E2E Tests](docs/e2e_tests.md) — manual integration tests, how to run and create them
 - [Prompt Templates](docs/prompt_templates.md) — override chain, template variables, customization
 

@@ -1,21 +1,21 @@
 # E2E Tests
 
-Programmator uses manual end-to-end tests for integration testing. Each test creates an isolated toy Go project in `/tmp/` with known issues, then you run programmator against it to verify behavior.
+Programmator relies on manual end-to-end tests for integration checks. Each test creates a small, isolated Go project in `/tmp/` with known issues, then you run programmator against it to validate behavior.
 
-These are **not** automated CI tests — they require a working Claude Code installation and are meant for manual verification during development.
+These are intentionally **not** automated CI tests. They require a working Claude Code installation and are meant for manual verification during development.
 
 ## Available Tests
 
 ### Plan-based run (`make e2e-prep`)
 
-Creates `/tmp/programmator-test/` — a Go project with three intentional bugs and a plan file that instructs Claude to fix them.
+Creates `/tmp/programmator-test/` — a Go project with three intentional bugs and a plan file that asks Claude to fix them.
 
-**Bugs included:**
+**What it includes:**
 - `add()` returns `a - b` instead of `a + b`
 - Off-by-one error in a loop (`<=` instead of `<`)
 - Nil pointer dereference (uninitialized pointer)
 
-**Run:**
+**Run it:**
 ```bash
 make e2e-prep
 cd /tmp/programmator-test
@@ -24,13 +24,13 @@ programmator start ./plans/fix-issues.md
 programmator start ./plans/fix-issues.md --auto-commit
 ```
 
-**What to verify:** All three bugs get fixed, tests pass, plan checkboxes get marked complete.
+**What to verify:** All three bugs get fixed, tests pass, and plan checkboxes get marked complete.
 
 ### Review mode (`make e2e-review`)
 
 Creates `/tmp/programmator-review-test/` — a Go project with code quality issues and a feature branch containing committed changes for review.
 
-**Issues included:**
+**What it includes:**
 - Poor variable naming (`x`, `y`, `z`)
 - Ungrouped imports
 - Inefficient string concatenation
@@ -38,7 +38,7 @@ Creates `/tmp/programmator-review-test/` — a Go project with code quality issu
 - Deeply nested conditionals
 - Magic numbers
 
-**Run:**
+**Run it:**
 ```bash
 make e2e-review
 cd /tmp/programmator-review-test
@@ -49,21 +49,21 @@ programmator review
 
 ### Plan creation (`make e2e-plan`)
 
-Creates `/tmp/programmator-plan-test/` — a basic Go web server where you can test interactive plan generation.
+Creates `/tmp/programmator-plan-test/` — a basic Go web server for testing interactive plan generation.
 
 **Project includes:**
 - Health check and items API endpoints
 - Stub handlers package
 - User and Item models
 
-**Run:**
+**Run it:**
 ```bash
 make e2e-plan
 cd /tmp/programmator-plan-test
 programmator plan create "Add user authentication with JWT"
 ```
 
-**Other plan prompts to try:**
+**Other prompts to try:**
 - `"Add rate limiting to the API"`
 - `"Add database persistence with SQLite"`
 - `"Add request logging middleware"`
@@ -76,7 +76,7 @@ programmator plan create "Add user authentication with JWT"
 
 ```bash
 #!/bin/bash
-# Prepares a toy project for testing <feature>.
+# Prepares a small project for testing <feature>.
 #
 # Usage: ./scripts/prep-<name>-test.sh
 # Then: programmator <command>
@@ -130,9 +130,9 @@ e2e-<name>:
 
 ### Guidelines
 
-- Always clean up previous runs (`rm -rf "$TEST_DIR"`) for idempotency.
+- Always clean up previous runs (`rm -rf "$TEST_DIR"`) so the script is idempotent.
 - Use `/tmp/programmator-*-test/` naming to keep test projects grouped.
 - Initialize a git repo — most programmator features depend on it.
-- Include clear output messages explaining what was created and how to run.
+- Include clear output messages explaining what was created and how to run it.
 - Add validation commands (`go test`, `go build`) when the test involves code changes.
-- Keep the toy project small — just enough to exercise the feature under test.
+- Keep the project small — just enough to exercise the feature under test.

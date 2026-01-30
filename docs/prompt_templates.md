@@ -1,6 +1,6 @@
 # Prompt Templates
 
-Programmator uses Go `text/template` files to build the prompts sent to Claude Code. You can override any template globally or per-project.
+Programmator renders prompts from Go `text/template` files and sends them to Claude Code. You can override any template globally or per project.
 
 ## Templates
 
@@ -12,7 +12,7 @@ Programmator uses Go `text/template` files to build the prompts sent to Claude C
 | [review_second.md](../internal/config/defaults/prompts/review_second.md) | Critical/major issues review phase |
 | [plan_create.md](../internal/config/defaults/prompts/plan_create.md) | Interactive plan creation |
 
-## Override Chain
+## Override Order
 
 Templates resolve in this order (first match wins):
 
@@ -22,7 +22,7 @@ Templates resolve in this order (first match wins):
 embedded defaults                        # Built into the binary
 ```
 
-You only need to create the files you want to override. Missing files fall through to the next level.
+Only create the templates you want to override. Missing files fall through to the next level.
 
 ## Template Variables
 
@@ -53,11 +53,11 @@ You only need to create the files you want to override. Missing files fall throu
 | `{{.Description}}` | string | User's description of what to accomplish |
 | `{{.PreviousAnswers}}` | string | Formatted Q&A from previous interactions (may be empty) |
 
-Use `{{if .PreviousAnswers}}...{{end}}` to conditionally render the previous answers section.
+Use `{{if .PreviousAnswers}}...{{end}}` to include the previous answers section only when it exists.
 
 ## Creating an Override
 
-1. Pick the scope — global or local:
+1. Pick the scope (global or local):
 
 ```bash
 # Global (applies to all projects)
@@ -67,7 +67,7 @@ mkdir -p ~/.config/programmator/prompts
 mkdir -p .programmator/prompts
 ```
 
-2. Copy the default template as a starting point. Defaults live in `internal/config/defaults/prompts/`. For example:
+2. Copy a default template as a starting point. Defaults live in `internal/config/defaults/prompts/`. For example:
 
 ```bash
 cp internal/config/defaults/prompts/phased.md ~/.config/programmator/prompts/phased.md
@@ -75,11 +75,11 @@ cp internal/config/defaults/prompts/phased.md ~/.config/programmator/prompts/pha
 
 3. Edit the copy. Use any Go `text/template` syntax. Lines starting with `#` are stripped automatically (treated as comments, not markdown headings).
 
-4. Run programmator — it picks up the override automatically. No config changes needed.
+4. Run programmator. It picks up the override automatically; no config changes needed.
 
 ## Comment Syntax
 
-Lines where the first non-whitespace character is `#` are stripped before parsing. This lets you add notes to your templates:
+Any line whose first non-whitespace character is `#` is stripped before parsing. This lets you add notes to your templates:
 
 ```markdown
 # This line is stripped (comment)
@@ -88,7 +88,7 @@ You are working on {{.ID}}
 Use a # inline and it stays
 ```
 
-To keep a markdown heading, indent it or restructure so it doesn't start the line with `#`. The default templates intentionally use `#`/`##` lines as comments for readability, so those headings are stripped from the final prompt. If you need headings in the actual prompt, use a different marker (for example, `===` or bold text).
+To keep a markdown heading, indent it or structure the line so it doesn't start with `#`. The default templates intentionally use `#`/`##` lines as comments for readability, so those headings are stripped from the final prompt. If you need headings in the actual prompt, use a different marker (for example, `===` or bold text).
 
 ## Example: Custom Phased Template
 
@@ -119,9 +119,9 @@ PROGRAMMATOR_STATUS:
 
 ## Review Agent Prompts
 
-The review system uses separate embedded prompts in `internal/review/prompts/` by default.
-You can override an agent prompt by setting `review.phases[].agents[].prompt` in config
-(the prompt text is used directly; it is not loaded from a file).
+The review system uses embedded prompts in `internal/review/prompts/` by default.
+You can override an agent prompt by setting `review.phases[].agents[].prompt` in config.
+The prompt text is used directly; it is not loaded from a file.
 
 | Agent | Prompt | Focus |
 |-------|--------|-------|
