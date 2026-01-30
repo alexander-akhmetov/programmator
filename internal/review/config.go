@@ -16,6 +16,7 @@ const (
 // Config holds the review configuration.
 type Config struct {
 	MaxIterations int     `yaml:"max_iterations"`
+	Timeout       int     `yaml:"-"` // seconds per agent invocation, inherited from main config
 	Phases        []Phase `yaml:"phases,omitempty"`
 }
 

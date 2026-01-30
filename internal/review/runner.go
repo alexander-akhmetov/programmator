@@ -126,7 +126,11 @@ func (r *Runner) defaultAgentFactory(agentCfg AgentConfig, defaultPrompt string)
 	if agentCfg.Prompt != "" {
 		prompt = agentCfg.Prompt
 	}
-	return NewClaudeAgent(agentCfg.Name, agentCfg.Focus, prompt)
+	var opts []ClaudeAgentOption
+	if r.config.Timeout > 0 {
+		opts = append(opts, WithTimeout(time.Duration(r.config.Timeout)*time.Second))
+	}
+	return NewClaudeAgent(agentCfg.Name, agentCfg.Focus, prompt, opts...)
 }
 
 // runAgentsParallel runs all agents in parallel.
