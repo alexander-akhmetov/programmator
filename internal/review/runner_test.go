@@ -2,6 +2,7 @@ package review
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -192,6 +193,79 @@ func TestRunResult_FilterBySeverity(t *testing.T) {
 		filtered := smallResult.FilterBySeverity([]Severity{SeverityCritical})
 		require.True(t, filtered.Passed)
 		require.Equal(t, 0, filtered.TotalIssues)
+	})
+}
+
+func TestRunner_ValidateSimplifications(t *testing.T) {
+	t.Run("filters simplification issues through validator", func(t *testing.T) {
+		cfg := Config{MaxIterations: 3}
+		runner := NewRunner(cfg, nil)
+		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
+			mock := NewMockAgent(agentCfg.Name)
+			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
+				return &Result{
+					AgentName: agentCfg.Name,
+					Issues: []Issue{
+						{Severity: SeverityMedium, Description: "Kept suggestion", File: "a.go", Line: 1},
+					},
+					Summary: "Filtered",
+				}, nil
+			})
+			return mock
+		})
+
+		original := &Result{
+			AgentName: "simplification",
+			Issues: []Issue{
+				{Severity: SeverityMedium, Description: "Minor nitpick", File: "a.go", Line: 1},
+				{Severity: SeverityMedium, Description: "Real simplification", File: "b.go", Line: 5},
+			},
+			Summary: "2 suggestions",
+		}
+
+		validated, err := runner.ValidateSimplifications(context.Background(), "/tmp", original)
+		require.NoError(t, err)
+		require.Equal(t, "simplification", validated.AgentName)
+		require.Len(t, validated.Issues, 1)
+	})
+
+	t.Run("returns original on empty issues", func(t *testing.T) {
+		cfg := Config{MaxIterations: 3}
+		runner := NewRunner(cfg, nil)
+
+		original := &Result{
+			AgentName: "simplification",
+			Issues:    []Issue{},
+			Summary:   "No issues",
+		}
+
+		validated, err := runner.ValidateSimplifications(context.Background(), "/tmp", original)
+		require.NoError(t, err)
+		require.Equal(t, original, validated)
+	})
+
+	t.Run("falls back to original on validator error", func(t *testing.T) {
+		cfg := Config{MaxIterations: 3}
+		runner := NewRunner(cfg, nil)
+		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
+			mock := NewMockAgent(agentCfg.Name)
+			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
+				return nil, fmt.Errorf("validator failed")
+			})
+			return mock
+		})
+
+		original := &Result{
+			AgentName: "simplification",
+			Issues: []Issue{
+				{Severity: SeverityMedium, Description: "Some suggestion"},
+			},
+			Summary: "1 suggestion",
+		}
+
+		validated, err := runner.ValidateSimplifications(context.Background(), "/tmp", original)
+		require.NoError(t, err)
+		require.Equal(t, original, validated)
 	})
 }
 

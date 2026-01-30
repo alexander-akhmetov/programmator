@@ -55,3 +55,4 @@ For each finding:
 
 Only flag complexity that genuinely hurts maintainability.
 Report problems only - no positive observations.
+

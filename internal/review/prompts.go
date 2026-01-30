@@ -8,7 +8,7 @@ import (
 // Falls back to a generic prompt if no specific prompt is available.
 func GetDefaultPrompt(agentName string) string {
 	switch agentName {
-	case "quality":
+	case "quality", "quality-2":
 		return prompts.QualityPrompt
 	case "security":
 		return prompts.SecurityPrompt
@@ -20,6 +20,10 @@ func GetDefaultPrompt(agentName string) string {
 		return prompts.TestingPrompt
 	case "simplification":
 		return prompts.SimplificationPrompt
+	case "claudemd":
+		return prompts.ClaudeMDPrompt
+	case "simplification-validator":
+		return prompts.SimplificationValidatorPrompt
 	default:
 		return defaultGenericPrompt
 	}

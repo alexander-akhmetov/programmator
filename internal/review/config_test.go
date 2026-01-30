@@ -18,7 +18,7 @@ func TestDefaultConfig(t *testing.T) {
 	require.Equal(t, "comprehensive", cfg.Phases[0].Name)
 	require.Equal(t, 1, cfg.Phases[0].IterationLimit)
 	require.True(t, cfg.Phases[0].Parallel)
-	require.Len(t, cfg.Phases[0].Agents, 6)
+	require.Len(t, cfg.Phases[0].Agents, 8)
 
 	// Phase 2: critical_loop
 	require.Equal(t, "critical_loop", cfg.Phases[1].Name)
@@ -180,7 +180,7 @@ func TestDefaultConfigHasPhases(t *testing.T) {
 	require.Equal(t, "comprehensive", cfg.Phases[0].Name)
 	require.Equal(t, 1, cfg.Phases[0].IterationLimit)
 	require.True(t, cfg.Phases[0].Parallel)
-	require.Len(t, cfg.Phases[0].Agents, 6) // quality, security, implementation, testing, simplification, linter
+	require.Len(t, cfg.Phases[0].Agents, 8) // quality, security, implementation, testing, simplification, linter
 	require.Empty(t, cfg.Phases[0].SeverityFilter)
 
 	// Phase 2: critical_loop

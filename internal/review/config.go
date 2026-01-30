@@ -75,12 +75,14 @@ func DefaultPhases() []Phase {
 			IterationLimit: 1,
 			Parallel:       true,
 			Agents: []AgentConfig{
-				{Name: "quality", Focus: []string{"error handling", "code clarity", "resource management", "concurrency"}},
+				{Name: "quality", Focus: []string{"error handling", "resource management", "concurrency", "race conditions"}},
+				{Name: "quality-2", Focus: []string{"logic errors", "edge cases", "off-by-one", "incorrect conditionals", "nil handling"}},
 				{Name: "security", Focus: []string{"input validation", "secrets", "injection"}},
 				{Name: "implementation", Focus: []string{"requirement coverage", "wiring", "completeness"}},
 				{Name: "testing", Focus: []string{"test coverage", "fake tests", "edge cases"}},
 				{Name: "simplification", Focus: []string{"over-engineering", "unnecessary abstractions"}},
 				{Name: "linter", Focus: []string{"lint errors", "formatting", "static analysis"}},
+				{Name: "claudemd", Focus: []string{"CLAUDE.md compliance", "project conventions"}},
 			},
 		},
 		{

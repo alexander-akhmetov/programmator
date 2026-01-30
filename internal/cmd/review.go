@@ -164,8 +164,7 @@ func runReview(_ *cobra.Command, _ []string) error {
 
 // isGitRepo checks if the directory is a git repository.
 func isGitRepo(dir string) bool {
-	cmd := exec.Command("git", "-C", dir, "rev-parse", "--git-dir")
-	return cmd.Run() == nil
+	return git.IsRepo(dir)
 }
 
 // Styles for summary output

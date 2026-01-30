@@ -22,3 +22,9 @@ var TestingPrompt string
 
 //go:embed simplification.md
 var SimplificationPrompt string
+
+//go:embed claudemd.md
+var ClaudeMDPrompt string
+
+//go:embed simplification_validator.md
+var SimplificationValidatorPrompt string

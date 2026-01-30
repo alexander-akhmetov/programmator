@@ -35,3 +35,4 @@ For each issue:
 
 Focus on defects that would cause runtime failures, security vulnerabilities, or maintainability problems.
 Report problems only - no positive observations.
+

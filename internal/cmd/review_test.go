@@ -1,12 +1,15 @@
 package cmd
 
 import (
+	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
 
+	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -44,10 +47,7 @@ func TestIsGitRepo(t *testing.T) {
 	cwd, err := os.Getwd()
 	require.NoError(t, err)
 
-	// Find the git root
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	_, err = cmd.Output()
-	if err != nil {
+	if !git.IsRepo(cwd) {
 		t.Skip("Not in a git repository")
 	}
 
@@ -69,20 +69,17 @@ func TestGetChangedFiles(t *testing.T) {
 
 	// Test with HEAD (should work even if no changes)
 	files, err := git.ChangedFiles(cwd, "HEAD")
-	// Note: This may fail if there's no HEAD commit, which is fine for an empty repo
-	if err == nil {
-		// Result can be nil or empty slice when no changes - both are valid
-		// Just verify no error occurred
-		_ = files
+	if err != nil {
+		t.Skipf("ChangedFiles returned error (may be empty repo): %v", err)
 	}
+	assert.NotNil(t, files, "files should be non-nil when no error")
 }
 
 func TestGetChangedFilesNonGitDir(t *testing.T) {
 	tmpDir := t.TempDir()
 	_, err := git.ChangedFiles(tmpDir, "main")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "git diff failed")
-	assert.Contains(t, err.Error(), "all diff commands failed")
+	assert.Contains(t, err.Error(), "open git repo")
 }
 
 func TestRunReviewNotGitRepo(t *testing.T) {
@@ -162,140 +159,192 @@ func TestReviewCmdRegistered(t *testing.T) {
 	assert.True(t, found, "review command should be registered with root")
 }
 
-func TestPrintReviewOnlySummaryPassed(_ *testing.T) {
-	result := &loop.ReviewOnlyResult{
-		Passed:      true,
-		Iterations:  1,
-		TotalIssues: 0,
-		FilesFixed:  []string{},
-		Duration:    30 * time.Second,
-		CommitsMade: 0,
-	}
+func TestPrintReviewOnlySummaryPassed(t *testing.T) {
+	output := captureStdout(t, func() {
+		result := &loop.ReviewOnlyResult{
+			Passed:      true,
+			Iterations:  1,
+			TotalIssues: 0,
+			FilesFixed:  []string{},
+			Duration:    30 * time.Second,
+			CommitsMade: 0,
+		}
+		printReviewOnlySummary(result)
+	})
 
-	// This just tests that the function doesn't panic
-	// The output goes to stdout which we're not capturing here
-	printReviewOnlySummary(result)
+	assert.Contains(t, output, "PASSED")
+	assert.Contains(t, output, "1")   // iterations
+	assert.Contains(t, output, "0")   // issues
+	assert.Contains(t, output, "30s") // duration
 }
 
-func TestPrintReviewOnlySummaryFailed(_ *testing.T) {
-	result := &loop.ReviewOnlyResult{
-		Passed:      false,
-		Iterations:  3,
-		TotalIssues: 5,
-		FilesFixed:  []string{"main.go", "util.go"},
-		Duration:    2*time.Minute + 15*time.Second,
-		CommitsMade: 2,
-	}
-
-	// This just tests that the function doesn't panic
-	printReviewOnlySummary(result)
-}
-
-func TestPrintReviewOnlySummaryWithFinalReview(_ *testing.T) {
-	result := &loop.ReviewOnlyResult{
-		Passed:      false,
-		Iterations:  2,
-		TotalIssues: 1,
-		FilesFixed:  []string{},
-		Duration:    45 * time.Second,
-		FinalReview: &review.RunResult{
+func TestPrintReviewOnlySummaryFailed(t *testing.T) {
+	output := captureStdout(t, func() {
+		result := &loop.ReviewOnlyResult{
 			Passed:      false,
+			Iterations:  3,
+			TotalIssues: 5,
+			FilesFixed:  []string{"main.go", "util.go"},
+			Duration:    2*time.Minute + 15*time.Second,
+			CommitsMade: 2,
+		}
+		printReviewOnlySummary(result)
+	})
+
+	assert.Contains(t, output, "FAILED")
+	assert.Contains(t, output, "3")       // iterations
+	assert.Contains(t, output, "5")       // issues
+	assert.Contains(t, output, "2m15s")   // duration
+	assert.Contains(t, output, "main.go") // files fixed
+	assert.Contains(t, output, "util.go")
+}
+
+func TestPrintReviewOnlySummaryWithFinalReview(t *testing.T) {
+	output := captureStdout(t, func() {
+		result := &loop.ReviewOnlyResult{
+			Passed:      false,
+			Iterations:  2,
 			TotalIssues: 1,
-			Results: []*review.Result{
-				{
-					AgentName: "test_agent",
-					Issues: []review.Issue{
-						{
-							File:        "test.go",
-							Line:        42,
-							Severity:    review.SeverityHigh,
-							Description: "Test issue",
+			FilesFixed:  []string{},
+			Duration:    45 * time.Second,
+			FinalReview: &review.RunResult{
+				Passed:      false,
+				TotalIssues: 1,
+				Results: []*review.Result{
+					{
+						AgentName: "test_agent",
+						Issues: []review.Issue{
+							{
+								File:        "test.go",
+								Line:        42,
+								Severity:    review.SeverityHigh,
+								Description: "Test issue",
+							},
 						},
 					},
 				},
 			},
-		},
-	}
+		}
+		printReviewOnlySummary(result)
+	})
 
-	// This just tests that the function doesn't panic
-	printReviewOnlySummary(result)
+	assert.Contains(t, output, "FAILED")
+	assert.Contains(t, output, "Remaining issues")
+	assert.Contains(t, output, "test.go")
 }
 
 // setupTestGitRepo creates a minimal git repo for testing.
 func setupTestGitRepo(t *testing.T, dir string) {
 	t.Helper()
 
-	// Initialize repo
-	cmd := exec.Command("git", "init")
-	cmd.Dir = dir
-	require.NoError(t, cmd.Run())
+	r, err := gogit.PlainInit(dir, false)
+	require.NoError(t, err)
 
-	// Configure git user (required for commits)
-	cmd = exec.Command("git", "config", "user.email", "test@test.com")
-	cmd.Dir = dir
-	require.NoError(t, cmd.Run())
+	cfg, err := r.Config()
+	require.NoError(t, err)
+	cfg.User.Name = "Test User"
+	cfg.User.Email = "test@test.com"
+	err = r.SetConfig(cfg)
+	require.NoError(t, err)
 
-	cmd = exec.Command("git", "config", "user.name", "Test User")
-	cmd.Dir = dir
-	require.NoError(t, cmd.Run())
-
-	// Create initial commit
 	testFile := filepath.Join(dir, "README.md")
 	require.NoError(t, os.WriteFile(testFile, []byte("# Test\n"), 0644))
 
-	cmd = exec.Command("git", "add", ".")
-	cmd.Dir = dir
-	require.NoError(t, cmd.Run())
+	wt, err := r.Worktree()
+	require.NoError(t, err)
 
-	cmd = exec.Command("git", "commit", "-m", "Initial commit")
-	cmd.Dir = dir
-	require.NoError(t, cmd.Run())
+	_, err = wt.Add("README.md")
+	require.NoError(t, err)
+
+	_, err = wt.Commit("Initial commit", &gogit.CommitOptions{
+		Author: &object.Signature{
+			Name:  "Test User",
+			Email: "test@test.com",
+			When:  time.Now(),
+		},
+	})
+	require.NoError(t, err)
 }
 
 // setupTestGitRepoWithBranch creates a git repo with main and feature branches.
 func setupTestGitRepoWithBranch(t *testing.T, dir string) {
 	t.Helper()
 
-	// Initialize repo
-	cmd := exec.Command("git", "init", "-b", "main")
-	cmd.Dir = dir
-	require.NoError(t, cmd.Run())
+	r, err := gogit.PlainInitWithOptions(dir, &gogit.PlainInitOptions{
+		InitOptions: gogit.InitOptions{
+			DefaultBranch: plumbing.NewBranchReferenceName("main"),
+		},
+		Bare: false,
+	})
+	require.NoError(t, err)
 
-	// Configure git user
-	cmd = exec.Command("git", "config", "user.email", "test@test.com")
-	cmd.Dir = dir
-	require.NoError(t, cmd.Run())
-
-	cmd = exec.Command("git", "config", "user.name", "Test User")
-	cmd.Dir = dir
-	require.NoError(t, cmd.Run())
+	cfg, err := r.Config()
+	require.NoError(t, err)
+	cfg.User.Name = "Test User"
+	cfg.User.Email = "test@test.com"
+	err = r.SetConfig(cfg)
+	require.NoError(t, err)
 
 	// Create initial commit on main
 	testFile := filepath.Join(dir, "README.md")
 	require.NoError(t, os.WriteFile(testFile, []byte("# Test\n"), 0644))
 
-	cmd = exec.Command("git", "add", ".")
-	cmd.Dir = dir
-	require.NoError(t, cmd.Run())
+	wt, err := r.Worktree()
+	require.NoError(t, err)
 
-	cmd = exec.Command("git", "commit", "-m", "Initial commit")
-	cmd.Dir = dir
-	require.NoError(t, cmd.Run())
+	_, err = wt.Add("README.md")
+	require.NoError(t, err)
+
+	_, err = wt.Commit("Initial commit", &gogit.CommitOptions{
+		Author: &object.Signature{
+			Name:  "Test User",
+			Email: "test@test.com",
+			When:  time.Now(),
+		},
+	})
+	require.NoError(t, err)
 
 	// Create feature branch
-	cmd = exec.Command("git", "checkout", "-b", "feature")
-	cmd.Dir = dir
-	require.NoError(t, cmd.Run())
+	err = wt.Checkout(&gogit.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("feature"),
+		Create: true,
+	})
+	require.NoError(t, err)
 
 	// Add a new file on feature branch
 	newFile := filepath.Join(dir, "new_file.go")
 	require.NoError(t, os.WriteFile(newFile, []byte("package main\n"), 0644))
 
-	cmd = exec.Command("git", "add", ".")
-	cmd.Dir = dir
-	require.NoError(t, cmd.Run())
+	_, err = wt.Add("new_file.go")
+	require.NoError(t, err)
 
-	cmd = exec.Command("git", "commit", "-m", "Add new file")
-	cmd.Dir = dir
-	require.NoError(t, cmd.Run())
+	_, err = wt.Commit("Add new file", &gogit.CommitOptions{
+		Author: &object.Signature{
+			Name:  "Test User",
+			Email: "test@test.com",
+			When:  time.Now(),
+		},
+	})
+	require.NoError(t, err)
+}
+
+// captureStdout redirects os.Stdout during fn execution and returns the captured output.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+
+	os.Stdout = w
+
+	fn()
+
+	w.Close()
+	os.Stdout = old
+
+	data, err := io.ReadAll(r)
+	require.NoError(t, err)
+
+	return string(data)
 }

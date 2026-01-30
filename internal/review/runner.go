@@ -262,6 +262,49 @@ func (r *Runner) RegisterAgent(agent Agent) {
 	r.agents[agent.Name()] = agent
 }
 
+// ValidateSimplifications runs a validation agent to filter simplification findings.
+// It returns the validated result, or the original result if validation fails.
+func (r *Runner) ValidateSimplifications(ctx context.Context, workingDir string, simplificationResult *Result) (*Result, error) {
+	if len(simplificationResult.Issues) == 0 {
+		return simplificationResult, nil
+	}
+
+	r.log("Validating simplification suggestions...")
+
+	// Format the original findings as input for the validator
+	input := FormatIssuesMarkdown([]*Result{simplificationResult})
+
+	validatorCfg := AgentConfig{
+		Name:  "simplification-validator",
+		Focus: []string{"filter low-value simplification suggestions"},
+	}
+
+	agent := r.getOrCreateAgent(validatorCfg)
+
+	// Build a custom prompt with the simplification findings
+	result, err := agent.Review(ctx, workingDir, []string{"SIMPLIFICATION_INPUT:\n" + input})
+	if err != nil {
+		r.log(fmt.Sprintf("Simplification validation failed, using original results: %v", err))
+		return simplificationResult, nil
+	}
+
+	if result == nil || len(result.Issues) == 0 {
+		// Validator returned no structured output - check if it intentionally filtered everything
+		r.log("Simplification validator filtered all suggestions")
+		return &Result{
+			AgentName: "simplification",
+			Issues:    []Issue{},
+			Summary:   "All simplification suggestions filtered by validator",
+			Duration:  result.Duration,
+		}, nil
+	}
+
+	// Return validated results, keeping the original agent name
+	result.AgentName = "simplification"
+	r.log(fmt.Sprintf("Simplification validator kept %d of %d suggestions", len(result.Issues), len(simplificationResult.Issues)))
+	return result, nil
+}
+
 // RunPhase executes a single phase and returns the result.
 func (r *Runner) RunPhase(ctx context.Context, workingDir string, filesChanged []string, phase Phase) (*RunResult, error) {
 	start := time.Now()
@@ -287,6 +330,16 @@ func (r *Runner) RunPhase(ctx context.Context, workingDir string, filesChanged [
 	if err != nil {
 		result.Duration = time.Since(start)
 		return result, err
+	}
+
+	// Post-process: validate simplification results
+	for i, res := range passResults {
+		if res.AgentName == "simplification" && len(res.Issues) > 0 {
+			validated, validateErr := r.ValidateSimplifications(ctx, workingDir, res)
+			if validateErr == nil {
+				passResults[i] = validated
+			}
+		}
 	}
 
 	result.Results = passResults
