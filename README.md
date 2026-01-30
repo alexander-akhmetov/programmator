@@ -139,6 +139,7 @@ programmator config show
 | `timeout` | `900` | Seconds per Claude invocation |
 | `claude_flags` | `""` | Additional flags passed to the `claude` command |
 | `claude_config_dir` | `""` | Custom Claude config directory (empty = default) |
+| `anthropic_api_key` | `""` | Anthropic API key passed to Claude (overrides env) |
 | `ticket_command` | `tk` | Binary name for the ticket CLI (`tk` or `ticket`) |
 | `logs_dir` | `""` | Directory for progress logs (default: `~/.programmator/logs`) |
 | `git.auto_commit` | `false` | Auto-commit after each phase completion |
@@ -146,7 +147,7 @@ programmator config show
 | `git.completed_plans_dir` | `""` | Directory for completed plans (default: `plans/completed`) |
 | `git.branch_prefix` | `""` | Prefix for auto-created branches (default: `programmator/`) |
 | `review.enabled` | `false` | Enable code review after task phases complete |
-| `review.max_iterations` | `3` | Maximum review fix iterations |
+| `review.max_iterations` | `50` | Maximum review fix iterations (used as base for `iteration_pct`) |
 | `review.phases` | see [defaults](internal/config/defaults/config.yaml) | Review phase definitions with agent names, filters, and focus areas |
 
 ### Environment Variables
@@ -158,8 +159,11 @@ Each config key can also be set via environment variable with a `PROGRAMMATOR_` 
 | `PROGRAMMATOR_MAX_ITERATIONS` | 50 | Maximum loop iterations |
 | `PROGRAMMATOR_STAGNATION_LIMIT` | 3 | Exit after N iterations with no file changes |
 | `PROGRAMMATOR_TIMEOUT` | 900 | Seconds per Claude invocation |
-| `PROGRAMMATOR_CLAUDE_FLAGS` | `--dangerously-skip-permissions` | Flags passed to Claude |
+| `PROGRAMMATOR_CLAUDE_FLAGS` | `""` | Flags passed to Claude |
+| `PROGRAMMATOR_MAX_REVIEW_ITERATIONS` | 50 | Maximum review fix iterations |
+| `PROGRAMMATOR_REVIEW_ENABLED` | false | Enable code review after task phases complete |
 | `PROGRAMMATOR_TICKET_COMMAND` | `tk` | Binary name for the ticket CLI (`tk` or `ticket`) |
+| `PROGRAMMATOR_ANTHROPIC_API_KEY` | `""` | Anthropic API key passed to Claude |
 | `TICKETS_DIR` | `~/.tickets` | Where ticket files live |
 | `CLAUDE_CONFIG_DIR` | - | Custom Claude config directory (passed to Claude subprocess) |
 

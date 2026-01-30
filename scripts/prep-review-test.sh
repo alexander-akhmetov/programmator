@@ -90,6 +90,12 @@ git init -q
 git add -A
 git commit -q -m "Initial commit"
 
+# Ensure main branch exists (review defaults to main)
+git branch -M main
+
+# Create a feature branch for review changes
+git checkout -q -b review-test
+
 # Make changes that will be reviewed
 cat >> main.go << 'EOF'
 
@@ -111,11 +117,12 @@ func anotherHelper(x int) int {
 EOF
 
 git add -A
+git commit -q -m "Add intentionally problematic code"
 
 echo ""
 echo "==> Review test project created at $TEST_DIR"
 echo ""
-echo "The project has staged changes with code review issues:"
+echo "The project has committed changes with code review issues:"
 echo "  - Poor variable naming (x, y, z)"
 echo "  - Grouped imports should use import block"
 echo "  - Inefficient string concatenation"
@@ -128,6 +135,3 @@ echo ""
 echo "To test programmator review, run:"
 echo "  cd $TEST_DIR"
 echo "  programmator review"
-echo ""
-echo "Or with auto-fix:"
-echo "  programmator review --fix"

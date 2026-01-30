@@ -88,7 +88,7 @@ You are working on {{.ID}}
 Use a # inline and it stays
 ```
 
-To keep a markdown heading, indent it or restructure so it doesn't start the line with `#`. In practice, the default templates avoid this conflict by not using `#` headings at the start of lines — they use `##` markdown headings which are also stripped. If you need top-level headings in your prompt, use an alternative like bold text or a different marker.
+To keep a markdown heading, indent it or restructure so it doesn't start the line with `#`. The default templates intentionally use `#`/`##` lines as comments for readability, so those headings are stripped from the final prompt. If you need headings in the actual prompt, use a different marker (for example, `===` or bold text).
 
 ## Example: Custom Phased Template
 
@@ -98,17 +98,16 @@ To keep a markdown heading, indent it or restructure so it doesn't start the lin
 
 You are an autonomous coding agent working on: {{.Title}}
 
-## Task
+Task:
 {{.RawContent}}
 
-## What happened so far
+What happened so far:
 {{.Notes}}
 
-## Focus on
+Focus on:
 {{.CurrentPhase}}
 
-## When done
-Output this block:
+When done, output this block:
 
 PROGRAMMATOR_STATUS:
   phase_completed: "{{.CurrentPhaseName}}"
@@ -120,7 +119,9 @@ PROGRAMMATOR_STATUS:
 
 ## Review Agent Prompts
 
-The review system uses separate embedded prompts in `internal/review/prompts/`. These are **not** part of the override chain and can only be changed by modifying the source.
+The review system uses separate embedded prompts in `internal/review/prompts/` by default.
+You can override an agent prompt by setting `review.phases[].agents[].prompt` in config
+(the prompt text is used directly; it is not loaded from a file).
 
 | Agent | Prompt | Focus |
 |-------|--------|-------|

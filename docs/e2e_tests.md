@@ -28,7 +28,7 @@ programmator start ./plans/fix-issues.md --auto-commit
 
 ### Review mode (`make e2e-review`)
 
-Creates `/tmp/programmator-review-test/` — a Go project with code quality issues and staged git changes ready for review.
+Creates `/tmp/programmator-review-test/` — a Go project with code quality issues and a feature branch containing committed changes for review.
 
 **Issues included:**
 - Poor variable naming (`x`, `y`, `z`)
@@ -43,11 +43,9 @@ Creates `/tmp/programmator-review-test/` — a Go project with code quality issu
 make e2e-review
 cd /tmp/programmator-review-test
 programmator review
-# or with auto-fix:
-programmator review --fix
 ```
 
-**What to verify:** Review identifies the issues. With `--fix`, code quality improves.
+**What to verify:** Review identifies the issues and performs fix iterations. Check `git log --oneline` for fix commits and verify the code quality improves.
 
 ### Plan creation (`make e2e-plan`)
 
