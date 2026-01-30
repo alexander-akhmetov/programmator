@@ -2,10 +2,13 @@ package git
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
+	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,31 +23,36 @@ func setupTestRepo(t *testing.T) (string, func()) {
 		os.RemoveAll(dir)
 	}
 
-	// Initialize git repo
-	cmd := exec.Command("git", "init")
-	cmd.Dir = dir
-	require.NoError(t, cmd.Run())
+	// Initialize git repo with go-git
+	r, err := gogit.PlainInit(dir, false)
+	require.NoError(t, err)
 
 	// Configure git user for commits
-	cmd = exec.Command("git", "config", "user.email", "test@test.com")
-	cmd.Dir = dir
-	require.NoError(t, cmd.Run())
+	cfg, err := r.Config()
+	require.NoError(t, err)
+	cfg.User.Name = "Test User"
+	cfg.User.Email = "test@test.com"
+	err = r.SetConfig(cfg)
+	require.NoError(t, err)
 
-	cmd = exec.Command("git", "config", "user.name", "Test User")
-	cmd.Dir = dir
-	require.NoError(t, cmd.Run())
-
-	// Create initial commit (git requires at least one commit for most operations)
+	// Create initial commit
 	readme := filepath.Join(dir, "README.md")
 	require.NoError(t, os.WriteFile(readme, []byte("# Test\n"), 0644))
 
-	cmd = exec.Command("git", "add", "README.md")
-	cmd.Dir = dir
-	require.NoError(t, cmd.Run())
+	wt, err := r.Worktree()
+	require.NoError(t, err)
 
-	cmd = exec.Command("git", "commit", "-m", "Initial commit")
-	cmd.Dir = dir
-	require.NoError(t, cmd.Run())
+	_, err = wt.Add("README.md")
+	require.NoError(t, err)
+
+	_, err = wt.Commit("Initial commit", &gogit.CommitOptions{
+		Author: &object.Signature{
+			Name:  "Test User",
+			Email: "test@test.com",
+			When:  time.Now(),
+		},
+	})
+	require.NoError(t, err)
 
 	return dir, cleanup
 }
@@ -53,7 +61,8 @@ func TestRepo_BranchExists(t *testing.T) {
 	dir, cleanup := setupTestRepo(t)
 	defer cleanup()
 
-	repo := NewRepo(dir)
+	repo, err := NewRepo(dir)
+	require.NoError(t, err)
 
 	// Main/master branch should exist
 	exists, err := repo.BranchExists("main")
@@ -74,10 +83,11 @@ func TestRepo_CreateBranch(t *testing.T) {
 	dir, cleanup := setupTestRepo(t)
 	defer cleanup()
 
-	repo := NewRepo(dir)
+	repo, err := NewRepo(dir)
+	require.NoError(t, err)
 
 	// Create a new branch
-	err := repo.CreateBranch("feature/test")
+	err = repo.CreateBranch("feature/test")
 	require.NoError(t, err)
 
 	// Should be on the new branch
@@ -95,10 +105,11 @@ func TestRepo_CreateBranch_ExistingBranch(t *testing.T) {
 	dir, cleanup := setupTestRepo(t)
 	defer cleanup()
 
-	repo := NewRepo(dir)
+	repo, err := NewRepo(dir)
+	require.NoError(t, err)
 
 	// Create a branch
-	err := repo.CreateBranch("feature/test")
+	err = repo.CreateBranch("feature/test")
 	require.NoError(t, err)
 
 	// Switch back to main/master
@@ -123,14 +134,15 @@ func TestRepo_AddAndCommit(t *testing.T) {
 	dir, cleanup := setupTestRepo(t)
 	defer cleanup()
 
-	repo := NewRepo(dir)
+	repo, err := NewRepo(dir)
+	require.NoError(t, err)
 
 	// Create a file
 	testFile := filepath.Join(dir, "test.txt")
 	require.NoError(t, os.WriteFile(testFile, []byte("test content"), 0644))
 
 	// Add and commit
-	err := repo.AddAndCommit([]string{"test.txt"}, "Add test file")
+	err = repo.AddAndCommit([]string{"test.txt"}, "Add test file")
 	require.NoError(t, err)
 
 	// No uncommitted changes should remain
@@ -143,23 +155,36 @@ func TestRepo_AddAndCommit_NoChanges(t *testing.T) {
 	dir, cleanup := setupTestRepo(t)
 	defer cleanup()
 
-	repo := NewRepo(dir)
+	repo, err := NewRepo(dir)
+	require.NoError(t, err)
+
+	// Record HEAD before attempt
+	r, err := gogit.PlainOpen(dir)
+	require.NoError(t, err)
+	headBefore, err := r.Head()
+	require.NoError(t, err)
 
 	// Add and commit with no files - should not error
-	err := repo.AddAndCommit([]string{}, "Empty commit")
+	err = repo.AddAndCommit([]string{}, "Empty commit")
 	require.NoError(t, err)
+
+	// Verify HEAD did not move (no commit was created)
+	headAfter, err := r.Head()
+	require.NoError(t, err)
+	assert.Equal(t, headBefore.Hash(), headAfter.Hash(), "HEAD should not move when committing with no files")
 }
 
 func TestRepo_MoveFile(t *testing.T) {
 	dir, cleanup := setupTestRepo(t)
 	defer cleanup()
 
-	repo := NewRepo(dir)
+	repo, err := NewRepo(dir)
+	require.NoError(t, err)
 
 	// Create and commit a file
 	testFile := filepath.Join(dir, "source.txt")
 	require.NoError(t, os.WriteFile(testFile, []byte("content"), 0644))
-	err := repo.AddAndCommit([]string{"source.txt"}, "Add source file")
+	err = repo.AddAndCommit([]string{"source.txt"}, "Add source file")
 	require.NoError(t, err)
 
 	// Create destination directory
@@ -183,7 +208,8 @@ func TestRepo_HasUncommittedChanges(t *testing.T) {
 	dir, cleanup := setupTestRepo(t)
 	defer cleanup()
 
-	repo := NewRepo(dir)
+	repo, err := NewRepo(dir)
+	require.NoError(t, err)
 
 	// Initially no uncommitted changes
 	hasChanges, err := repo.HasUncommittedChanges()
@@ -273,4 +299,203 @@ func TestSanitizeBranchName(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestNewRepo_NonGitDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	_, err := NewRepo(tmpDir)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "open git repo")
+}
+
+func TestRepo_Add_PathTraversal(t *testing.T) {
+	dir, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	repo, err := NewRepo(dir)
+	require.NoError(t, err)
+
+	err = repo.Add("../../../etc/passwd")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "path traversal not allowed")
+
+	err = repo.Add("/etc/passwd")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "absolute path not allowed")
+}
+
+func TestRepo_MoveFile_PathTraversal(t *testing.T) {
+	dir, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	repo, err := NewRepo(dir)
+	require.NoError(t, err)
+
+	err = repo.MoveFile("../outside", "dest.txt")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "path traversal not allowed")
+
+	err = repo.MoveFile("source.txt", "../outside")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "path traversal not allowed")
+}
+
+func TestRepo_CheckoutBranch_NonExistent(t *testing.T) {
+	dir, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	repo, err := NewRepo(dir)
+	require.NoError(t, err)
+
+	err = repo.CheckoutBranch("nonexistent-branch")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "checkout branch")
+}
+
+func TestRepo_WorkDir(t *testing.T) {
+	dir, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	repo, err := NewRepo(dir)
+	require.NoError(t, err)
+
+	assert.Equal(t, dir, repo.WorkDir())
+}
+
+func TestRepo_CommitSignatureFromLocalConfig(t *testing.T) {
+	// Create a repo with user.name/user.email in local config
+	dir := t.TempDir()
+	r, err := gogit.PlainInit(dir, false)
+	require.NoError(t, err)
+
+	cfg, err := r.Config()
+	require.NoError(t, err)
+	cfg.User.Name = "Local User"
+	cfg.User.Email = "local@test.com"
+	require.NoError(t, r.SetConfig(cfg))
+
+	// Create initial commit with explicit author (required by go-git)
+	readme := filepath.Join(dir, "README.md")
+	require.NoError(t, os.WriteFile(readme, []byte("# Test\n"), 0644))
+	wt, err := r.Worktree()
+	require.NoError(t, err)
+	_, err = wt.Add("README.md")
+	require.NoError(t, err)
+	_, err = wt.Commit("Initial commit", &gogit.CommitOptions{
+		Author: &object.Signature{
+			Name:  "Setup",
+			Email: "setup@test.com",
+			When:  time.Now(),
+		},
+	})
+	require.NoError(t, err)
+
+	// Open via NewRepo and create a file to commit
+	repo, err := NewRepo(dir)
+	require.NoError(t, err)
+
+	testFile := filepath.Join(dir, "test.txt")
+	require.NoError(t, os.WriteFile(testFile, []byte("content"), 0644))
+
+	err = repo.AddAndCommit([]string{"test.txt"}, "Test commit with local config")
+	require.NoError(t, err)
+
+	// Verify the commit used local config values
+	head, err := r.Head()
+	require.NoError(t, err)
+	commit, err := r.CommitObject(head.Hash())
+	require.NoError(t, err)
+
+	assert.Equal(t, "Local User", commit.Author.Name)
+	assert.Equal(t, "local@test.com", commit.Author.Email)
+}
+
+func TestRepo_ChangedFilesFromBase(t *testing.T) {
+	dir := t.TempDir()
+
+	r, err := gogit.PlainInit(dir, false)
+	require.NoError(t, err)
+
+	cfg, err := r.Config()
+	require.NoError(t, err)
+	cfg.User.Name = "Test User"
+	cfg.User.Email = "test@test.com"
+	require.NoError(t, r.SetConfig(cfg))
+
+	// Initial commit
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Test\n"), 0644))
+	wt, err := r.Worktree()
+	require.NoError(t, err)
+	_, err = wt.Add("README.md")
+	require.NoError(t, err)
+	_, err = wt.Commit("Initial commit", &gogit.CommitOptions{
+		Author: &object.Signature{Name: "Test", Email: "test@test.com", When: time.Now()},
+	})
+	require.NoError(t, err)
+
+	// Create main branch ref
+	head, err := r.Head()
+	require.NoError(t, err)
+	ref := plumbing.NewHashReference(plumbing.NewBranchReferenceName("main"), head.Hash())
+	require.NoError(t, r.Storer.SetReference(ref))
+
+	// Create feature branch with a change
+	err = wt.Checkout(&gogit.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("feature"),
+		Create: true,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "new.go"), []byte("package main\n"), 0644))
+	_, err = wt.Add("new.go")
+	require.NoError(t, err)
+	_, err = wt.Commit("Add new file", &gogit.CommitOptions{
+		Author: &object.Signature{Name: "Test", Email: "test@test.com", When: time.Now()},
+	})
+	require.NoError(t, err)
+
+	// Use Repo.ChangedFilesFromBase
+	repo, err := NewRepo(dir)
+	require.NoError(t, err)
+
+	files, err := repo.ChangedFilesFromBase("main")
+	require.NoError(t, err)
+	assert.Contains(t, files, "new.go")
+}
+
+func TestIsRepo(t *testing.T) {
+	dir, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	assert.True(t, IsRepo(dir))
+
+	// Subdirectory should NOT be detected as repo root by IsRepo
+	subDir := filepath.Join(dir, "subdir")
+	require.NoError(t, os.MkdirAll(subDir, 0755))
+	assert.False(t, IsRepo(subDir))
+
+	tmpDir, err := os.MkdirTemp("", "non-repo-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	assert.False(t, IsRepo(tmpDir))
+}
+
+func TestIsInsideRepo(t *testing.T) {
+	dir, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	// Repo root should be detected
+	assert.True(t, IsInsideRepo(dir))
+
+	// Subdirectory inside repo should also be detected
+	subDir := filepath.Join(dir, "subdir")
+	require.NoError(t, os.MkdirAll(subDir, 0755))
+	assert.True(t, IsInsideRepo(subDir))
+
+	// Non-repo directory should not be detected
+	tmpDir, err := os.MkdirTemp("", "non-repo-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+	assert.False(t, IsInsideRepo(tmpDir))
 }

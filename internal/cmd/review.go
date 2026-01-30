@@ -162,9 +162,9 @@ func runReview(_ *cobra.Command, _ []string) error {
 	return nil
 }
 
-// isGitRepo checks if the directory is a git repository.
+// isGitRepo checks if the directory is inside a git repository.
 func isGitRepo(dir string) bool {
-	return git.IsRepo(dir)
+	return git.IsInsideRepo(dir)
 }
 
 // Styles for summary output
