@@ -875,6 +875,7 @@ func TestRunReviewOnlyBlocked(t *testing.T) {
 func TestRunReviewOnlyFixAndPass(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
+	l.SetGitWorkflowConfig(GitWorkflowConfig{AutoCommit: true})
 	l.SetReviewConfig(singleAgentReviewConfig())
 
 	// Mock review runner: first call returns issues, second call passes

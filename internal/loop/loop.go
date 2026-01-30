@@ -1656,11 +1656,11 @@ func (l *Loop) invokeFixAndProcess(roc *reviewOnlyContext, reviewResult *review.
 		return true, nil
 	}
 
-	if len(status.FilesChanged) > 0 {
+	if len(status.FilesChanged) > 0 && l.gitConfig.AutoCommit {
 		if status.CommitMade {
 			roc.result.CommitsMade++
 			l.log(fmt.Sprintf("Commit made by Claude (total: %d)", roc.result.CommitsMade))
-		} else {
+		} else if l.gitRepo != nil {
 			l.log("Auto-committing changes...")
 			if err := l.autoCommitChanges(status.FilesChanged, status.Summary); err != nil {
 				l.log(fmt.Sprintf("Warning: auto-commit failed: %v", err))
@@ -1718,9 +1718,9 @@ func (l *Loop) buildReviewFixPrompt(baseBranch string, filesChanged []string, is
 		// Use ReviewFirst for comprehensive phase (typically first phase)
 		// Use ReviewSecond for critical/filtered phases (typically have severity filters)
 		if len(phase.SeverityFilter) > 0 {
-			return l.promptBuilder.BuildReviewSecond(baseBranch, filesChanged, issuesMarkdown, iteration)
+			return l.promptBuilder.BuildReviewSecond(baseBranch, filesChanged, issuesMarkdown, iteration, l.gitConfig.AutoCommit)
 		}
-		return l.promptBuilder.BuildReviewFirst(baseBranch, filesChanged, issuesMarkdown, iteration)
+		return l.promptBuilder.BuildReviewFirst(baseBranch, filesChanged, issuesMarkdown, iteration, l.gitConfig.AutoCommit)
 	}
 	return defaultReviewFixPrompt(baseBranch, filesChanged, issuesMarkdown, iteration), nil
 }

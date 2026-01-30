@@ -230,7 +230,7 @@ func TestBuilder_BuildReviewFirst(t *testing.T) {
 	builder, err := NewBuilder(nil)
 	require.NoError(t, err)
 
-	result, err := builder.BuildReviewFirst("main", []string{"file1.go"}, "Critical issue found", 1)
+	result, err := builder.BuildReviewFirst("main", []string{"file1.go"}, "Critical issue found", 1, false)
 	require.NoError(t, err)
 
 	assert.Contains(t, result, "main")
@@ -240,13 +240,22 @@ func TestBuilder_BuildReviewFirst(t *testing.T) {
 	// Verify it's the comprehensive review template (check for unique content)
 	assert.Contains(t, result, "CONFIRMED")
 	assert.Contains(t, result, "FALSE POSITIVE")
+	// Without auto-commit, should not contain commit instructions
+	assert.NotContains(t, result, "commit_made")
+	assert.NotContains(t, result, "git commit")
+
+	// With auto-commit enabled
+	resultAC, err := builder.BuildReviewFirst("main", []string{"file1.go"}, "Critical issue found", 1, true)
+	require.NoError(t, err)
+	assert.Contains(t, resultAC, "commit_made")
+	assert.Contains(t, resultAC, "git commit")
 }
 
 func TestBuilder_BuildReviewSecond(t *testing.T) {
 	builder, err := NewBuilder(nil)
 	require.NoError(t, err)
 
-	result, err := builder.BuildReviewSecond("main", []string{"file1.go"}, "High severity issue", 2)
+	result, err := builder.BuildReviewSecond("main", []string{"file1.go"}, "High severity issue", 2, false)
 	require.NoError(t, err)
 
 	assert.Contains(t, result, "main")

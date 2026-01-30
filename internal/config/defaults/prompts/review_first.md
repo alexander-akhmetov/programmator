@@ -55,7 +55,9 @@ Do NOT reject issues just because they existed before this branch - fix them any
 
 1. Fix all CONFIRMED issues (all types: bugs, tests, smells, docs, etc.)
 2. Run tests and linter to verify fixes - ALL tests must pass, ALL linter issues resolved
+{{- if .AutoCommit }}
 3. Commit fixes: `git commit -m "fix: address code review findings"`
+{{- end }}
 
 ## Step 5: Signal Completion
 
@@ -68,7 +70,7 @@ Path A - NO confirmed issues found:
 - Output DONE status
 
 Path B - Issues found AND fixed:
-- You found issues, fixed them, and committed
+- You found issues and fixed them
 - Output CONTINUE status
 - The loop will run another review iteration to verify your fixes
 - Your fixes might have introduced new issues - another iteration must check
@@ -88,7 +90,9 @@ PROGRAMMATOR_STATUS:
     - file1.go
     - file2.go
   summary: "Fixed N issues: brief description"
+{{- if .AutoCommit }}
   commit_made: true
+{{- end }}
 ```
 
 Status values:

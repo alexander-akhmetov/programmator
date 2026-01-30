@@ -54,8 +54,12 @@ Path A - NO issues found in this iteration:
 Path B - Issues found AND fixed:
 1. Fix verified critical/major issues only
 2. Run tests and linter - ALL tests must pass, ALL linter issues resolved
+{{- if .AutoCommit }}
 3. Commit fixes: `git commit -m "fix: address code review findings"`
 4. Output CONTINUE status
+{{- else }}
+3. Output CONTINUE status
+{{- end }}
    The loop will run another review iteration to verify your fixes.
    Your fixes might have introduced new issues - another iteration must check.
 
@@ -74,7 +78,9 @@ PROGRAMMATOR_STATUS:
     - file1.go
     - file2.go
   summary: "Fixed N critical issues: brief description"
+{{- if .AutoCommit }}
   commit_made: true
+{{- end }}
 ```
 
 Status values:

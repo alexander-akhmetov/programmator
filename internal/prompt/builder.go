@@ -82,6 +82,7 @@ type ReviewFixData struct {
 	Iteration      int
 	FilesList      string
 	IssuesMarkdown string
+	AutoCommit     bool
 }
 
 // PlanCreateData contains the data for rendering plan creation prompts.
@@ -118,23 +119,25 @@ func (b *Builder) Build(w *source.WorkItem, notes []string) (string, error) {
 }
 
 // BuildReviewFirst creates a prompt for comprehensive review phase.
-func (b *Builder) BuildReviewFirst(baseBranch string, filesChanged []string, issuesMarkdown string, iteration int) (string, error) {
+func (b *Builder) BuildReviewFirst(baseBranch string, filesChanged []string, issuesMarkdown string, iteration int, autoCommit bool) (string, error) {
 	data := ReviewFixData{
 		BaseBranch:     baseBranch,
 		Iteration:      iteration,
 		FilesList:      formatFilesList(filesChanged),
 		IssuesMarkdown: issuesMarkdown,
+		AutoCommit:     autoCommit,
 	}
 	return b.render(b.reviewFirstTmpl, data)
 }
 
 // BuildReviewSecond creates a prompt for critical/major issues review phase (multi-phase system).
-func (b *Builder) BuildReviewSecond(baseBranch string, filesChanged []string, issuesMarkdown string, iteration int) (string, error) {
+func (b *Builder) BuildReviewSecond(baseBranch string, filesChanged []string, issuesMarkdown string, iteration int, autoCommit bool) (string, error) {
 	data := ReviewFixData{
 		BaseBranch:     baseBranch,
 		Iteration:      iteration,
 		FilesList:      formatFilesList(filesChanged),
 		IssuesMarkdown: issuesMarkdown,
+		AutoCommit:     autoCommit,
 	}
 	return b.render(b.reviewSecondTmpl, data)
 }
