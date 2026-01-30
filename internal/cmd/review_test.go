@@ -47,15 +47,16 @@ func TestIsGitRepo(t *testing.T) {
 	cwd, err := os.Getwd()
 	require.NoError(t, err)
 
-	if !git.IsRepo(cwd) {
+	if !git.IsInsideRepo(cwd) {
 		t.Skip("Not in a git repository")
 	}
 
 	// Current directory should be a git repo
 	assert.True(t, isGitRepo(cwd))
 
-	// /tmp is likely not a git repo
-	assert.False(t, isGitRepo("/tmp"))
+	// A fresh temp directory should not be a git repo
+	nonRepoDir := t.TempDir()
+	assert.False(t, isGitRepo(nonRepoDir))
 }
 
 func TestGetChangedFiles(t *testing.T) {

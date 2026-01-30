@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	gogit "github.com/go-git/go-git/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -396,4 +397,48 @@ func TestView(t *testing.T) {
 
 	assert.NotEmpty(t, output)
 	assert.Contains(t, output, "PERMISSION REQUEST")
+}
+
+func TestDetectGitRoot(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "empty path",
+			path: "",
+			want: "",
+		},
+		{
+			name: "relative path",
+			path: "relative/path/file.go",
+			want: "",
+		},
+		{
+			name: "not in repo",
+			path: "/nonexistent/path/to/file.go",
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := detectGitRoot(tt.path)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestDetectGitRoot_InsideRepo(t *testing.T) {
+	// Create a temporary git repo
+	dir := t.TempDir()
+
+	_, err := gogit.PlainInit(dir, false)
+	require.NoError(t, err)
+
+	// detectGitRoot should find the repo root from a file path inside it
+	filePath := dir + "/subdir/file.go"
+	got := detectGitRoot(filePath)
+	assert.Equal(t, dir, got)
 }

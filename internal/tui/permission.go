@@ -2,13 +2,13 @@ package tui
 
 import (
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/worksonmyai/programmator/internal/debug"
+	gitutil "github.com/worksonmyai/programmator/internal/git"
 	"github.com/worksonmyai/programmator/internal/permission"
 )
 
@@ -476,20 +476,16 @@ func detectGitRoot(path string) string {
 		return ""
 	}
 
-	// Start from the path and go up
-	dir := path
-	if !filepath.IsAbs(dir) {
+	if !filepath.IsAbs(path) {
 		return ""
 	}
 
-	// Check if it's a file, get directory
-	dir = filepath.Dir(dir)
+	// Start from the directory of the path and walk up
+	dir := filepath.Dir(path)
 
-	for dir != "/" && dir != "." {
-		cmd := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel")
-		out, err := cmd.Output()
-		if err == nil {
-			return strings.TrimSpace(string(out))
+	for dir != filepath.Dir(dir) && dir != "." {
+		if gitutil.IsRepo(dir) {
+			return dir
 		}
 		dir = filepath.Dir(dir)
 	}

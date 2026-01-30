@@ -2,11 +2,9 @@
 package tui
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -19,6 +17,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/worksonmyai/programmator/internal/debug"
+	gitutil "github.com/worksonmyai/programmator/internal/git"
 	"github.com/worksonmyai/programmator/internal/loop"
 	"github.com/worksonmyai/programmator/internal/permission"
 	"github.com/worksonmyai/programmator/internal/progress"
@@ -836,24 +835,19 @@ func (m Model) wrapLogs() string {
 }
 
 func getGitInfo(workingDir string) (branch string, dirty bool) {
-	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-	cmd.Dir = workingDir
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
+	repo, err := gitutil.NewRepo(workingDir)
+	if err != nil {
 		return "", false
 	}
-	branch = strings.TrimSpace(out.String())
-
-	cmd = exec.Command("git", "status", "--porcelain")
-	cmd.Dir = workingDir
-	out.Reset()
-	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
+	branch, err = repo.CurrentBranch()
+	if err != nil {
+		return "", false
+	}
+	hasChanges, err := repo.HasUncommittedChanges()
+	if err != nil {
 		return branch, false
 	}
-	dirty = len(strings.TrimSpace(out.String())) > 0
-	return branch, dirty
+	return branch, hasChanges
 }
 
 func abbreviatePath(path string) string {
@@ -1115,10 +1109,9 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 
 // getGitRoot returns the git repository root for the given directory, or empty string if not in a repo.
 func getGitRoot(dir string) string {
-	cmd := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel")
-	out, err := cmd.Output()
+	repo, err := gitutil.NewRepo(dir)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	return repo.WorkDir()
 }
