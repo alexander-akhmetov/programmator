@@ -116,14 +116,14 @@ Unified YAML config with multi-level merge: embedded defaults → `~/.config/pro
 | `PROGRAMMATOR_MAX_ITERATIONS` | 50 | Loop limit |
 | `PROGRAMMATOR_STAGNATION_LIMIT` | 3 | Exit after N iterations with no file changes |
 | `PROGRAMMATOR_TIMEOUT` | 900 | Seconds per Claude invocation |
-| `PROGRAMMATOR_CLAUDE_FLAGS` | `--dangerously-skip-permissions` | Flags passed to Claude |
+| `PROGRAMMATOR_CLAUDE_FLAGS` | `""` | Flags passed to Claude |
 | `TICKETS_DIR` | `~/.tickets` | Where ticket files live |
 | `CLAUDE_CONFIG_DIR` | - | Custom Claude config directory |
 | `PROGRAMMATOR_ANTHROPIC_API_KEY` | - | Anthropic API key forwarded to Claude (`ANTHROPIC_API_KEY` is filtered from inherited env) |
 
 ### Prompt Templates
 
-Prompts use Go `text/template` syntax. Override by placing files in `~/.config/programmator/prompts/` (global) or `.programmator/prompts/` (local). Templates: `phased.md`, `phaseless.md`, `review_fix.md`, `plan_create.md`.
+Prompts use Go `text/template` syntax. Override by placing files in `~/.config/programmator/prompts/` (global) or `.programmator/prompts/` (local). Templates: `phased.md`, `phaseless.md`, `review_first.md`, `review_second.md`, `plan_create.md`.
 
 ## Testing
 

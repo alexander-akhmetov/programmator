@@ -124,7 +124,7 @@ Programmator uses a unified YAML config with multi-level merge (highest priority
 4. Local config (`.programmator/config.yaml` in project directory)
 5. CLI flags
 
-On first run, a default config file is created at `~/.config/programmator/config.yaml`. See resolved values with:
+See resolved values with:
 
 ```bash
 programmator config show
