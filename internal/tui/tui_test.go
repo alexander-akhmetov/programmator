@@ -521,6 +521,38 @@ func TestWrapLogs(t *testing.T) {
 	}
 }
 
+func TestWrapLogsProgMessageWrapping(t *testing.T) {
+	model := NewModel(safety.Config{})
+
+	// Need a wide enough terminal so the viewport gets sufficient width
+	// (sidebar takes ~45 cols, plus padding, so we need ~160+ for a useful viewport)
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 200, Height: 24})
+	m := updatedModel.(Model)
+
+	longMsg := "[PROG]This is a very long programmator message that should be word-wrapped to fit within the viewport width properly and not just keep going on a single line forever"
+	m.logs = []string{longMsg}
+
+	result := m.wrapLogs()
+	require.NotEmpty(t, result)
+	require.Contains(t, result, "programmator:")
+	// With viewport width ~147, the long message should wrap
+	require.Contains(t, result, "\n", "long PROG message should be wrapped")
+}
+
+func TestWrapLogsToolMessageWrapping(t *testing.T) {
+	model := NewModel(safety.Config{})
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 200, Height: 24})
+	m := updatedModel.(Model)
+
+	longMsg := "[TOOL]This is a very long tool message that should be word-wrapped to fit within the viewport width properly and not overflow into a single extremely long line"
+	m.logs = []string{longMsg}
+
+	result := m.wrapLogs()
+	require.NotEmpty(t, result)
+	require.Contains(t, result, "\n", "long TOOL message should be wrapped")
+}
+
 func TestWrapLogsWithRenderer(t *testing.T) {
 	model := NewModel(safety.Config{})
 	model.logs = []string{"**bold**"}

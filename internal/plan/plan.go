@@ -175,6 +175,17 @@ func (p *Plan) MarkTaskComplete(taskName string) error {
 		}
 	}
 
+	// Third pass: query contains existing task name (Claude elaborated)
+	for i := range p.Tasks {
+		if !p.Tasks[i].Completed {
+			existingName := normalizeTaskName(p.Tasks[i].Name)
+			if strings.Contains(normalizedName, existingName) {
+				p.Tasks[i].Completed = true
+				return nil
+			}
+		}
+	}
+
 	return fmt.Errorf("task not found or already completed: %s", taskName)
 }
 

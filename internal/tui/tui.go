@@ -756,13 +756,40 @@ func (m Model) wrapLogs() string {
 		if strings.HasPrefix(line, "[PROG]") {
 			flushMarkdown()
 			msg := strings.TrimPrefix(line, "[PROG]")
-			styled := progPrefixStyle.Render("▶ programmator:") + " " + msg
-			processed = append(processed, styled)
+			prefix := progPrefixStyle.Render("▶ programmator:") + " "
+			prefixLen := lipgloss.Width(prefix)
+			availWidth := m.logViewport.Width - prefixLen
+			if availWidth > 20 {
+				indent := strings.Repeat(" ", prefixLen)
+				wrapped := wrapText(msg, m.logViewport.Width, indent, 0)
+				lines := strings.SplitN(wrapped, "\n", 2)
+				if len(lines) == 2 {
+					processed = append(processed, prefix+lines[0]+"\n"+lines[1])
+				} else {
+					processed = append(processed, prefix+wrapped)
+				}
+			} else {
+				processed = append(processed, prefix+msg)
+			}
 		} else if strings.HasPrefix(line, "[TOOL]") {
 			flushMarkdown()
 			msg := strings.TrimPrefix(line, "[TOOL]")
-			styled := toolStyle.Render("> " + msg)
-			processed = append(processed, styled)
+			toolPrefix := toolStyle.Render("> ")
+			toolPrefixLen := lipgloss.Width(toolPrefix)
+			availWidth := m.logViewport.Width - toolPrefixLen
+			if availWidth > 20 {
+				indent := strings.Repeat(" ", toolPrefixLen)
+				wrapped := wrapText(msg, m.logViewport.Width, indent, 0)
+				lines := strings.SplitN(wrapped, "\n", 2)
+				if len(lines) == 2 {
+					processed = append(processed, toolPrefix+lines[0]+"\n"+lines[1])
+				} else {
+					processed = append(processed, toolPrefix+wrapped)
+				}
+			} else {
+				styled := toolStyle.Render("> " + msg)
+				processed = append(processed, styled)
+			}
 		} else if strings.HasPrefix(line, "[TOOLRES]") {
 			flushMarkdown()
 			msg := strings.TrimPrefix(line, "[TOOLRES]")

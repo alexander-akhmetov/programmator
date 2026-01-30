@@ -225,6 +225,26 @@ func TestMarkTaskComplete(t *testing.T) {
 	assert.True(t, plan.Tasks[1].Completed)
 }
 
+func TestMarkTaskComplete_ReverseContains(t *testing.T) {
+	plan := &Plan{
+		Tasks: []Task{
+			{Name: "Task 1: Setup", Completed: false},
+			{Name: "Task 2: Build", Completed: false},
+		},
+	}
+
+	// Claude returns a longer name that contains the task name
+	err := plan.MarkTaskComplete("Setup the project environment and dependencies")
+	require.NoError(t, err)
+	assert.True(t, plan.Tasks[0].Completed)
+	assert.False(t, plan.Tasks[1].Completed)
+
+	// Also works with prefix-stripped matching
+	err = plan.MarkTaskComplete("Task 2: Build the application and run integration tests")
+	require.NoError(t, err)
+	assert.True(t, plan.Tasks[1].Completed)
+}
+
 func TestMarkTaskComplete_AlreadyCompleted(t *testing.T) {
 	plan := &Plan{
 		Tasks: []Task{
