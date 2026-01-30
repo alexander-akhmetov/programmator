@@ -294,12 +294,12 @@ review:
 	assert.True(t, cfg.Review.EnabledSet)
 }
 
-func TestParseConfigWithTrackingRejectsReviewPasses(t *testing.T) {
+func TestParseConfigWithTrackingIgnoresReviewPasses(t *testing.T) {
 	data := []byte(`
 review:
   passes: []
 `)
-	_, err := parseConfigWithTracking(data)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "review.passes")
+	cfg, err := parseConfigWithTracking(data)
+	require.NoError(t, err)
+	assert.NotNil(t, cfg)
 }

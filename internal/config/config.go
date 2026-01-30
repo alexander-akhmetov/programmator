@@ -276,9 +276,8 @@ func parseConfigWithTracking(data []byte) (*Config, error) {
 
 	// Track review fields
 	if review, ok := raw["review"].(map[string]any); ok {
-		if _, ok := review["passes"]; ok {
-			return nil, fmt.Errorf("review.passes is no longer supported; use review.phases")
-		}
+		// Silently ignore legacy "passes" key; users should migrate to "phases".
+		delete(review, "passes")
 		if _, ok := review["enabled"]; ok {
 			cfg.Review.EnabledSet = true
 		}
