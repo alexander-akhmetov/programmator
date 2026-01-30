@@ -597,3 +597,227 @@ This ticket has no checkbox phases - it should be treated as a single task.
 	require.Nil(t, ticket.CurrentPhase())
 	require.False(t, ticket.AllPhasesComplete())
 }
+
+func TestParsePhases_HeadingBased(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		expected []Phase
+	}{
+		{
+			name: "single step with colon",
+			content: `# Plan
+## Step 1: Add new agent prompts
+Some content here`,
+			expected: []Phase{
+				{Name: "Step 1: Add new agent prompts", Completed: false},
+			},
+		},
+		{
+			name: "single step with period",
+			content: `# Plan
+## Step 1. Add new agent prompts
+Some content here`,
+			expected: []Phase{
+				{Name: "Step 1. Add new agent prompts", Completed: false},
+			},
+		},
+		{
+			name: "multiple steps",
+			content: `# Plan
+## Step 1: Add 3 New Agent Prompts
+Content for step 1
+## Step 2: Add Phase Config Model
+Content for step 2
+## Step 3: Add Severity Filtering to RunResult
+Content for step 3`,
+			expected: []Phase{
+				{Name: "Step 1: Add 3 New Agent Prompts", Completed: false},
+				{Name: "Step 2: Add Phase Config Model", Completed: false},
+				{Name: "Step 3: Add Severity Filtering to RunResult", Completed: false},
+			},
+		},
+		{
+			name: "steps with checkboxes at end",
+			content: `# Plan
+## Step 1: Investigation [x]
+## Step 2: Implementation [ ]
+## Step 3: Testing [X]`,
+			expected: []Phase{
+				{Name: "Step 1: Investigation", Completed: true},
+				{Name: "Step 2: Implementation", Completed: false},
+				{Name: "Step 3: Testing", Completed: true},
+			},
+		},
+		{
+			name: "phase keyword instead of step",
+			content: `# Plan
+## Phase 1: Setup
+## Phase 2: Implementation`,
+			expected: []Phase{
+				{Name: "Phase 1: Setup", Completed: false},
+				{Name: "Phase 2: Implementation", Completed: false},
+			},
+		},
+		{
+			name: "mixed with other headings (should only match Step/Phase)",
+			content: `# Title
+## Step 1: First task
+## Notes
+Some notes here
+## Step 2: Second task
+## References
+More content`,
+			expected: []Phase{
+				{Name: "Step 1: First task", Completed: false},
+				{Name: "Step 2: Second task", Completed: false},
+			},
+		},
+		{
+			name: "checkbox phases take precedence over heading phases",
+			content: `# Plan
+## Design
+- [ ] Phase 1: Investigation
+- [ ] Phase 2: Implementation
+## Step 1: Add new prompts
+## Step 2: Update config`,
+			expected: []Phase{
+				{Name: "Phase 1: Investigation", Completed: false},
+				{Name: "Phase 2: Implementation", Completed: false},
+			},
+		},
+		{
+			name: "no phases when no matching patterns",
+			content: `# Plan
+## Introduction
+Some text
+## Conclusion
+More text`,
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			phases := parsePhases(tt.content)
+			require.Equal(t, len(tt.expected), len(phases), "expected %d phases, got %d", len(tt.expected), len(phases))
+			for i, phase := range phases {
+				assert.Equal(t, tt.expected[i].Name, phase.Name, "phase %d name mismatch", i)
+				assert.Equal(t, tt.expected[i].Completed, phase.Completed, "phase %d completed status mismatch", i)
+			}
+		})
+	}
+}
+
+func TestUpdatePhase_HeadingBased(t *testing.T) {
+	setup := func(t *testing.T, content string) (*CLIClient, string) {
+		t.Helper()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "t-1234.md")
+		require.NoError(t, os.WriteFile(path, []byte(content), 0644))
+		return &CLIClient{ticketsDir: dir}, path
+	}
+
+	t.Run("marks heading phase as complete by adding checkbox", func(t *testing.T) {
+		content := `# Plan
+## Step 1: Add new agent prompts
+## Step 2: Update config
+`
+		client, path := setup(t, content)
+		err := client.UpdatePhase("t-1234", "Step 1: Add new agent prompts")
+		require.NoError(t, err)
+
+		data, _ := os.ReadFile(path)
+		assert.Contains(t, string(data), "## Step 1: Add new agent prompts [x]")
+		assert.Contains(t, string(data), "## Step 2: Update config")
+	})
+
+	t.Run("updates existing checkbox marker on heading phase", func(t *testing.T) {
+		content := `# Plan
+## Step 1: Investigation [ ]
+## Step 2: Implementation [ ]
+`
+		client, path := setup(t, content)
+		err := client.UpdatePhase("t-1234", "Step 1: Investigation")
+		require.NoError(t, err)
+
+		data, _ := os.ReadFile(path)
+		assert.Contains(t, string(data), "## Step 1: Investigation [x]")
+		assert.Contains(t, string(data), "## Step 2: Implementation [ ]")
+	})
+
+	t.Run("error when heading phase already completed", func(t *testing.T) {
+		content := `# Plan
+## Step 1: Investigation [x]
+`
+		client, _ := setup(t, content)
+		err := client.UpdatePhase("t-1234", "Step 1: Investigation")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found or already completed")
+	})
+
+	t.Run("fuzzy matching for heading phases", func(t *testing.T) {
+		content := `# Plan
+## Step 1: Add new agent prompts
+`
+		client, path := setup(t, content)
+		err := client.UpdatePhase("t-1234", "Add new agent prompts")
+		require.NoError(t, err)
+
+		data, _ := os.ReadFile(path)
+		assert.Contains(t, string(data), "## Step 1: Add new agent prompts [x]")
+	})
+
+	t.Run("prefers checkbox phases over heading phases", func(t *testing.T) {
+		content := `# Plan
+- [ ] Phase 1: Investigation
+## Step 1: Add new prompts
+`
+		client, path := setup(t, content)
+		err := client.UpdatePhase("t-1234", "Phase 1: Investigation")
+		require.NoError(t, err)
+
+		data, _ := os.ReadFile(path)
+		// Should update the checkbox, not the heading
+		assert.Contains(t, string(data), "- [x] Phase 1: Investigation")
+		assert.Contains(t, string(data), "## Step 1: Add new prompts")
+		assert.NotContains(t, string(data), "## Step 1: Add new prompts [x]")
+	})
+}
+
+func TestParseTicket_HeadingBasedPhases(t *testing.T) {
+	content := `---
+id: pro-wq1b
+status: closed
+---
+# [programmator] Plan: Multi-Phase Review System
+
+## Step 1: Add 3 New Agent Prompts
+
+Create new embedded prompt files.
+
+## Step 2: Add Phase Config Model
+
+Add Phase struct alongside existing Pass.
+
+## Step 3: Add Severity Filtering to RunResult
+
+Add FilterBySeverity method.
+`
+	ticket, err := parseTicket("pro-wq1b", content)
+	require.NoError(t, err)
+	require.Equal(t, "[programmator] Plan: Multi-Phase Review System", ticket.Title)
+	require.Len(t, ticket.Phases, 3)
+	require.True(t, ticket.HasPhases())
+
+	assert.Equal(t, "Step 1: Add 3 New Agent Prompts", ticket.Phases[0].Name)
+	assert.False(t, ticket.Phases[0].Completed)
+	assert.Equal(t, "Step 2: Add Phase Config Model", ticket.Phases[1].Name)
+	assert.False(t, ticket.Phases[1].Completed)
+	assert.Equal(t, "Step 3: Add Severity Filtering to RunResult", ticket.Phases[2].Name)
+	assert.False(t, ticket.Phases[2].Completed)
+
+	currentPhase := ticket.CurrentPhase()
+	require.NotNil(t, currentPhase)
+	assert.Equal(t, "Step 1: Add 3 New Agent Prompts", currentPhase.Name)
+}

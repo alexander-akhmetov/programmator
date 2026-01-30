@@ -21,12 +21,13 @@ A plain-language walkthrough of how programmator runs Claude Code.
    - Call `claude --print <prompt>`.
    - Parse PROGRAMMATOR_STATUS from the output.
    - Mark the phase complete and record changed files.
-   - Auto-commit if --auto-commit is enabled.
-   - Decide what to do next based on status:
-     - CONTINUE keeps looping (as long as phases remain).
-     - DONE exits (or no phases remain).
-     - BLOCKED aborts the run.
+    - Auto-commit if --auto-commit is enabled.
+    - Decide what to do next based on status:
+      - CONTINUE keeps looping (as long as phases remain).
+      - DONE marks the task complete and transitions to the review flow.
+      - BLOCKED aborts the run.
 3. After the last phase, continue to the review flow.
+   - For phaseless work items, review begins after Claude returns status DONE.
 
 ### Prompt: `phased.md`
 

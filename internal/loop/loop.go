@@ -282,6 +282,7 @@ type runContext struct {
 	filesChangedSet    map[string]struct{}
 	workItem           *source.WorkItem
 	iterationSummaries []string // Track summaries for each iteration
+	taskCompleted      bool     // Claude reported DONE for the task
 }
 
 // checkStopRequested checks if stop was requested and handles the response.
@@ -316,11 +317,12 @@ func (l *Loop) checkContextCanceled(rc *runContext) loopAction {
 	}
 }
 
-// handleAllPhasesComplete handles the logic when all phases are complete.
+// handleAllPhasesComplete handles the logic when the task is complete.
 // Returns loopReturn if we should exit, loopBreakToClaudeInvocation if we should invoke Claude,
 // or loopContinue to proceed normally.
 func (l *Loop) handleAllPhasesComplete(rc *runContext) loopAction {
-	if !rc.workItem.AllPhasesComplete() && !l.reviewOnly {
+	taskComplete := rc.taskCompleted || rc.workItem.AllPhasesComplete()
+	if !taskComplete && !l.reviewOnly {
 		return loopContinue
 	}
 
@@ -494,11 +496,11 @@ func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) 
 
 	if status.Status == parser.StatusDone {
 		l.log("Claude reported DONE")
-		_ = rc.source.SetStatus(rc.workItemID, "closed")
-		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: Completed in %d iterations", rc.state.Iteration))
-		rc.result.ExitReason = safety.ExitReasonComplete
-		rc.result.Iterations = rc.state.Iteration
-		return loopReturn
+		rc.taskCompleted = true
+		if !rc.state.InReviewPhase {
+			_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: Task marked complete in %d iterations", rc.state.Iteration))
+		}
+		return loopContinue
 	}
 
 	if status.Status == parser.StatusBlocked {

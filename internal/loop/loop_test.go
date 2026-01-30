@@ -475,6 +475,8 @@ func TestRunWithMockInvokerDone(t *testing.T) {
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
 	l := NewWithSource(config, "", nil, nil, false, mock)
+	l.SetReviewConfig(singleAgentReviewConfig())
+	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
 	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
 		return `Some output
@@ -1416,6 +1418,8 @@ func TestRunWithPlanSource_UpdatesCheckboxes(t *testing.T) {
 	planSource := source.NewPlanSource(planPath)
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
 	l := NewWithSource(config, tmpDir, nil, nil, false, planSource)
+	l.SetReviewConfig(singleAgentReviewConfig())
+	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
 	// Mock Claude to complete first task, then second task
 	invocation := 0
@@ -1466,6 +1470,12 @@ func TestRunPhaselessTicket_CompletesOnDone(t *testing.T) {
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 5, Timeout: 60}
 	l := NewWithSource(config, "", nil, nil, false, mock)
+	l.SetReviewConfig(singleAgentReviewConfig())
+	reviewCalls := 0
+	l.SetReviewRunner(createMockReviewRunnerFunc(t, func() (bool, int) {
+		reviewCalls++
+		return false, 0
+	}))
 
 	// Mock Claude to report DONE on first invocation
 	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
@@ -1484,6 +1494,7 @@ func TestRunPhaselessTicket_CompletesOnDone(t *testing.T) {
 	require.Equal(t, 1, result.Iterations)
 	require.NotNil(t, result.FinalStatus)
 	require.Equal(t, parser.StatusDone, result.FinalStatus.Status)
+	require.Equal(t, 1, reviewCalls)
 
 	// Verify status was set to closed
 	require.Len(t, mock.SetStatusCalls, 2) // in_progress + closed
@@ -1504,6 +1515,8 @@ func TestRunPhaselessTicket_ContinuesUntilDone(t *testing.T) {
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 5, Timeout: 60}
 	l := NewWithSource(config, "", nil, nil, false, mock)
+	l.SetReviewConfig(singleAgentReviewConfig())
+	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
 	// Mock Claude to work for 3 iterations before reporting DONE
 	invocation := 0
@@ -1552,6 +1565,8 @@ func TestRunPhaselessTicket_SafetyLimitsStillApply(t *testing.T) {
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 2, Timeout: 60}
 	l := NewWithSource(config, "", nil, nil, false, mock)
+	l.SetReviewConfig(singleAgentReviewConfig())
+	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
 	// Mock Claude to never make progress (no files changed)
 	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
@@ -1583,6 +1598,8 @@ func TestRunPhaselessTicket_BlockedHandled(t *testing.T) {
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 5, Timeout: 60}
 	l := NewWithSource(config, "", nil, nil, false, mock)
+	l.SetReviewConfig(singleAgentReviewConfig())
+	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
 	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
@@ -1813,6 +1830,8 @@ func TestMainLoopUsesPromptBuilderForTaskPrompt(t *testing.T) {
 
 	config := safety.Config{MaxIterations: 2, StagnationLimit: 10, Timeout: 60}
 	l := NewWithSource(config, "", nil, nil, false, mock)
+	l.SetReviewConfig(singleAgentReviewConfig())
+	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
 	builder, err := prompt.NewBuilder(nil)
 	require.NoError(t, err)

@@ -84,6 +84,7 @@ func (c *CLIClient) UpdatePhase(id string, phaseName string) error {
 	found := false
 	normalizedPhase := normalizePhase(phaseName)
 
+	// First, try checkbox-style phases
 	for i, line := range lines {
 		if match := phaseRegex.FindStringSubmatch(line); match != nil {
 			if match[1] == " " { // unchecked
@@ -92,6 +93,44 @@ func (c *CLIClient) UpdatePhase(id string, phaseName string) error {
 					lines[i] = strings.Replace(line, "- [ ]", "- [x]", 1)
 					found = true
 					break
+				}
+			}
+		}
+	}
+
+	// If not found in checkboxes, try heading-based phases
+	if !found {
+		for i, line := range lines {
+			if match := headingPhaseRegex.FindStringSubmatch(line); match != nil {
+				// Check if it has a checkbox marker at the end
+				checkbox := match[5]
+				if checkbox == " " || checkbox == "" { // unchecked or no checkbox
+					prefix := match[1]
+					number := match[2]
+					separator := match[3]
+					description := match[4]
+
+					// Build the full name with the original separator
+					var fullName string
+					if separator != "" {
+						fullName = fmt.Sprintf("%s %s%s %s", prefix, number, separator, description)
+					} else {
+						fullName = fmt.Sprintf("%s %s %s", prefix, number, description)
+					}
+					existingPhase := normalizePhase(fullName)
+
+					if existingPhase == normalizedPhase || strings.Contains(existingPhase, normalizedPhase) || strings.Contains(normalizedPhase, existingPhase) {
+						// Add or update checkbox marker at end of line
+						if checkbox == " " {
+							// Replace [ ] with [x]
+							lines[i] = strings.Replace(line, "[ ]", "[x]", 1)
+						} else {
+							// Add [x] at the end
+							lines[i] = line + " [x]"
+						}
+						found = true
+						break
+					}
 				}
 			}
 		}
@@ -192,16 +231,51 @@ func parseTicket(id string, content string) (*Ticket, error) {
 
 var phaseRegex = regexp.MustCompile(`- \[([ xX])\] (.+)`)
 var titleRegex = regexp.MustCompile(`(?m)^# (.+)$`)
+var headingPhaseRegex = regexp.MustCompile(`(?m)^## (Step|Phase) (\d+)([:.])?\s*(.+?)(?:\s*\[([xX ])\])?$`)
 
 func parsePhases(content string) []Phase {
-	matches := phaseRegex.FindAllStringSubmatch(content, -1)
-	phases := make([]Phase, 0, len(matches))
-	for _, match := range matches {
+	var phases []Phase
+
+	// First, try to parse checkbox-style phases (existing behavior)
+	checkboxMatches := phaseRegex.FindAllStringSubmatch(content, -1)
+	for _, match := range checkboxMatches {
 		phases = append(phases, Phase{
 			Name:      strings.TrimSpace(match[2]),
 			Completed: match[1] != " ",
 		})
 	}
+
+	// If we found checkbox phases, use those (backward compatibility)
+	if len(phases) > 0 {
+		return phases
+	}
+
+	// Otherwise, try heading-based phases (## Step N: / ## Phase N:)
+	headingMatches := headingPhaseRegex.FindAllStringSubmatch(content, -1)
+	for _, match := range headingMatches {
+		prefix := match[1]      // "Step" or "Phase"
+		number := match[2]      // the number
+		separator := match[3]   // separator (: or . or empty)
+		description := match[4] // description after separator
+		checkbox := match[5]    // optional [x] or [ ] at the end
+
+		// Build the phase name, preserving the original separator
+		var name string
+		if separator != "" {
+			name = fmt.Sprintf("%s %s%s %s", prefix, number, separator, description)
+		} else {
+			name = fmt.Sprintf("%s %s %s", prefix, number, description)
+		}
+
+		// Determine if completed (checkbox [x] or [X] at end of line)
+		completed := checkbox == "x" || checkbox == "X"
+
+		phases = append(phases, Phase{
+			Name:      strings.TrimSpace(name),
+			Completed: completed,
+		})
+	}
+
 	return phases
 }
 
