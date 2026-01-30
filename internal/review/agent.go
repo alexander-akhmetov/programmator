@@ -54,11 +54,12 @@ type Agent interface {
 
 // ClaudeAgent implements ReviewAgent using Claude Code.
 type ClaudeAgent struct {
-	name       string
-	focus      []string
-	prompt     string
-	timeout    time.Duration
-	claudeArgs []string
+	name         string
+	focus        []string
+	prompt       string
+	timeout      time.Duration
+	claudeArgs   []string
+	settingsJSON string
 }
 
 // ClaudeAgentOption is a functional option for ClaudeAgent.
@@ -75,6 +76,13 @@ func WithTimeout(d time.Duration) ClaudeAgentOption {
 func WithClaudeArgs(args []string) ClaudeAgentOption {
 	return func(a *ClaudeAgent) {
 		a.claudeArgs = args
+	}
+}
+
+// WithSettingsJSON sets the --settings JSON for guard mode / permission hooks.
+func WithSettingsJSON(settingsJSON string) ClaudeAgentOption {
+	return func(a *ClaudeAgent) {
+		a.settingsJSON = settingsJSON
 	}
 }
 
@@ -185,9 +193,12 @@ REVIEW_RESULT:
 
 // invokeClaude runs Claude with the given prompt.
 func (a *ClaudeAgent) invokeClaude(ctx context.Context, workingDir, promptText string) (string, error) {
-	args := make([]string, 0, 1+len(a.claudeArgs))
+	args := make([]string, 0, 1+len(a.claudeArgs)+2)
 	args = append(args, "--print")
 	args = append(args, a.claudeArgs...)
+	if a.settingsJSON != "" {
+		args = append(args, "--settings", a.settingsJSON)
+	}
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, a.timeout)
 	defer cancel()

@@ -20,8 +20,10 @@ import (
 )
 
 var (
-	reviewBaseBranch string
-	reviewWorkingDir string
+	reviewBaseBranch      string
+	reviewWorkingDir      string
+	reviewSkipPermissions bool
+	reviewGuardMode       bool
 )
 
 var reviewCmd = &cobra.Command{
@@ -42,6 +44,8 @@ Examples:
 func init() {
 	reviewCmd.Flags().StringVar(&reviewBaseBranch, "base", "main", "Base branch to diff against (default: main)")
 	reviewCmd.Flags().StringVarP(&reviewWorkingDir, "dir", "d", "", "Working directory (default: current directory)")
+	reviewCmd.Flags().BoolVar(&reviewSkipPermissions, "dangerously-skip-permissions", false, "Skip interactive permission dialogs (grants all permissions)")
+	reviewCmd.Flags().BoolVar(&reviewGuardMode, "guard", true, "Guard mode: skip permissions but block destructive commands via dcg (default: enabled)")
 }
 
 func runReview(_ *cobra.Command, _ []string) error {
@@ -83,6 +87,28 @@ func runReview(_ *cobra.Command, _ []string) error {
 	}
 
 	safetyConfig := cfg.ToSafetyConfig()
+
+	if reviewGuardMode {
+		if _, err := exec.LookPath("dcg"); err != nil {
+			fmt.Fprintln(os.Stderr, "Warning: dcg not found, falling back to interactive permissions. Install: https://github.com/Dicklesworthstone/destructive_command_guard")
+			reviewGuardMode = false
+		} else {
+			if safetyConfig.ClaudeFlags == "" {
+				safetyConfig.ClaudeFlags = "--dangerously-skip-permissions"
+			} else if !strings.Contains(safetyConfig.ClaudeFlags, "--dangerously-skip-permissions") {
+				safetyConfig.ClaudeFlags += " --dangerously-skip-permissions"
+			}
+		}
+	}
+
+	if reviewSkipPermissions {
+		if safetyConfig.ClaudeFlags == "" {
+			safetyConfig.ClaudeFlags = "--dangerously-skip-permissions"
+		} else if !strings.Contains(safetyConfig.ClaudeFlags, "--dangerously-skip-permissions") {
+			safetyConfig.ClaudeFlags += " --dangerously-skip-permissions"
+		}
+	}
+
 	reviewConfig := cfg.ToReviewConfig()
 	// Create progress logger for review
 	// Use base branch + directory name as source ID
@@ -108,6 +134,7 @@ func runReview(_ *cobra.Command, _ []string) error {
 	}, nil, true)
 	reviewLoop.SetReviewConfig(reviewConfig)
 	reviewLoop.SetReviewOnly(true)
+	reviewLoop.SetGuardMode(reviewGuardMode)
 	if progressLogger != nil {
 		reviewLoop.SetProgressLogger(progressLogger)
 	}

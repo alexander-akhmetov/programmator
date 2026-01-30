@@ -18,6 +18,8 @@ type Config struct {
 	MaxIterations int     `yaml:"max_iterations"`
 	Timeout       int     `yaml:"-"` // seconds per agent invocation, inherited from main config
 	Phases        []Phase `yaml:"phases,omitempty"`
+	ClaudeFlags   string  `yaml:"-"` // inherited from main config, not user-configured
+	SettingsJSON  string  `yaml:"-"` // pre-computed --settings JSON for guard mode
 }
 
 // AgentConfig defines a single review agent configuration.

@@ -3,6 +3,7 @@ package review
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -129,6 +130,12 @@ func (r *Runner) defaultAgentFactory(agentCfg AgentConfig, defaultPrompt string)
 	var opts []ClaudeAgentOption
 	if r.config.Timeout > 0 {
 		opts = append(opts, WithTimeout(time.Duration(r.config.Timeout)*time.Second))
+	}
+	if r.config.ClaudeFlags != "" {
+		opts = append(opts, WithClaudeArgs(strings.Fields(r.config.ClaudeFlags)))
+	}
+	if r.config.SettingsJSON != "" {
+		opts = append(opts, WithSettingsJSON(r.config.SettingsJSON))
 	}
 	return NewClaudeAgent(agentCfg.Name, agentCfg.Focus, prompt, opts...)
 }

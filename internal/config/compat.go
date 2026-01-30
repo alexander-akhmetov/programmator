@@ -50,5 +50,6 @@ func (c *Config) ToReviewConfig() review.Config {
 		MaxIterations: c.Review.MaxIterations,
 		Timeout:       c.Timeout,
 		Phases:        phases,
+		ClaudeFlags:   c.ClaudeFlags,
 	}
 }

@@ -378,6 +378,7 @@ func (l *Loop) handleMultiPhaseReview(rc *runContext) loopAction {
 	l.logReviewStart(l.currentPhaseIter+1, phaseMaxIter)
 	rc.state.EnterReviewPhase()
 	if l.reviewRunner == nil {
+		l.applySettingsToReviewConfig()
 		var outputCallback review.OutputCallback
 		if l.onOutput != nil {
 			outputCallback = func(text string) {
@@ -1388,6 +1389,17 @@ func (l *Loop) buildHookSettings() string {
 	return string(data)
 }
 
+// applySettingsToReviewConfig copies guard mode / permission socket settings
+// into the review config so review agents get the same flags as the main loop.
+func (l *Loop) applySettingsToReviewConfig() {
+	if l.config.ClaudeFlags != "" {
+		l.reviewConfig.ClaudeFlags = l.config.ClaudeFlags
+	}
+	if l.permissionSocketPath != "" || l.guardMode {
+		l.reviewConfig.SettingsJSON = l.buildHookSettings()
+	}
+}
+
 // SetReviewRunner sets a custom review runner (useful for testing).
 func (l *Loop) SetReviewRunner(runner *review.Runner) {
 	l.reviewRunner = runner
@@ -1433,6 +1445,7 @@ func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewO
 
 	// Initialize review runner
 	if l.reviewRunner == nil {
+		l.applySettingsToReviewConfig()
 		var outputCallback review.OutputCallback
 		if l.onOutput != nil {
 			outputCallback = func(text string) {

@@ -92,11 +92,31 @@ func TestClaudeAgent(t *testing.T) {
 			"prompt",
 			WithTimeout(10*time.Minute),
 			WithClaudeArgs([]string{"--verbose"}),
+			WithSettingsJSON(`{"hooks":{}}`),
 		)
 
 		require.Equal(t, 10*time.Minute, agent.timeout)
 		require.Equal(t, []string{"--verbose"}, agent.claudeArgs)
+		require.Equal(t, `{"hooks":{}}`, agent.settingsJSON)
 	})
+}
+
+func TestDefaultAgentFactory_PassesClaudeFlagsAndSettings(t *testing.T) {
+	cfg := Config{
+		MaxIterations: 3,
+		Timeout:       120,
+		ClaudeFlags:   "--dangerously-skip-permissions",
+		SettingsJSON:  `{"hooks":{"PreToolUse":[]}}`,
+	}
+
+	runner := NewRunner(cfg, nil)
+	agent := runner.defaultAgentFactory(AgentConfig{Name: "test", Focus: []string{"bugs"}}, "default prompt")
+
+	claudeAgent, ok := agent.(*ClaudeAgent)
+	require.True(t, ok)
+	require.Equal(t, []string{"--dangerously-skip-permissions"}, claudeAgent.claudeArgs)
+	require.Equal(t, `{"hooks":{"PreToolUse":[]}}`, claudeAgent.settingsJSON)
+	require.Equal(t, 120*time.Second, claudeAgent.timeout)
 }
 
 func TestRunResult_FilterBySeverity(t *testing.T) {
