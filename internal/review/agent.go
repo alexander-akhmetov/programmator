@@ -38,6 +38,7 @@ func (issue *Issue) UnmarshalYAML(value *yaml.Node) error {
 	var raw struct {
 		File        string    `yaml:"file"`
 		Line        yaml.Node `yaml:"line"`
+		LineEnd     int       `yaml:"line_end,omitempty"`
 		Severity    Severity  `yaml:"severity"`
 		Category    string    `yaml:"category"`
 		Description string    `yaml:"description"`
@@ -73,6 +74,11 @@ func (issue *Issue) UnmarshalYAML(value *yaml.Node) error {
 			}
 			issue.Line = n
 		}
+	}
+
+	// If line_end was set explicitly and not already populated from a range, use it.
+	if issue.LineEnd == 0 && raw.LineEnd > 0 {
+		issue.LineEnd = raw.LineEnd
 	}
 
 	return nil

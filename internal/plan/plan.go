@@ -234,7 +234,13 @@ func (p *Plan) SaveFile() error {
 	}
 
 	// Write atomically: temp file + rename to avoid data loss on partial write.
+	// Preserve original file permissions on the temp file.
 	dir := filepath.Dir(p.FilePath)
+	fi, err := os.Stat(p.FilePath)
+	if err != nil {
+		return fmt.Errorf("stat original file: %w", err)
+	}
+
 	tmp, err := os.CreateTemp(dir, ".plan-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
@@ -251,9 +257,9 @@ func (p *Plan) SaveFile() error {
 		return fmt.Errorf("close temp file: %w", err)
 	}
 
-	if err := os.Remove(p.FilePath); err != nil && !os.IsNotExist(err) {
+	if err := os.Chmod(tmpName, fi.Mode()); err != nil {
 		os.Remove(tmpName)
-		return fmt.Errorf("remove destination: %w", err)
+		return fmt.Errorf("chmod temp file: %w", err)
 	}
 	return os.Rename(tmpName, p.FilePath)
 }

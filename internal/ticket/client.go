@@ -162,7 +162,13 @@ func (c *CLIClient) UpdatePhase(id string, phaseName string) error {
 	}
 
 	// Write atomically: temp file + rename to avoid data loss on partial write.
+	// Preserve original file permissions on the temp file.
 	dir := filepath.Dir(filePath)
+	fi, err := os.Stat(filePath)
+	if err != nil {
+		return fmt.Errorf("stat original file: %w", err)
+	}
+
 	tmp, err := os.CreateTemp(dir, ".ticket-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
@@ -179,9 +185,9 @@ func (c *CLIClient) UpdatePhase(id string, phaseName string) error {
 		return fmt.Errorf("close temp file: %w", err)
 	}
 
-	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+	if err := os.Chmod(tmpName, fi.Mode()); err != nil {
 		os.Remove(tmpName)
-		return fmt.Errorf("remove destination: %w", err)
+		return fmt.Errorf("chmod temp file: %w", err)
 	}
 	return os.Rename(tmpName, filePath)
 }
