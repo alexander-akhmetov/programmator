@@ -1,6 +1,7 @@
 package source
 
 import (
+	"github.com/worksonmyai/programmator/internal/domain"
 	"github.com/worksonmyai/programmator/internal/ticket"
 )
 
@@ -21,20 +22,17 @@ func NewTicketSource(client ticket.Client, ticketCommand string) *TicketSource {
 }
 
 // Get retrieves a ticket by ID and converts it to a WorkItem.
-func (s *TicketSource) Get(id string) (*WorkItem, error) {
+func (s *TicketSource) Get(id string) (*domain.WorkItem, error) {
 	t, err := s.client.Get(id)
 	if err != nil {
 		return nil, err
 	}
-	return ticketToWorkItem(t), nil
+	return t.ToWorkItem(), nil
 }
 
 // UpdatePhase marks a phase as completed in the ticket.
-// For phaseless tickets (empty phaseName), this is a no-op.
+// The underlying client handles phaseless tickets (empty/null phase names).
 func (s *TicketSource) UpdatePhase(id, phaseName string) error {
-	if phaseName == "" || phaseName == "null" {
-		return nil
-	}
 	return s.client.UpdatePhase(id, phaseName)
 }
 
@@ -50,24 +48,5 @@ func (s *TicketSource) SetStatus(id, status string) error {
 
 // Type returns "ticket".
 func (s *TicketSource) Type() string {
-	return "ticket"
-}
-
-// ticketToWorkItem converts a ticket.Ticket to a WorkItem.
-func ticketToWorkItem(t *ticket.Ticket) *WorkItem {
-	phases := make([]Phase, len(t.Phases))
-	for i, p := range t.Phases {
-		phases[i] = Phase{
-			Name:      p.Name,
-			Completed: p.Completed,
-		}
-	}
-
-	return &WorkItem{
-		ID:         t.ID,
-		Title:      t.Title,
-		Status:     t.Status,
-		Phases:     phases,
-		RawContent: t.RawContent,
-	}
+	return TypeTicket
 }

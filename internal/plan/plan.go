@@ -3,11 +3,22 @@
 package plan
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+)
+
+// Sentinel errors for plan operations.
+var (
+	// ErrTaskNotFound is returned when a task cannot be found or is already completed.
+	ErrTaskNotFound = errors.New("task not found or already completed")
+	// ErrNoFilePath is returned when a plan has no associated file path.
+	ErrNoFilePath = errors.New("plan has no file path")
+	// ErrDestinationExists is returned when the move destination already exists.
+	ErrDestinationExists = errors.New("destination file already exists")
 )
 
 // Task represents a single task within a plan.
@@ -31,9 +42,10 @@ type Plan struct {
 }
 
 var (
-	titleRegex      = regexp.MustCompile(`(?m)^#\s+(?:Plan:\s*)?(.+)$`)
-	taskRegex       = regexp.MustCompile(`(?m)^-\s+\[([ xX])\]\s+(.+)$`)
-	validationRegex = regexp.MustCompile("(?m)^-\\s+`([^`]+)`\\s*$")
+	titleRegex           = regexp.MustCompile(`(?m)^#\s+(?:Plan:\s*)?(.+)$`)
+	taskRegex            = regexp.MustCompile(`(?m)^-\s+\[([ xX])\]\s+(.+)$`)
+	validationRegex      = regexp.MustCompile("(?m)^-\\s+`([^`]+)`\\s*$")
+	normalizePrefixRegex = regexp.MustCompile(`^(task|step|phase)\s*\d+[:.]\s*`)
 )
 
 // ParseFile reads and parses a plan file from disk.
@@ -186,7 +198,7 @@ func (p *Plan) MarkTaskComplete(taskName string) error {
 		}
 	}
 
-	return fmt.Errorf("task not found or already completed: %s", taskName)
+	return fmt.Errorf("%w: %s", ErrTaskNotFound, taskName)
 }
 
 // normalizeTaskName strips common prefixes and normalizes for comparison.
@@ -194,22 +206,17 @@ func normalizeTaskName(s string) string {
 	s = strings.ToLower(s)
 	s = strings.TrimSpace(s)
 	// Remove common prefixes like "Task 1:", "Step 2:", "Phase 1:", etc.
-	s = regexp.MustCompile(`^(task|step|phase)\s*\d+[:.]\s*`).ReplaceAllString(s, "")
+	s = normalizePrefixRegex.ReplaceAllString(s, "")
 	return s
 }
 
 // SaveFile writes the plan back to its file, updating checkbox states.
 func (p *Plan) SaveFile() error {
 	if p.FilePath == "" {
-		return fmt.Errorf("plan has no file path")
+		return ErrNoFilePath
 	}
 
-	content, err := os.ReadFile(p.FilePath)
-	if err != nil {
-		return fmt.Errorf("read plan file: %w", err)
-	}
-
-	lines := strings.Split(string(content), "\n")
+	lines := strings.Split(p.RawContent, "\n")
 
 	// Track which task index we're matching
 	taskIdx := 0
@@ -226,7 +233,25 @@ func (p *Plan) SaveFile() error {
 		}
 	}
 
-	return os.WriteFile(p.FilePath, []byte(strings.Join(lines, "\n")), 0644)
+	// Write atomically: temp file + rename to avoid data loss on partial write.
+	dir := filepath.Dir(p.FilePath)
+	tmp, err := os.CreateTemp(dir, ".plan-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpName := tmp.Name()
+
+	if _, err := tmp.Write([]byte(strings.Join(lines, "\n"))); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("close temp file: %w", err)
+	}
+
+	return os.Rename(tmpName, p.FilePath)
 }
 
 // ID returns the plan's identifier (base filename without extension).
@@ -243,7 +268,7 @@ func (p *Plan) ID() string {
 // Returns the new file path.
 func (p *Plan) MoveTo(destDir string) (string, error) {
 	if p.FilePath == "" {
-		return "", fmt.Errorf("plan has no file path")
+		return "", ErrNoFilePath
 	}
 
 	// Ensure destination directory exists
@@ -257,7 +282,7 @@ func (p *Plan) MoveTo(destDir string) (string, error) {
 
 	// Check if destination already exists
 	if _, err := os.Stat(newPath); err == nil {
-		return "", fmt.Errorf("destination file already exists: %s", newPath)
+		return "", fmt.Errorf("%w: %s", ErrDestinationExists, newPath)
 	}
 
 	// Move the file

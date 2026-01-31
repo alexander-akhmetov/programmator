@@ -2,6 +2,7 @@
 package ticket
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,12 +11,18 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/worksonmyai/programmator/internal/domain"
+	"github.com/worksonmyai/programmator/internal/protocol"
 )
 
-type Phase struct {
-	Name      string
-	Completed bool
-}
+// Sentinel errors for ticket operations.
+var (
+	// ErrTicketNotFound is returned when a ticket file cannot be found.
+	ErrTicketNotFound = errors.New("ticket not found")
+	// ErrPhaseNotFound is returned when a phase cannot be found in the ticket.
+	ErrPhaseNotFound = errors.New("phase not found")
+)
 
 type Ticket struct {
 	ID          string
@@ -24,7 +31,7 @@ type Ticket struct {
 	Priority    int
 	Type        string
 	Description string
-	Phases      []Phase
+	Phases      []domain.Phase
 	RawContent  string
 }
 
@@ -42,6 +49,16 @@ type CLIClient struct {
 
 var _ Client = (*CLIClient)(nil)
 
+var validIDRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.\-]*$`)
+
+// ValidateID checks that a ticket ID contains only safe characters.
+func ValidateID(id string) error {
+	if !validIDRe.MatchString(id) {
+		return fmt.Errorf("%w: %s", ErrTicketNotFound, id)
+	}
+	return nil
+}
+
 func NewClient(command string) *CLIClient {
 	dir := os.Getenv("TICKETS_DIR")
 	if dir == "" {
@@ -54,17 +71,24 @@ func NewClient(command string) *CLIClient {
 }
 
 func (c *CLIClient) Get(id string) (*Ticket, error) {
-	out, err := exec.Command(c.command, "show", id).Output()
+	if err := ValidateID(id); err != nil {
+		return nil, err
+	}
+	out, err := exec.Command(c.command, "show", "--", id).CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get ticket %s: %w", id, err)
+		return nil, fmt.Errorf("%w: %s: %s", ErrTicketNotFound, id, strings.TrimSpace(string(out)))
 	}
 
 	return parseTicket(id, string(out))
 }
 
 func (c *CLIClient) UpdatePhase(id string, phaseName string) error {
+	if err := ValidateID(id); err != nil {
+		return err
+	}
+
 	// For phaseless tickets, there's nothing to update
-	if phaseName == "" || phaseName == "null" {
+	if phaseName == "" || phaseName == protocol.NullPhase {
 		return nil
 	}
 
@@ -134,36 +158,78 @@ func (c *CLIClient) UpdatePhase(id string, phaseName string) error {
 	}
 
 	if !found {
-		return fmt.Errorf("phase not found: %s", phaseName)
+		return fmt.Errorf("%w: %s", ErrPhaseNotFound, phaseName)
 	}
 
-	return os.WriteFile(filePath, []byte(strings.Join(lines, "\n")), 0644)
+	// Write atomically: temp file + rename to avoid data loss on partial write.
+	dir := filepath.Dir(filePath)
+	tmp, err := os.CreateTemp(dir, ".ticket-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpName := tmp.Name()
+
+	if _, err := tmp.Write([]byte(strings.Join(lines, "\n"))); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("close temp file: %w", err)
+	}
+
+	return os.Rename(tmpName, filePath)
 }
 
 func (c *CLIClient) findTicketFile(id string) (string, error) {
-	path := filepath.Join(c.ticketsDir, id+".md")
+	path := filepath.Clean(filepath.Join(c.ticketsDir, id+".md"))
+	dir := filepath.Clean(c.ticketsDir)
+	if !strings.HasPrefix(path, dir+string(filepath.Separator)) {
+		return "", fmt.Errorf("%w: %s", ErrTicketNotFound, id)
+	}
 	if _, err := os.Stat(path); err == nil {
 		return path, nil
 	}
-	return "", fmt.Errorf("ticket file not found for id: %s", id)
+	return "", fmt.Errorf("%w: %s", ErrTicketNotFound, id)
 }
+
+var normalizePrefixRegex = regexp.MustCompile(`^(phase|step)\s*\d+[:.]\s*`)
 
 func normalizePhase(s string) string {
 	s = strings.ToLower(s)
 	s = strings.TrimSpace(s)
 	// Remove common prefixes like "Phase 1:", "Step 2:", etc.
-	s = regexp.MustCompile(`^(phase|step)\s*\d+[:.]\s*`).ReplaceAllString(s, "")
+	s = normalizePrefixRegex.ReplaceAllString(s, "")
 	return s
 }
 
 func (c *CLIClient) AddNote(id string, note string) error {
-	_, err := exec.Command(c.command, "add-note", id, note).Output()
-	return err
+	if err := ValidateID(id); err != nil {
+		return err
+	}
+	out, err := exec.Command(c.command, "add-note", "--", id, note).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("add note to ticket %s: %s: %w", id, strings.TrimSpace(string(out)), err)
+	}
+	return nil
 }
 
 func (c *CLIClient) SetStatus(id string, status string) error {
-	_, err := exec.Command(c.command, "set-status", id, status).Output()
-	return err
+	if err := ValidateID(id); err != nil {
+		return err
+	}
+	switch status {
+	case protocol.WorkItemOpen, protocol.WorkItemInProgress, protocol.WorkItemClosed:
+		// valid
+	default:
+		return fmt.Errorf("invalid status: %s", status)
+	}
+	out, err := exec.Command(c.command, "set-status", "--", id, status).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("set status for ticket %s: %s: %w", id, strings.TrimSpace(string(out)), err)
+	}
+	return nil
 }
 
 func parseTicket(id string, content string) (*Ticket, error) {
@@ -211,13 +277,13 @@ var phaseRegex = regexp.MustCompile(`- \[([ xX])\] (.+)`)
 var titleRegex = regexp.MustCompile(`(?m)^# (.+)$`)
 var headingPhaseRegex = regexp.MustCompile(`(?m)^## (Step|Phase) (\d+)([:.])?\s*(.+?)(?:\s*\[([xX ])\])?$`)
 
-func parsePhases(content string) []Phase {
-	var phases []Phase
+func parsePhases(content string) []domain.Phase {
+	var phases []domain.Phase
 
 	// First, try to parse checkbox-style phases (existing behavior)
 	checkboxMatches := phaseRegex.FindAllStringSubmatch(content, -1)
 	for _, match := range checkboxMatches {
-		phases = append(phases, Phase{
+		phases = append(phases, domain.Phase{
 			Name:      strings.TrimSpace(match[2]),
 			Completed: match[1] != " ",
 		})
@@ -248,7 +314,7 @@ func parsePhases(content string) []Phase {
 		// Determine if completed (checkbox [x] or [X] at end of line)
 		completed := checkbox == "x" || checkbox == "X"
 
-		phases = append(phases, Phase{
+		phases = append(phases, domain.Phase{
 			Name:      strings.TrimSpace(name),
 			Completed: completed,
 		})
@@ -257,25 +323,13 @@ func parsePhases(content string) []Phase {
 	return phases
 }
 
-func (t *Ticket) CurrentPhase() *Phase {
-	for i := range t.Phases {
-		if !t.Phases[i].Completed {
-			return &t.Phases[i]
-		}
+// ToWorkItem converts a Ticket to a domain.WorkItem.
+func (t *Ticket) ToWorkItem() *domain.WorkItem {
+	return &domain.WorkItem{
+		ID:         t.ID,
+		Title:      t.Title,
+		Status:     t.Status,
+		Phases:     t.Phases,
+		RawContent: t.RawContent,
 	}
-	return nil
-}
-
-func (t *Ticket) AllPhasesComplete() bool {
-	for _, p := range t.Phases {
-		if !p.Completed {
-			return false
-		}
-	}
-	return len(t.Phases) > 0
-}
-
-// HasPhases returns true if the ticket has any phases defined.
-func (t *Ticket) HasPhases() bool {
-	return len(t.Phases) > 0
 }

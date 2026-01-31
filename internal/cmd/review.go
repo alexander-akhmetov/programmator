@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -49,13 +48,9 @@ func init() {
 }
 
 func runReview(_ *cobra.Command, _ []string) error {
-	wd := reviewWorkingDir
-	if wd == "" {
-		var err error
-		wd, err = os.Getwd()
-		if err != nil {
-			return fmt.Errorf("failed to get working directory: %w", err)
-		}
+	wd, err := resolveWorkingDir(reviewWorkingDir)
+	if err != nil {
+		return err
 	}
 
 	// Verify we're in a git repo
@@ -88,25 +83,9 @@ func runReview(_ *cobra.Command, _ []string) error {
 
 	safetyConfig := cfg.ToSafetyConfig()
 
-	if reviewGuardMode {
-		if _, err := exec.LookPath("dcg"); err != nil {
-			fmt.Fprintln(os.Stderr, "Warning: dcg not found, falling back to interactive permissions. Install: https://github.com/Dicklesworthstone/destructive_command_guard")
-			reviewGuardMode = false
-		} else {
-			if safetyConfig.ClaudeFlags == "" {
-				safetyConfig.ClaudeFlags = "--dangerously-skip-permissions"
-			} else if !strings.Contains(safetyConfig.ClaudeFlags, "--dangerously-skip-permissions") {
-				safetyConfig.ClaudeFlags += " --dangerously-skip-permissions"
-			}
-		}
-	}
-
+	reviewGuardMode = resolveGuardMode(reviewGuardMode, &safetyConfig)
 	if reviewSkipPermissions {
-		if safetyConfig.ClaudeFlags == "" {
-			safetyConfig.ClaudeFlags = "--dangerously-skip-permissions"
-		} else if !strings.Contains(safetyConfig.ClaudeFlags, "--dangerously-skip-permissions") {
-			safetyConfig.ClaudeFlags += " --dangerously-skip-permissions"
-		}
+		applySkipPermissions(&safetyConfig)
 	}
 
 	reviewConfig := cfg.ToReviewConfig()

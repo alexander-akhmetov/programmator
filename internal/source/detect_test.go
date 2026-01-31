@@ -51,14 +51,14 @@ func TestDetect_PlanFile(t *testing.T) {
 	source, id := Detect(planPath, "")
 	assert.IsType(t, &PlanSource{}, source)
 	assert.Equal(t, planPath, id)
-	assert.Equal(t, "plan", source.Type())
+	assert.Equal(t, TypePlan, source.Type())
 }
 
 func TestDetect_TicketID(t *testing.T) {
 	source, id := Detect("pro-1234", "")
 	assert.IsType(t, &TicketSource{}, source)
 	assert.Equal(t, "pro-1234", id)
-	assert.Equal(t, "ticket", source.Type())
+	assert.Equal(t, TypeTicket, source.Type())
 }
 
 func TestDetect_RelativePath(t *testing.T) {

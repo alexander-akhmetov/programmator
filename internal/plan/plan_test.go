@@ -1,6 +1,7 @@
 package plan
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -254,7 +255,13 @@ func TestMarkTaskComplete_AlreadyCompleted(t *testing.T) {
 
 	err := plan.MarkTaskComplete("Task 1")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not found or already completed")
+	assert.True(t, errors.Is(err, ErrTaskNotFound))
+}
+
+func TestMarkTaskComplete_EmptyTasks(t *testing.T) {
+	plan := &Plan{Tasks: []Task{}}
+	err := plan.MarkTaskComplete("anything")
+	require.ErrorIs(t, err, ErrTaskNotFound)
 }
 
 func TestMarkTaskComplete_NotFound(t *testing.T) {
@@ -266,6 +273,7 @@ func TestMarkTaskComplete_NotFound(t *testing.T) {
 
 	err := plan.MarkTaskComplete("Task 99")
 	assert.Error(t, err)
+	assert.True(t, errors.Is(err, ErrTaskNotFound))
 }
 
 func TestMarkTaskComplete_WithPrefixes(t *testing.T) {
@@ -373,7 +381,7 @@ func TestSaveFile_NoPath(t *testing.T) {
 	plan := &Plan{Tasks: []Task{{Name: "Task", Completed: true}}}
 	err := plan.SaveFile()
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no file path")
+	assert.True(t, errors.Is(err, ErrNoFilePath))
 }
 
 func TestParse_NestedTasks(t *testing.T) {
@@ -483,12 +491,12 @@ func TestMoveTo_DestinationExists(t *testing.T) {
 	// Move should fail
 	_, err = plan.MoveTo(completedDir)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already exists")
+	assert.True(t, errors.Is(err, ErrDestinationExists))
 }
 
 func TestMoveTo_NoFilePath(t *testing.T) {
 	plan := &Plan{}
 	_, err := plan.MoveTo("/some/dir")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no file path")
+	assert.True(t, errors.Is(err, ErrNoFilePath))
 }

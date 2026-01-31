@@ -3,10 +3,10 @@ package review
 import (
 	"context"
 	"fmt"
-	"io"
-	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/worksonmyai/programmator/internal/llm"
 )
 
 // Result holds the result of a single agent review.
@@ -60,6 +60,7 @@ type ClaudeAgent struct {
 	timeout      time.Duration
 	claudeArgs   []string
 	settingsJSON string
+	invoker      llm.Invoker
 }
 
 // ClaudeAgentOption is a functional option for ClaudeAgent.
@@ -191,53 +192,27 @@ REVIEW_RESULT:
 	return b.String()
 }
 
-// invokeClaude runs Claude with the given prompt.
+// invokeClaude runs Claude with the given prompt via llm.Invoker.
 func (a *ClaudeAgent) invokeClaude(ctx context.Context, workingDir, promptText string) (string, error) {
-	args := make([]string, 0, 1+len(a.claudeArgs)+2)
-	args = append(args, "--print")
-	args = append(args, a.claudeArgs...)
-	if a.settingsJSON != "" {
-		args = append(args, "--settings", a.settingsJSON)
+	inv := a.invoker
+	if inv == nil {
+		inv = llm.NewClaudeInvoker(llm.EnvConfig{})
 	}
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, a.timeout)
-	defer cancel()
+	extraFlags := strings.Join(a.claudeArgs, " ")
 
-	cmd := exec.CommandContext(timeoutCtx, "claude", args...)
-	cmd.Dir = workingDir
+	opts := llm.InvokeOptions{
+		WorkingDir:   workingDir,
+		ExtraFlags:   extraFlags,
+		SettingsJSON: a.settingsJSON,
+		Timeout:      int(a.timeout.Seconds()),
+	}
 
-	stdin, err := cmd.StdinPipe()
+	res, err := inv.Invoke(ctx, promptText, opts)
 	if err != nil {
-		return "", fmt.Errorf("failed to create stdin pipe: %w", err)
+		return "", fmt.Errorf("claude invocation failed: %w", err)
 	}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("failed to start claude: %w", err)
-	}
-
-	go func() {
-		defer stdin.Close()
-		_, _ = io.WriteString(stdin, promptText)
-	}()
-
-	output, err := io.ReadAll(stdout)
-	if err != nil {
-		return "", fmt.Errorf("failed to read stdout: %w", err)
-	}
-
-	if err := cmd.Wait(); err != nil {
-		if timeoutCtx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("claude invocation timed out after %v", a.timeout)
-		}
-		return "", fmt.Errorf("claude exited with error: %w", err)
-	}
-
-	return string(output), nil
+	return res.Text, nil
 }
 
 // MockAgent is a mock implementation for testing.

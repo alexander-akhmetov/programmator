@@ -59,6 +59,25 @@ func (p *Phase) MaxIterations(globalMax int) int {
 	return 3 // default
 }
 
+// ConfigParams holds the parameters needed to construct a review.Config from
+// unified configuration. This avoids a direct dependency on the config package.
+type ConfigParams struct {
+	MaxIterations int
+	Timeout       int
+	ClaudeFlags   string
+	Phases        []Phase
+}
+
+// NewConfigFrom builds a review.Config from the given parameters.
+func NewConfigFrom(p ConfigParams) Config {
+	return Config{
+		MaxIterations: p.MaxIterations,
+		Timeout:       p.Timeout,
+		ClaudeFlags:   p.ClaudeFlags,
+		Phases:        p.Phases,
+	}
+}
+
 // DefaultConfig returns the default review configuration.
 func DefaultConfig() Config {
 	return Config{

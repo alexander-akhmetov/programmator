@@ -7,24 +7,24 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/worksonmyai/programmator/internal/config"
-	"github.com/worksonmyai/programmator/internal/source"
+	"github.com/worksonmyai/programmator/internal/domain"
 )
 
 func TestBuild(t *testing.T) {
 	tests := []struct {
 		name        string
-		workItem    *source.WorkItem
+		workItem    *domain.WorkItem
 		notes       []string
 		wantSubs    []string
 		notWantSubs []string
 	}{
 		{
 			name: "basic prompt with current phase",
-			workItem: &source.WorkItem{
+			workItem: &domain.WorkItem{
 				ID:         "t-123",
 				Title:      "Test Ticket",
 				RawContent: "Ticket body content",
-				Phases: []source.Phase{
+				Phases: []domain.Phase{
 					{Name: "Phase 1", Completed: true},
 					{Name: "Phase 2", Completed: false},
 				},
@@ -40,11 +40,11 @@ func TestBuild(t *testing.T) {
 		},
 		{
 			name: "prompt with notes",
-			workItem: &source.WorkItem{
+			workItem: &domain.WorkItem{
 				ID:         "t-456",
 				Title:      "Another Ticket",
 				RawContent: "Body here",
-				Phases: []source.Phase{
+				Phases: []domain.Phase{
 					{Name: "Phase 1", Completed: false},
 				},
 			},
@@ -61,11 +61,11 @@ func TestBuild(t *testing.T) {
 		},
 		{
 			name: "all phases complete",
-			workItem: &source.WorkItem{
+			workItem: &domain.WorkItem{
 				ID:         "t-789",
 				Title:      "Done Ticket",
 				RawContent: "All done",
-				Phases: []source.Phase{
+				Phases: []domain.Phase{
 					{Name: "Phase 1", Completed: true},
 					{Name: "Phase 2", Completed: true},
 				},
@@ -78,7 +78,7 @@ func TestBuild(t *testing.T) {
 		},
 		{
 			name: "no phases - phaseless mode",
-			workItem: &source.WorkItem{
+			workItem: &domain.WorkItem{
 				ID:         "t-000",
 				Title:      "No Phases",
 				RawContent: "Empty",
@@ -97,11 +97,11 @@ func TestBuild(t *testing.T) {
 		},
 		{
 			name: "empty phases - phaseless mode",
-			workItem: &source.WorkItem{
+			workItem: &domain.WorkItem{
 				ID:         "t-001",
 				Title:      "Empty Phases",
 				RawContent: "Also phaseless",
-				Phases:     []source.Phase{},
+				Phases:     []domain.Phase{},
 			},
 			notes: nil,
 			wantSubs: []string{
@@ -133,7 +133,7 @@ func TestBuild(t *testing.T) {
 func TestBuildPhaseList(t *testing.T) {
 	tests := []struct {
 		name   string
-		phases []source.Phase
+		phases []domain.Phase
 		want   string
 	}{
 		{
@@ -143,7 +143,7 @@ func TestBuildPhaseList(t *testing.T) {
 		},
 		{
 			name: "mixed phases",
-			phases: []source.Phase{
+			phases: []domain.Phase{
 				{Name: "Phase 1", Completed: true},
 				{Name: "Phase 2", Completed: false},
 				{Name: "Phase 3", Completed: true},
@@ -152,7 +152,7 @@ func TestBuildPhaseList(t *testing.T) {
 		},
 		{
 			name: "all incomplete",
-			phases: []source.Phase{
+			phases: []domain.Phase{
 				{Name: "First", Completed: false},
 				{Name: "Second", Completed: false},
 			},
@@ -177,11 +177,11 @@ func TestNewBuilder(t *testing.T) {
 	require.NotNil(t, builder)
 
 	// Test building a prompt with the builder
-	workItem := &source.WorkItem{
+	workItem := &domain.WorkItem{
 		ID:         "test-123",
 		Title:      "Test Item",
 		RawContent: "Test content",
-		Phases: []source.Phase{
+		Phases: []domain.Phase{
 			{Name: "Phase 1", Completed: false},
 		},
 	}
@@ -206,17 +206,17 @@ func TestNewBuilder_WithCustomPrompts(t *testing.T) {
 	require.NotNil(t, builder)
 
 	// Test phased prompt
-	workItem := &source.WorkItem{
+	workItem := &domain.WorkItem{
 		ID:     "custom-1",
 		Title:  "Custom Title",
-		Phases: []source.Phase{{Name: "Phase", Completed: false}},
+		Phases: []domain.Phase{{Name: "Phase", Completed: false}},
 	}
 	result, err := builder.Build(workItem, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "Custom phased: custom-1 - Custom Title", result)
 
 	// Test phaseless prompt
-	phaselessItem := &source.WorkItem{
+	phaselessItem := &domain.WorkItem{
 		ID:     "custom-2",
 		Title:  "Phaseless",
 		Phases: nil,
@@ -264,6 +264,16 @@ func TestBuilder_BuildReviewSecond(t *testing.T) {
 	assert.Contains(t, result, "2")
 	// Verify it's the critical review template
 	assert.Contains(t, result, "critical and major")
+}
+
+func TestNewBuilder_InvalidTemplate(t *testing.T) {
+	badPrompts := &config.Prompts{
+		Phased:    "{{.Invalid",
+		Phaseless: "ok",
+	}
+	_, err := NewBuilder(badPrompts)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse phased template")
 }
 
 func TestFormatNotes(t *testing.T) {

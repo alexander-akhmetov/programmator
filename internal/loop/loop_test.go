@@ -10,8 +10,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/worksonmyai/programmator/internal/domain"
+	"github.com/worksonmyai/programmator/internal/event"
 	"github.com/worksonmyai/programmator/internal/parser"
 	"github.com/worksonmyai/programmator/internal/prompt"
+	"github.com/worksonmyai/programmator/internal/protocol"
 	"github.com/worksonmyai/programmator/internal/review"
 	"github.com/worksonmyai/programmator/internal/safety"
 	"github.com/worksonmyai/programmator/internal/source"
@@ -80,82 +83,8 @@ func TestLoopStop(t *testing.T) {
 	}
 }
 
-func TestProcessTextOutput(t *testing.T) {
-	var collected []string
-	onOutput := func(text string) {
-		collected = append(collected, text)
-	}
-
-	config := safety.Config{}
-	l := New(config, "", onOutput, nil, false)
-
-	input := "line1\nline2\nline3"
-	reader := strings.NewReader(input)
-
-	output := l.processTextOutput(reader)
-
-	expected := "line1\nline2\nline3\n"
-	if output != expected {
-		t.Errorf("expected %q, got %q", expected, output)
-	}
-
-	if len(collected) != 3 {
-		t.Errorf("expected 3 callbacks, got %d", len(collected))
-	}
-}
-
-func TestProcessStreamingOutput(t *testing.T) {
-	var collected []string
-	onOutput := func(text string) {
-		collected = append(collected, text)
-	}
-
-	config := safety.Config{}
-	l := New(config, "", onOutput, nil, true)
-
-	input := `{"type":"assistant","message":{"content":[{"type":"text","text":"Hello"}]}}
-{"type":"assistant","message":{"content":[{"type":"text","text":" World"}]}}
-{"type":"result","result":"final"}`
-
-	reader := strings.NewReader(input)
-	output := l.processStreamingOutput(reader)
-
-	if output != "Hello World" {
-		t.Errorf("expected 'Hello World', got %q", output)
-	}
-
-	if len(collected) != 2 {
-		t.Errorf("expected 2 callbacks, got %d", len(collected))
-	}
-}
-
-func TestProcessStreamingOutputEmpty(t *testing.T) {
-	config := safety.Config{}
-	l := New(config, "", nil, nil, true)
-
-	input := `{"type":"result","result":"only result"}`
-	reader := strings.NewReader(input)
-
-	output := l.processStreamingOutput(reader)
-
-	if output != "only result" {
-		t.Errorf("expected 'only result', got %q", output)
-	}
-}
-
-func TestTimeoutBlockedStatus(t *testing.T) {
-	status := timeoutBlockedStatus()
-
-	if !strings.Contains(status, "PROGRAMMATOR_STATUS") {
-		t.Error("timeout status should contain PROGRAMMATOR_STATUS")
-	}
-	if !strings.Contains(status, "BLOCKED") {
-		t.Error("timeout status should contain BLOCKED")
-	}
-	if !strings.Contains(status, "timed out") {
-		t.Error("timeout status should contain timed out message")
-	}
-}
+// NOTE: processTextOutput, processStreamingOutput, and timeoutBlockedStatus
+// have been moved to internal/llm and are tested there.
 
 func TestInvokeClaudePrintCapturesStderr(t *testing.T) {
 	config := safety.Config{MaxIterations: 1, StagnationLimit: 1, Timeout: 10}
@@ -214,9 +143,9 @@ func TestResultFilesChangedList(t *testing.T) {
 func TestStateCallback(t *testing.T) {
 	var callbackCalled bool
 	var receivedState *safety.State
-	var receivedWorkItem *source.WorkItem
+	var receivedWorkItem *domain.WorkItem
 
-	stateCallback := func(state *safety.State, workItem *source.WorkItem, _ []string) {
+	stateCallback := func(state *safety.State, workItem *domain.WorkItem, _ []string) {
 		callbackCalled = true
 		receivedState = state
 		receivedWorkItem = workItem
@@ -230,7 +159,7 @@ func TestStateCallback(t *testing.T) {
 	}
 
 	testState := safety.NewState()
-	testWorkItem := &source.WorkItem{ID: "test-123"}
+	testWorkItem := &domain.WorkItem{ID: "test-123"}
 
 	l.onStateChange(testState, testWorkItem, nil)
 
@@ -256,7 +185,7 @@ func TestLoopLog(t *testing.T) {
 
 	l.log("test message")
 
-	if !strings.Contains(logOutput, "[PROG]") {
+	if !strings.Contains(logOutput, protocol.MarkerProg) {
 		t.Error("log output should contain [PROG] marker")
 	}
 	if !strings.Contains(logOutput, "test message") {
@@ -264,7 +193,24 @@ func TestLoopLog(t *testing.T) {
 	}
 }
 
-func TestLoopLogNoCallback(_ *testing.T) {
+func TestLoopLogEvent(t *testing.T) {
+	var received []event.Event
+	config := safety.Config{}
+	l := New(config, "", nil, nil, false)
+	l.SetEventCallback(func(e event.Event) {
+		received = append(received, e)
+	})
+
+	l.log("test event message")
+
+	require.Len(t, received, 1)
+	require.Equal(t, event.KindProg, received[0].Kind)
+	require.Equal(t, "test event message", received[0].Text)
+}
+
+// TestLoopLogNoCallback verifies that log() does not panic when no callback is set.
+func TestLoopLogNoCallback(t *testing.T) {
+	_ = t // test passes if no panic occurs; named param allows future assertions
 	config := safety.Config{}
 	l := New(config, "", nil, nil, false)
 
@@ -341,7 +287,7 @@ func TestResultExitReasons(t *testing.T) {
 func TestResultWithFinalStatus(t *testing.T) {
 	status := &parser.ParsedStatus{
 		PhaseCompleted: "Phase 1",
-		Status:         parser.StatusContinue,
+		Status:         protocol.StatusContinue,
 		FilesChanged:   []string{"main.go"},
 		Summary:        "Did something",
 	}
@@ -363,11 +309,11 @@ func TestResultWithFinalStatus(t *testing.T) {
 
 func TestRunAllPhasesCompleteAtStart(t *testing.T) {
 	mock := source.NewMockSource()
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
-		return &source.WorkItem{
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []source.Phase{
+			Phases: []domain.Phase{
 				{Name: "Phase 1", Completed: true},
 				{Name: "Phase 2", Completed: true},
 			},
@@ -389,7 +335,7 @@ func TestRunAllPhasesCompleteAtStart(t *testing.T) {
 
 func TestRunGetTicketError(t *testing.T) {
 	mock := source.NewMockSource()
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
 		return nil, fmt.Errorf("ticket not found")
 	}
 
@@ -404,11 +350,11 @@ func TestRunGetTicketError(t *testing.T) {
 
 func TestRunStopRequested(t *testing.T) {
 	mock := source.NewMockSource()
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
-		return &source.WorkItem{
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []source.Phase{
+			Phases: []domain.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
@@ -427,18 +373,18 @@ func TestRunStopRequested(t *testing.T) {
 
 func TestRunStateCallbackCalled(t *testing.T) {
 	mock := source.NewMockSource()
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
-		return &source.WorkItem{
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []source.Phase{
+			Phases: []domain.Phase{
 				{Name: "Phase 1", Completed: true},
 			},
 		}, nil
 	}
 
 	var callbackInvoked bool
-	stateCallback := func(_ *safety.State, tkt *source.WorkItem, _ []string) {
+	stateCallback := func(_ *safety.State, tkt *domain.WorkItem, _ []string) {
 		callbackInvoked = true
 		require.Equal(t, "test-123", tkt.ID)
 	}
@@ -463,11 +409,11 @@ func TestNewWithSourceNil(t *testing.T) {
 
 func TestRunWithMockInvokerDone(t *testing.T) {
 	mock := source.NewMockSource()
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
-		return &source.WorkItem{
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []source.Phase{
+			Phases: []domain.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
@@ -499,11 +445,11 @@ PROGRAMMATOR_STATUS:
 
 func TestRunWithMockInvokerBlocked(t *testing.T) {
 	mock := source.NewMockSource()
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
-		return &source.WorkItem{
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []source.Phase{
+			Phases: []domain.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
@@ -531,21 +477,21 @@ func TestRunWithMockInvokerBlocked(t *testing.T) {
 func TestRunWithMockInvokerNoStatus(t *testing.T) {
 	mock := source.NewMockSource()
 	callCount := 0
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
 		callCount++
 		if callCount >= 4 {
-			return &source.WorkItem{
+			return &domain.WorkItem{
 				ID:    "test-123",
 				Title: "Test Ticket",
-				Phases: []source.Phase{
+				Phases: []domain.Phase{
 					{Name: "Phase 1", Completed: true},
 				},
 			}, nil
 		}
-		return &source.WorkItem{
+		return &domain.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []source.Phase{
+			Phases: []domain.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
@@ -571,11 +517,11 @@ func TestRunWithMockInvokerNoStatus(t *testing.T) {
 
 func TestRunWithMockInvokerError(t *testing.T) {
 	mock := source.NewMockSource()
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
-		return &source.WorkItem{
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []source.Phase{
+			Phases: []domain.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
@@ -596,11 +542,11 @@ func TestRunWithMockInvokerError(t *testing.T) {
 
 func TestRunMaxIterations(t *testing.T) {
 	mock := source.NewMockSource()
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
-		return &source.WorkItem{
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []source.Phase{
+			Phases: []domain.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
@@ -627,11 +573,11 @@ func TestRunMaxIterations(t *testing.T) {
 
 func TestRunStagnation(t *testing.T) {
 	mock := source.NewMockSource()
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
-		return &source.WorkItem{
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []source.Phase{
+			Phases: []domain.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
@@ -658,11 +604,11 @@ func TestRunStagnation(t *testing.T) {
 func TestRunFilesChanged(t *testing.T) {
 	mock := source.NewMockSource()
 	invocation := 0
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
-		return &source.WorkItem{
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []source.Phase{
+			Phases: []domain.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
@@ -694,15 +640,15 @@ func TestRunFilesChanged(t *testing.T) {
 func TestRunGetTicketErrorDuringLoop(t *testing.T) {
 	mock := source.NewMockSource()
 	callCount := 0
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
 		callCount++
 		if callCount > 1 {
 			return nil, fmt.Errorf("ticket fetch error")
 		}
-		return &source.WorkItem{
+		return &domain.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []source.Phase{
+			Phases: []domain.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
@@ -732,11 +678,11 @@ func TestSetClaudeInvoker(t *testing.T) {
 
 func TestRunParseError(t *testing.T) {
 	mock := source.NewMockSource()
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
-		return &source.WorkItem{
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []source.Phase{
+			Phases: []domain.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
@@ -759,11 +705,11 @@ func TestRunParseError(t *testing.T) {
 
 func TestRunContextCancellation(t *testing.T) {
 	mock := source.NewMockSource()
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
-		return &source.WorkItem{
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []source.Phase{
+			Phases: []domain.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
@@ -1038,7 +984,7 @@ func TestDefaultReviewFixPrompt(t *testing.T) {
 	require.Contains(t, prompt, "main.go")
 	require.Contains(t, prompt, "utils.go")
 	require.Contains(t, prompt, issuesMarkdown)
-	require.Contains(t, prompt, "PROGRAMMATOR_STATUS:")
+	require.Contains(t, prompt, protocol.StatusBlockKey+":")
 	require.Contains(t, prompt, "commit_made: true")
 }
 
@@ -1291,7 +1237,7 @@ func TestRunReviewOnlyStateCallback(t *testing.T) {
 	var callbackInvoked bool
 	var lastState *safety.State
 
-	stateCallback := func(state *safety.State, _ *source.WorkItem, _ []string) {
+	stateCallback := func(state *safety.State, _ *domain.WorkItem, _ []string) {
 		callbackInvoked = true
 		lastState = state
 	}
@@ -1461,8 +1407,8 @@ func TestRunWithPlanSource_UpdatesCheckboxes(t *testing.T) {
 func TestRunPhaselessTicket_CompletesOnDone(t *testing.T) {
 	// Test: A ticket without phases runs until Claude reports DONE
 	mock := source.NewMockSource()
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
-		return &source.WorkItem{
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
 			ID:         "phaseless-123",
 			Title:      "Phaseless Ticket",
 			Phases:     nil, // No phases - phaseless ticket
@@ -1495,22 +1441,22 @@ func TestRunPhaselessTicket_CompletesOnDone(t *testing.T) {
 	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
 	require.Equal(t, 1, result.Iterations)
 	require.NotNil(t, result.FinalStatus)
-	require.Equal(t, parser.StatusDone, result.FinalStatus.Status)
+	require.Equal(t, protocol.StatusDone, result.FinalStatus.Status)
 	require.Equal(t, 1, reviewCalls)
 
 	// Verify status was set to closed
 	require.Len(t, mock.SetStatusCalls, 2) // in_progress + closed
-	require.Equal(t, "closed", mock.SetStatusCalls[1].Status)
+	require.Equal(t, protocol.WorkItemClosed, mock.SetStatusCalls[1].Status)
 }
 
 func TestRunPhaselessTicket_ContinuesUntilDone(t *testing.T) {
 	// Test: A phaseless ticket continues looping until Claude signals DONE
 	mock := source.NewMockSource()
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
-		return &source.WorkItem{
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
 			ID:         "phaseless-456",
 			Title:      "Multi-iteration Phaseless Ticket",
-			Phases:     []source.Phase{}, // Empty phases - also phaseless
+			Phases:     []domain.Phase{}, // Empty phases - also phaseless
 			RawContent: "# Task\n\nComplex task requiring multiple steps.\n",
 		}, nil
 	}
@@ -1556,8 +1502,8 @@ func TestRunPhaselessTicket_ContinuesUntilDone(t *testing.T) {
 func TestRunPhaselessTicket_SafetyLimitsStillApply(t *testing.T) {
 	// Test: Safety limits (stagnation) still apply to phaseless tickets
 	mock := source.NewMockSource()
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
-		return &source.WorkItem{
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
 			ID:         "phaseless-stag",
 			Title:      "Phaseless Ticket That Stagnates",
 			Phases:     nil,
@@ -1589,8 +1535,8 @@ func TestRunPhaselessTicket_SafetyLimitsStillApply(t *testing.T) {
 func TestRunPhaselessTicket_BlockedHandled(t *testing.T) {
 	// Test: BLOCKED status is handled correctly for phaseless tickets
 	mock := source.NewMockSource()
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
-		return &source.WorkItem{
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
 			ID:         "phaseless-blocked",
 			Title:      "Phaseless Ticket That Gets Blocked",
 			Phases:     nil,
@@ -1641,7 +1587,7 @@ func TestBuildHookSettings_GuardOnly(t *testing.T) {
 
 	require.Contains(t, settings, `"matcher":"Bash"`)
 	home, _ := os.UserHomeDir()
-	require.Contains(t, settings, fmt.Sprintf("DCG_CONFIG=%s/.config/dcg/config.toml dcg", home))
+	require.Contains(t, settings, fmt.Sprintf("DCG_CONFIG='%s/.config/dcg/config.toml' dcg", home))
 	require.Contains(t, settings, `"timeout":5000`)
 	require.NotContains(t, settings, "programmator hook")
 }
@@ -1657,7 +1603,7 @@ func TestBuildHookSettings_BothCombined(t *testing.T) {
 	require.Contains(t, settings, "programmator hook --socket /tmp/test.sock")
 	require.Contains(t, settings, `"matcher":"Bash"`)
 	home, _ := os.UserHomeDir()
-	require.Contains(t, settings, fmt.Sprintf("DCG_CONFIG=%s/.config/dcg/config.toml dcg", home))
+	require.Contains(t, settings, fmt.Sprintf("DCG_CONFIG='%s/.config/dcg/config.toml' dcg", home))
 }
 
 func TestSetGuardMode(t *testing.T) {
@@ -1672,11 +1618,11 @@ func TestSetGuardMode(t *testing.T) {
 // Fix 1 test: iteration_limit:1 allows Claude one fix attempt
 func TestHandleMultiPhaseReview_IterationLimitOneAllowsFix(t *testing.T) {
 	mock := source.NewMockSource()
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
-		return &source.WorkItem{
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []source.Phase{
+			Phases: []domain.Phase{
 				{Name: "Phase 1", Completed: true},
 			},
 		}, nil
@@ -1740,7 +1686,7 @@ func TestPromptBuilderWiredInReview(t *testing.T) {
 	l.SetPromptBuilder(builder)
 
 	// buildReviewFixPrompt should use the builder (not fallback)
-	l.currentPhaseIdx = 0
+	l.engine.CurrentPhaseIdx = 0
 	result, err := l.buildReviewFixPrompt("main", []string{"file.go"}, "some issues", 1)
 	require.NoError(t, err)
 
@@ -1754,11 +1700,11 @@ func TestPromptBuilderWiredInReview(t *testing.T) {
 // Test: main loop uses review fix prompt (not task prompt) when pendingReviewFix is true
 func TestMainLoopUsesReviewFixPromptWhenPendingFix(t *testing.T) {
 	mock := source.NewMockSource()
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
-		return &source.WorkItem{
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []source.Phase{
+			Phases: []domain.Phase{
 				{Name: "Phase 1", Completed: true},
 			},
 		}, nil
@@ -1820,11 +1766,11 @@ func TestMainLoopUsesReviewFixPromptWhenPendingFix(t *testing.T) {
 // Test: main loop uses promptBuilder for task prompts (not the default builder)
 func TestMainLoopUsesPromptBuilderForTaskPrompt(t *testing.T) {
 	mock := source.NewMockSource()
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
-		return &source.WorkItem{
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
 			ID:    "test-456",
 			Title: "Test Task",
-			Phases: []source.Phase{
+			Phases: []domain.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 		}, nil
@@ -1864,11 +1810,11 @@ func TestMainLoopUsesPromptBuilderForTaskPrompt(t *testing.T) {
 // Fix 3 test: reviewConfig.MaxIterations is used for phase limits
 func TestHandleMultiPhaseReview_UsesReviewConfigMaxIterations(t *testing.T) {
 	mock := source.NewMockSource()
-	mock.GetFunc = func(_ string) (*source.WorkItem, error) {
-		return &source.WorkItem{
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
 			ID:    "test-123",
 			Title: "Test Ticket",
-			Phases: []source.Phase{
+			Phases: []domain.Phase{
 				{Name: "Phase 1", Completed: true},
 			},
 		}, nil
@@ -2013,7 +1959,7 @@ func TestWorkItemHelpers_Phaseless(t *testing.T) {
 	// Test: WorkItem helper methods work correctly for phaseless items
 	tests := []struct {
 		name              string
-		phases            []source.Phase
+		phases            []domain.Phase
 		hasPhases         bool
 		allPhasesComplete bool
 		currentPhaseIsNil bool
@@ -2027,14 +1973,14 @@ func TestWorkItemHelpers_Phaseless(t *testing.T) {
 		},
 		{
 			name:              "empty phases",
-			phases:            []source.Phase{},
+			phases:            []domain.Phase{},
 			hasPhases:         false,
 			allPhasesComplete: false,
 			currentPhaseIsNil: true,
 		},
 		{
 			name: "has incomplete phases",
-			phases: []source.Phase{
+			phases: []domain.Phase{
 				{Name: "Phase 1", Completed: false},
 			},
 			hasPhases:         true,
@@ -2043,7 +1989,7 @@ func TestWorkItemHelpers_Phaseless(t *testing.T) {
 		},
 		{
 			name: "all phases complete",
-			phases: []source.Phase{
+			phases: []domain.Phase{
 				{Name: "Phase 1", Completed: true},
 			},
 			hasPhases:         true,
@@ -2054,7 +2000,7 @@ func TestWorkItemHelpers_Phaseless(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			item := &source.WorkItem{Phases: tc.phases}
+			item := &domain.WorkItem{Phases: tc.phases}
 
 			require.Equal(t, tc.hasPhases, item.HasPhases())
 			require.Equal(t, tc.allPhasesComplete, item.AllPhasesComplete())

@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"regexp"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
 	"github.com/worksonmyai/programmator/internal/config"
 	"github.com/worksonmyai/programmator/internal/progress"
 	"github.com/worksonmyai/programmator/internal/source"
+	"github.com/worksonmyai/programmator/internal/ticket"
 )
 
 var (
@@ -90,7 +93,7 @@ func runLogs(_ *cobra.Command, args []string) error {
 		// For tickets with --follow, use progress logs instead
 		return followLogs(cfg.LogsDir, sourceID)
 	}
-	return showTicketLogs(sourceID)
+	return showTicketLogs(cfg.TicketCommand, sourceID)
 }
 
 // listLogs lists recent log files.
@@ -194,15 +197,29 @@ func followLogs(logsDir, sourceID string) error {
 		return fmt.Errorf("failed to start tail: %w", err)
 	}
 
-	// Wait for command to complete
+	// Kill tail process on interrupt signal
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		_ = cmd.Process.Kill()
+	}()
+	defer signal.Stop(sigCh)
+
 	return cmd.Wait()
 }
 
 // showTicketLogs shows logs from ticket notes.
-func showTicketLogs(ticketID string) error {
-	out, err := exec.Command("ticket", "show", ticketID).Output()
+func showTicketLogs(ticketCmd, ticketID string) error {
+	if err := ticket.ValidateID(ticketID); err != nil {
+		return fmt.Errorf("invalid ticket ID: %w", err)
+	}
+	if ticketCmd == "" {
+		ticketCmd = "tk"
+	}
+	out, err := exec.Command(ticketCmd, "show", "--", ticketID).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to get ticket %s: %w", ticketID, err)
+		return fmt.Errorf("failed to get ticket %s: %s", ticketID, strings.TrimSpace(string(out)))
 	}
 
 	content := string(out)

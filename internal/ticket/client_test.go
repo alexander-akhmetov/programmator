@@ -1,6 +1,7 @@
 package ticket
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,13 +9,16 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/worksonmyai/programmator/internal/domain"
+	"github.com/worksonmyai/programmator/internal/protocol"
 )
 
 func TestParsePhases(t *testing.T) {
 	tests := []struct {
 		name     string
 		content  string
-		expected []Phase
+		expected []domain.Phase
 	}{
 		{
 			name:     "empty content",
@@ -30,7 +34,7 @@ func TestParsePhases(t *testing.T) {
 			name: "single uncompleted phase",
 			content: `## Design
 - [ ] Phase 1: Setup`,
-			expected: []Phase{
+			expected: []domain.Phase{
 				{Name: "Phase 1: Setup", Completed: false},
 			},
 		},
@@ -38,7 +42,7 @@ func TestParsePhases(t *testing.T) {
 			name: "single completed phase",
 			content: `## Design
 - [x] Phase 1: Setup`,
-			expected: []Phase{
+			expected: []domain.Phase{
 				{Name: "Phase 1: Setup", Completed: true},
 			},
 		},
@@ -46,7 +50,7 @@ func TestParsePhases(t *testing.T) {
 			name: "uppercase X completed",
 			content: `## Design
 - [X] Phase 1: Setup`,
-			expected: []Phase{
+			expected: []domain.Phase{
 				{Name: "Phase 1: Setup", Completed: true},
 			},
 		},
@@ -57,7 +61,7 @@ func TestParsePhases(t *testing.T) {
 - [x] Phase 2: Implement safety module
 - [ ] Phase 3: Implement ticket_client
 - [ ] Phase 4: Implement prompt_builder`,
-			expected: []Phase{
+			expected: []domain.Phase{
 				{Name: "Phase 1: Project setup", Completed: true},
 				{Name: "Phase 2: Implement safety module", Completed: true},
 				{Name: "Phase 3: Implement ticket_client", Completed: false},
@@ -68,7 +72,7 @@ func TestParsePhases(t *testing.T) {
 			name: "phases with colons and descriptions",
 			content: `- [ ] Phase 1: Investigation (gather info)
 - [x] Phase 2: Implementation - the main work`,
-			expected: []Phase{
+			expected: []domain.Phase{
 				{Name: "Phase 1: Investigation (gather info)", Completed: false},
 				{Name: "Phase 2: Implementation - the main work", Completed: true},
 			},
@@ -126,7 +130,7 @@ type: task
 - [x] Phase 1: Setup
 - [ ] Phase 2: Implementation`,
 			expectedTitle:  "[programmator] Rewrite to Go",
-			expectedStatus: "in_progress",
+			expectedStatus: protocol.WorkItemInProgress,
 			expectedType:   "task",
 			expectedPhases: 2,
 		},
@@ -172,111 +176,31 @@ title: "Simple task"
 	}
 }
 
-func TestTicket_CurrentPhase(t *testing.T) {
-	tests := []struct {
-		name         string
-		phases       []Phase
-		expectedName string
-		expectNil    bool
-	}{
-		{
-			name:      "no phases",
-			phases:    []Phase{},
-			expectNil: true,
-		},
-		{
-			name: "all completed",
-			phases: []Phase{
-				{Name: "Phase 1", Completed: true},
-				{Name: "Phase 2", Completed: true},
-			},
-			expectNil: true,
-		},
-		{
-			name: "first incomplete",
-			phases: []Phase{
-				{Name: "Phase 1", Completed: false},
-				{Name: "Phase 2", Completed: false},
-			},
-			expectedName: "Phase 1",
-		},
-		{
-			name: "second incomplete",
-			phases: []Phase{
-				{Name: "Phase 1", Completed: true},
-				{Name: "Phase 2", Completed: false},
-				{Name: "Phase 3", Completed: false},
-			},
-			expectedName: "Phase 2",
-		},
+func TestTicket_ToWorkItem(t *testing.T) {
+	ticket := &Ticket{
+		ID:         "t-123",
+		Title:      "Test Ticket",
+		Status:     protocol.WorkItemOpen,
+		Phases:     []domain.Phase{{Name: "Phase 1", Completed: true}, {Name: "Phase 2", Completed: false}},
+		RawContent: "raw",
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ticket := &Ticket{Phases: tt.phases}
-			phase := ticket.CurrentPhase()
-			if tt.expectNil {
-				if phase != nil {
-					t.Errorf("expected nil, got %v", phase)
-				}
-			} else {
-				if phase == nil {
-					t.Fatal("expected phase, got nil")
-				}
-				if phase.Name != tt.expectedName {
-					t.Errorf("expected name %q, got %q", tt.expectedName, phase.Name)
-				}
-			}
-		})
-	}
-}
+	item := ticket.ToWorkItem()
+	assert.Equal(t, "t-123", item.ID)
+	assert.Equal(t, "Test Ticket", item.Title)
+	assert.Equal(t, protocol.WorkItemOpen, item.Status)
+	assert.Equal(t, "raw", item.RawContent)
+	require.Len(t, item.Phases, 2)
+	assert.Equal(t, "Phase 1", item.Phases[0].Name)
+	assert.True(t, item.Phases[0].Completed)
+	assert.Equal(t, "Phase 2", item.Phases[1].Name)
+	assert.False(t, item.Phases[1].Completed)
 
-func TestTicket_AllPhasesComplete(t *testing.T) {
-	tests := []struct {
-		name     string
-		phases   []Phase
-		expected bool
-	}{
-		{
-			name:     "no phases",
-			phases:   []Phase{},
-			expected: false,
-		},
-		{
-			name: "all completed",
-			phases: []Phase{
-				{Name: "Phase 1", Completed: true},
-				{Name: "Phase 2", Completed: true},
-			},
-			expected: true,
-		},
-		{
-			name: "some incomplete",
-			phases: []Phase{
-				{Name: "Phase 1", Completed: true},
-				{Name: "Phase 2", Completed: false},
-			},
-			expected: false,
-		},
-		{
-			name: "all incomplete",
-			phases: []Phase{
-				{Name: "Phase 1", Completed: false},
-				{Name: "Phase 2", Completed: false},
-			},
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ticket := &Ticket{Phases: tt.phases}
-			result := ticket.AllPhasesComplete()
-			if result != tt.expected {
-				t.Errorf("expected %v, got %v", tt.expected, result)
-			}
-		})
-	}
+	// Domain methods work via WorkItem
+	assert.True(t, item.HasPhases())
+	require.NotNil(t, item.CurrentPhase())
+	assert.Equal(t, "Phase 2", item.CurrentPhase().Name)
+	assert.False(t, item.AllPhasesComplete())
 }
 
 func TestNewClient(t *testing.T) {
@@ -355,11 +279,11 @@ func TestMockClient(t *testing.T) {
 
 	t.Run("SetStatus with default func", func(t *testing.T) {
 		mock := NewMockClient()
-		err := mock.SetStatus("test-123", "closed")
+		err := mock.SetStatus("test-123", protocol.WorkItemClosed)
 		require.NoError(t, err)
 		require.Len(t, mock.SetStatusCalls, 1)
 		require.Equal(t, "test-123", mock.SetStatusCalls[0].ID)
-		require.Equal(t, "closed", mock.SetStatusCalls[0].Status)
+		require.Equal(t, protocol.WorkItemClosed, mock.SetStatusCalls[0].Status)
 	})
 
 	t.Run("SetStatus with custom func", func(t *testing.T) {
@@ -368,57 +292,14 @@ func TestMockClient(t *testing.T) {
 		mock.SetStatusFunc = func(_, _ string) error {
 			return customErr
 		}
-		err := mock.SetStatus("test-123", "closed")
+		err := mock.SetStatus("test-123", protocol.WorkItemClosed)
 		require.ErrorIs(t, err, customErr)
 	})
 }
 
-func TestMockClientImplementsInterface(_ *testing.T) {
-	var _ Client = (*MockClient)(nil)
-	var _ Client = (*CLIClient)(nil)
-}
-
-func TestTicket_HasPhases(t *testing.T) {
-	tests := []struct {
-		name     string
-		phases   []Phase
-		expected bool
-	}{
-		{
-			name:     "no phases",
-			phases:   []Phase{},
-			expected: false,
-		},
-		{
-			name:     "nil phases",
-			phases:   nil,
-			expected: false,
-		},
-		{
-			name: "has phases",
-			phases: []Phase{
-				{Name: "Phase 1", Completed: false},
-			},
-			expected: true,
-		},
-		{
-			name: "has completed phases",
-			phases: []Phase{
-				{Name: "Phase 1", Completed: true},
-			},
-			expected: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ticket := &Ticket{Phases: tt.phases}
-			result := ticket.HasPhases()
-			if result != tt.expected {
-				t.Errorf("expected %v, got %v", tt.expected, result)
-			}
-		})
-	}
+func TestMockClientImplementsInterface(t *testing.T) {
+	require.Implements(t, (*Client)(nil), &MockClient{})
+	require.Implements(t, (*Client)(nil), &CLIClient{})
 }
 
 func TestNormalizePhase(t *testing.T) {
@@ -457,7 +338,8 @@ func TestUpdatePhase(t *testing.T) {
 		err := client.UpdatePhase("t-1234", "Phase 1: Setup")
 		require.NoError(t, err)
 
-		data, _ := os.ReadFile(path)
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
 		assert.Contains(t, string(data), "- [x] Phase 1: Setup")
 		assert.Contains(t, string(data), "- [ ] Phase 2: Implement")
 	})
@@ -472,7 +354,7 @@ func TestUpdatePhase(t *testing.T) {
 		client, _ := setup(t, "## Design\n- [ ] Phase 1: Setup\n")
 		err := client.UpdatePhase("t-1234", "Nonexistent Phase")
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "phase not found")
+		assert.True(t, errors.Is(err, ErrPhaseNotFound))
 	})
 
 	t.Run("no-op for empty phase name", func(t *testing.T) {
@@ -482,7 +364,7 @@ func TestUpdatePhase(t *testing.T) {
 
 	t.Run("no-op for null phase name", func(t *testing.T) {
 		client, _ := setup(t, "## Design\n- [ ] Phase 1: Setup\n")
-		assert.NoError(t, client.UpdatePhase("t-1234", "null"))
+		assert.NoError(t, client.UpdatePhase("t-1234", protocol.NullPhase))
 	})
 
 	t.Run("fuzzy matching - phase contains name", func(t *testing.T) {
@@ -490,7 +372,8 @@ func TestUpdatePhase(t *testing.T) {
 		err := client.UpdatePhase("t-1234", "Setup the project")
 		require.NoError(t, err)
 
-		data, _ := os.ReadFile(path)
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
 		assert.Contains(t, string(data), "- [x] Phase 1: Setup the project")
 	})
 
@@ -499,9 +382,28 @@ func TestUpdatePhase(t *testing.T) {
 		err := client.UpdatePhase("t-1234", "Phase 1: Setup")
 		require.NoError(t, err)
 
-		data, _ := os.ReadFile(path)
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
 		assert.Contains(t, string(data), "- [x] Setup")
 	})
+}
+
+func TestUpdatePhase_OverlappingNames(t *testing.T) {
+	dir := t.TempDir()
+	content := "## Design\n- [ ] Setup\n- [ ] Setup Tests\n- [ ] Setup Integration Tests\n"
+	path := filepath.Join(dir, "t-1234.md")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
+	client := &CLIClient{ticketsDir: dir}
+
+	// "Setup" should match the first phase (exact match after normalization)
+	err := client.UpdatePhase("t-1234", "Setup")
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "- [x] Setup")
+	assert.Contains(t, string(data), "- [ ] Setup Tests")
+	assert.Contains(t, string(data), "- [ ] Setup Integration Tests")
 }
 
 func TestFindTicketFile(t *testing.T) {
@@ -532,8 +434,66 @@ func TestFindTicketFile(t *testing.T) {
 		client := setup(t, "unrelated.md")
 		_, err := client.findTicketFile("t-9999")
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "not found")
+		assert.True(t, errors.Is(err, ErrTicketNotFound))
 	})
+}
+
+func TestFindTicketFile_PathTraversal(t *testing.T) {
+	dir := t.TempDir()
+	client := &CLIClient{ticketsDir: dir}
+
+	tests := []struct {
+		name string
+		id   string
+	}{
+		{"parent traversal", "../../../etc/passwd"},
+		{"dot-dot in middle", "foo/../bar"},
+		{"absolute path chars", "/etc/passwd"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := client.findTicketFile(tt.id)
+			require.Error(t, err)
+			require.ErrorIs(t, err, ErrTicketNotFound)
+		})
+	}
+}
+
+func TestValidateID(t *testing.T) {
+	tests := []struct {
+		name    string
+		id      string
+		wantErr bool
+	}{
+		{"valid simple", "t-1234", false},
+		{"valid with dots", "pro-l54x.v2", false},
+		{"valid alphanumeric", "abc123", false},
+		{"empty", "", true},
+		{"path traversal", "../etc/passwd", true},
+		{"semicolon injection", "id;rm -rf", true},
+		{"starts with dash", "-flag", true},
+		{"spaces", "id with spaces", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateID(tt.id)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.ErrorIs(t, err, ErrTicketNotFound)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestSetStatus_InvalidStatus(t *testing.T) {
+	client := &CLIClient{ticketsDir: t.TempDir(), command: "tk"}
+	err := client.SetStatus("t-123", "invalid_status")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid status")
 }
 
 func TestNewClient_EnvHandling(t *testing.T) {
@@ -574,23 +534,24 @@ This ticket has no checkbox phases - it should be treated as a single task.
 	require.NoError(t, err)
 	require.Equal(t, "Phaseless ticket", ticket.Title)
 	require.Empty(t, ticket.Phases)
-	require.False(t, ticket.HasPhases())
-	require.Nil(t, ticket.CurrentPhase())
-	require.False(t, ticket.AllPhasesComplete())
+	item := ticket.ToWorkItem()
+	require.False(t, item.HasPhases())
+	require.Nil(t, item.CurrentPhase())
+	require.False(t, item.AllPhasesComplete())
 }
 
 func TestParsePhases_HeadingBased(t *testing.T) {
 	tests := []struct {
 		name     string
 		content  string
-		expected []Phase
+		expected []domain.Phase
 	}{
 		{
 			name: "single step with colon",
 			content: `# Plan
 ## Step 1: Add new agent prompts
 Some content here`,
-			expected: []Phase{
+			expected: []domain.Phase{
 				{Name: "Step 1: Add new agent prompts", Completed: false},
 			},
 		},
@@ -599,7 +560,7 @@ Some content here`,
 			content: `# Plan
 ## Step 1. Add new agent prompts
 Some content here`,
-			expected: []Phase{
+			expected: []domain.Phase{
 				{Name: "Step 1. Add new agent prompts", Completed: false},
 			},
 		},
@@ -612,7 +573,7 @@ Content for step 1
 Content for step 2
 ## Step 3: Add Severity Filtering to RunResult
 Content for step 3`,
-			expected: []Phase{
+			expected: []domain.Phase{
 				{Name: "Step 1: Add 3 New Agent Prompts", Completed: false},
 				{Name: "Step 2: Add Phase Config Model", Completed: false},
 				{Name: "Step 3: Add Severity Filtering to RunResult", Completed: false},
@@ -624,7 +585,7 @@ Content for step 3`,
 ## Step 1: Investigation [x]
 ## Step 2: Implementation [ ]
 ## Step 3: Testing [X]`,
-			expected: []Phase{
+			expected: []domain.Phase{
 				{Name: "Step 1: Investigation", Completed: true},
 				{Name: "Step 2: Implementation", Completed: false},
 				{Name: "Step 3: Testing", Completed: true},
@@ -635,7 +596,7 @@ Content for step 3`,
 			content: `# Plan
 ## Phase 1: Setup
 ## Phase 2: Implementation`,
-			expected: []Phase{
+			expected: []domain.Phase{
 				{Name: "Phase 1: Setup", Completed: false},
 				{Name: "Phase 2: Implementation", Completed: false},
 			},
@@ -649,7 +610,7 @@ Some notes here
 ## Step 2: Second task
 ## References
 More content`,
-			expected: []Phase{
+			expected: []domain.Phase{
 				{Name: "Step 1: First task", Completed: false},
 				{Name: "Step 2: Second task", Completed: false},
 			},
@@ -662,7 +623,7 @@ More content`,
 - [ ] Phase 2: Implementation
 ## Step 1: Add new prompts
 ## Step 2: Update config`,
-			expected: []Phase{
+			expected: []domain.Phase{
 				{Name: "Phase 1: Investigation", Completed: false},
 				{Name: "Phase 2: Implementation", Completed: false},
 			},
@@ -708,7 +669,8 @@ func TestUpdatePhase_HeadingBased(t *testing.T) {
 		err := client.UpdatePhase("t-1234", "Step 1: Add new agent prompts")
 		require.NoError(t, err)
 
-		data, _ := os.ReadFile(path)
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
 		assert.Contains(t, string(data), "## Step 1: Add new agent prompts [x]")
 		assert.Contains(t, string(data), "## Step 2: Update config")
 	})
@@ -722,7 +684,8 @@ func TestUpdatePhase_HeadingBased(t *testing.T) {
 		err := client.UpdatePhase("t-1234", "Step 1: Investigation")
 		require.NoError(t, err)
 
-		data, _ := os.ReadFile(path)
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
 		assert.Contains(t, string(data), "## Step 1: Investigation [x]")
 		assert.Contains(t, string(data), "## Step 2: Implementation [ ]")
 	})
@@ -744,7 +707,8 @@ func TestUpdatePhase_HeadingBased(t *testing.T) {
 		err := client.UpdatePhase("t-1234", "Add new agent prompts")
 		require.NoError(t, err)
 
-		data, _ := os.ReadFile(path)
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
 		assert.Contains(t, string(data), "## Step 1: Add new agent prompts [x]")
 	})
 
@@ -757,7 +721,8 @@ func TestUpdatePhase_HeadingBased(t *testing.T) {
 		err := client.UpdatePhase("t-1234", "Phase 1: Investigation")
 		require.NoError(t, err)
 
-		data, _ := os.ReadFile(path)
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
 		// Should update the checkbox, not the heading
 		assert.Contains(t, string(data), "- [x] Phase 1: Investigation")
 		assert.Contains(t, string(data), "## Step 1: Add new prompts")
@@ -788,7 +753,8 @@ Add FilterBySeverity method.
 	require.NoError(t, err)
 	require.Equal(t, "[programmator] Plan: Multi-Phase Review System", ticket.Title)
 	require.Len(t, ticket.Phases, 3)
-	require.True(t, ticket.HasPhases())
+	item := ticket.ToWorkItem()
+	require.True(t, item.HasPhases())
 
 	assert.Equal(t, "Step 1: Add 3 New Agent Prompts", ticket.Phases[0].Name)
 	assert.False(t, ticket.Phases[0].Completed)
@@ -797,7 +763,7 @@ Add FilterBySeverity method.
 	assert.Equal(t, "Step 3: Add Severity Filtering to RunResult", ticket.Phases[2].Name)
 	assert.False(t, ticket.Phases[2].Completed)
 
-	currentPhase := ticket.CurrentPhase()
+	currentPhase := item.CurrentPhase()
 	require.NotNil(t, currentPhase)
 	assert.Equal(t, "Step 1: Add 3 New Agent Prompts", currentPhase.Name)
 }

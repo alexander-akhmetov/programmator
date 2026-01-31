@@ -6,10 +6,12 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/worksonmyai/programmator/internal/protocol"
 )
 
 // reviewResultRegex matches REVIEW_RESULT: blocks in Claude output.
-var reviewResultRegex = regexp.MustCompile(`(?s)REVIEW_RESULT:\s*\n(.*?)(?:\n\s*\x60{3}|$)`)
+var reviewResultRegex = regexp.MustCompile(`(?s)` + protocol.ReviewResultBlockKey + `:\s*\n(.*?)(?:\n\s*\x60{3}|$)`)
 
 // ParsedReviewResult is the structured review output.
 type ParsedReviewResult struct {
@@ -25,7 +27,7 @@ func parseReviewOutput(output string) ([]Issue, string, error) {
 		return []Issue{}, "No structured review output found", nil
 	}
 
-	yamlContent := "REVIEW_RESULT:\n" + match[1]
+	yamlContent := protocol.ReviewResultBlockKey + ":\n" + match[1]
 	yamlContent = strings.TrimRight(yamlContent, "`\n ")
 
 	var wrapper struct {

@@ -2,10 +2,14 @@ package review
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/worksonmyai/programmator/internal/event"
+	"github.com/worksonmyai/programmator/internal/protocol"
 )
 
 // RunResult holds the result of a complete review run.
@@ -99,6 +103,7 @@ type Runner struct {
 	agents       map[string]Agent
 	agentsMu     sync.Mutex
 	onOutput     OutputCallback
+	onEvent      event.Handler
 	agentFactory AgentFactory
 }
 
@@ -161,7 +166,7 @@ func addTicketContext(prompt, ticketContext string) string {
 func (r *Runner) runAgentsParallel(ctx context.Context, agents []AgentConfig, workingDir string, filesChanged []string) ([]*Result, error) {
 	var wg sync.WaitGroup
 	results := make([]*Result, len(agents))
-	errors := make([]error, len(agents))
+	errs := make([]error, len(agents))
 
 	for i, agentCfg := range agents {
 		wg.Add(1)
@@ -173,7 +178,7 @@ func (r *Runner) runAgentsParallel(ctx context.Context, agents []AgentConfig, wo
 
 			result, err := agent.Review(ctx, workingDir, filesChanged)
 			if err != nil {
-				errors[idx] = err
+				errs[idx] = err
 				results[idx] = &Result{
 					AgentName: cfg.Name,
 					Error:     err,
@@ -193,11 +198,15 @@ func (r *Runner) runAgentsParallel(ctx context.Context, agents []AgentConfig, wo
 		return nil, ctx.Err()
 	}
 
-	// Check for any agent errors
-	for _, err := range errors {
+	// Check for any agent errors (aggregate all failures)
+	var agentErrs []error
+	for i, err := range errs {
 		if err != nil {
-			return nil, err
+			agentErrs = append(agentErrs, fmt.Errorf("agent %s: %w", agents[i].Name, err))
 		}
+	}
+	if len(agentErrs) > 0 {
+		return nil, fmt.Errorf("agent errors: %w", errors.Join(agentErrs...))
 	}
 
 	return results, nil
@@ -248,10 +257,18 @@ func (r *Runner) getOrCreateAgent(cfg AgentConfig) Agent {
 	return agent
 }
 
+// SetEventCallback sets the typed event handler for review events.
+func (r *Runner) SetEventCallback(cb event.Handler) {
+	r.onEvent = cb
+}
+
 // log outputs a message if callback is set.
 func (r *Runner) log(message string) {
-	if r.onOutput != nil {
-		r.onOutput(fmt.Sprintf("[REVIEW] %s\n", message))
+	if r.onEvent != nil {
+		r.onEvent(event.Review(message))
+	}
+	if r.onOutput != nil && r.onEvent == nil {
+		r.onOutput(fmt.Sprintf(protocol.MarkerReview+" %s\n", message))
 	}
 }
 

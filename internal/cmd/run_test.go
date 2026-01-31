@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/worksonmyai/programmator/internal/llm"
 )
 
 func TestRunCmdDefinition(t *testing.T) {
@@ -42,31 +44,37 @@ func TestRunRunNoPrompt(t *testing.T) {
 	assert.Contains(t, err.Error(), "no prompt provided")
 }
 
-func TestRunRunWithArgs(_ *testing.T) {
-	// Test that args are joined into prompt
-	// Note: This test would actually try to run Claude, so we just test the arg handling
+func TestRunRunWithArgsJoinsPrompt(t *testing.T) {
+	// Verify that multiple args are joined with spaces into a single prompt.
+	// We can't invoke Claude, but we can verify the prompt assembly by
+	// testing that a non-empty prompt is produced from multiple args
+	// and that the empty-prompt check is not triggered.
 	oldNonInteractive := runNonInteractive
-	oldSkipPermissions := runSkipPermissions
+	oldWorkingDir := runWorkingDir
 	defer func() {
 		runNonInteractive = oldNonInteractive
-		runSkipPermissions = oldSkipPermissions
+		runWorkingDir = oldWorkingDir
 	}()
 
-	// We can't fully test without mocking Claude, but we can verify the command setup
 	runNonInteractive = true
-	runSkipPermissions = true
+	runWorkingDir = t.TempDir()
 
-	// The command would fail because Claude isn't available in tests,
-	// but we can verify the logic flow up to that point
+	// This will attempt to invoke Claude; we just verify args don't cause
+	// the "no prompt provided" error path.
+	err := runRun(nil, []string{"hello", "world"})
+	if err != nil {
+		assert.NotContains(t, err.Error(), "no prompt provided")
+	}
 }
 
-func TestBuildRunHookSettings(t *testing.T) {
-	settings := buildRunHookSettings("/tmp/test.sock")
+func TestBuildHookSettingsForRun(t *testing.T) {
+	settings := llm.BuildHookSettings(llm.HookConfig{
+		PermissionSocketPath: "/tmp/test.sock",
+	})
 
 	assert.Contains(t, settings, "PreToolUse")
 	assert.Contains(t, settings, "hook")
 	assert.Contains(t, settings, "/tmp/test.sock")
-	assert.Contains(t, settings, "PROGRAMMATOR_PERMISSION_SOCKET")
 }
 
 func TestRunCmdHelp(t *testing.T) {

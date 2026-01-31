@@ -1,15 +1,22 @@
 package source
 
 import (
+	"github.com/worksonmyai/programmator/internal/domain"
 	"github.com/worksonmyai/programmator/internal/plan"
+	"github.com/worksonmyai/programmator/internal/protocol"
 )
 
 // PlanSource adapts plan files to the Source interface.
+// It also implements Mover for plan-file relocation.
 type PlanSource struct {
 	filePath string
 }
 
-var _ Source = (*PlanSource)(nil)
+// Compile-time interface checks.
+var (
+	_ Source = (*PlanSource)(nil)
+	_ Mover  = (*PlanSource)(nil)
+)
 
 // NewPlanSource creates a new PlanSource for the given file path.
 func NewPlanSource(filePath string) *PlanSource {
@@ -18,7 +25,7 @@ func NewPlanSource(filePath string) *PlanSource {
 
 // Get parses the plan file and returns it as a WorkItem.
 // The id parameter is expected to be the file path.
-func (s *PlanSource) Get(_ string) (*WorkItem, error) {
+func (s *PlanSource) Get(_ string) (*domain.WorkItem, error) {
 	p, err := plan.ParseFile(s.filePath)
 	if err != nil {
 		return nil, err
@@ -54,7 +61,7 @@ func (s *PlanSource) SetStatus(_, _ string) error {
 
 // Type returns "plan".
 func (s *PlanSource) Type() string {
-	return "plan"
+	return TypePlan
 }
 
 // FilePath returns the plan file path.
@@ -80,20 +87,20 @@ func (s *PlanSource) MoveTo(destDir string) (string, error) {
 	return newPath, nil
 }
 
-// planToWorkItem converts a plan.Plan to a WorkItem.
-func planToWorkItem(p *plan.Plan) *WorkItem {
-	phases := make([]Phase, len(p.Tasks))
+// planToWorkItem converts a plan.Plan to a domain.WorkItem.
+func planToWorkItem(p *plan.Plan) *domain.WorkItem {
+	phases := make([]domain.Phase, len(p.Tasks))
 	for i, t := range p.Tasks {
-		phases[i] = Phase{
+		phases[i] = domain.Phase{
 			Name:      t.Name,
 			Completed: t.Completed,
 		}
 	}
 
-	return &WorkItem{
+	return &domain.WorkItem{
 		ID:                 p.ID(),
 		Title:              p.Title,
-		Status:             "open", // Plans don't track status, default to open
+		Status:             protocol.WorkItemOpen, // Plans don't track status, default to open
 		Phases:             phases,
 		RawContent:         p.RawContent,
 		ValidationCommands: p.ValidationCommands,
