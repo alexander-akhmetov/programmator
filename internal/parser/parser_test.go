@@ -2,6 +2,8 @@ package parser
 
 import (
 	"testing"
+
+	"github.com/worksonmyai/programmator/internal/protocol"
 )
 
 func TestParse(t *testing.T) {
@@ -32,7 +34,7 @@ PROGRAMMATOR_STATUS:
 ` + "```",
 			wantNil:     false,
 			wantPhase:   "Phase 1: Setup",
-			wantStatus:  StatusContinue,
+			wantStatus:  protocol.StatusContinue,
 			wantFiles:   []string{"main.go", "util.go"},
 			wantSummary: "Implemented basic setup",
 		},
@@ -49,7 +51,7 @@ PROGRAMMATOR_STATUS:
 ` + "```",
 			wantNil:     false,
 			wantPhase:   "Phase 5: Final",
-			wantStatus:  StatusDone,
+			wantStatus:  protocol.StatusDone,
 			wantFiles:   []string{"README.md"},
 			wantSummary: "All phases complete",
 		},
@@ -66,7 +68,7 @@ PROGRAMMATOR_STATUS:
 ` + "```",
 			wantNil:     false,
 			wantPhase:   "",
-			wantStatus:  StatusBlocked,
+			wantStatus:  protocol.StatusBlocked,
 			wantFiles:   []string{},
 			wantSummary: "Attempted to connect to database",
 			wantError:   "Database credentials not configured",
@@ -82,7 +84,7 @@ PROGRAMMATOR_STATUS:
   summary: "Did some work"`,
 			wantNil:     false,
 			wantPhase:   "Phase 2",
-			wantStatus:  StatusContinue,
+			wantStatus:  protocol.StatusContinue,
 			wantFiles:   []string{},
 			wantSummary: "Did some work",
 		},
@@ -108,7 +110,7 @@ PROGRAMMATOR_STATUS:
 `,
 			wantNil:     false,
 			wantPhase:   "Phase 1",
-			wantStatus:  StatusContinue,
+			wantStatus:  protocol.StatusContinue,
 			wantFiles:   []string{"file1.go"},
 			wantSummary: "Done",
 		},
@@ -122,7 +124,7 @@ PROGRAMMATOR_STATUS:
 `,
 			wantNil:     false,
 			wantPhase:   "",
-			wantStatus:  StatusContinue,
+			wantStatus:  protocol.StatusContinue,
 			wantFiles:   []string{},
 			wantSummary: "In progress",
 		},
@@ -136,7 +138,7 @@ PROGRAMMATOR_STATUS:
 `,
 			wantNil:     false,
 			wantPhase:   "Phase 1",
-			wantStatus:  StatusContinue,
+			wantStatus:  protocol.StatusContinue,
 			wantFiles:   []string{},
 			wantSummary: "Researched",
 		},
@@ -150,7 +152,7 @@ PROGRAMMATOR_STATUS:
 `,
 			wantNil:     false,
 			wantPhase:   "Phase 1",
-			wantStatus:  StatusContinue,
+			wantStatus:  protocol.StatusContinue,
 			wantFiles:   []string{"main.go", "util.go", "test.go"},
 			wantSummary: "Multiple files",
 		},
@@ -287,8 +289,8 @@ summary: "Direct parse"`
 	if got.PhaseCompleted != "Phase 1" {
 		t.Errorf("PhaseCompleted = %q, want %q", got.PhaseCompleted, "Phase 1")
 	}
-	if got.Status != StatusContinue {
-		t.Errorf("Status = %q, want %q", got.Status, StatusContinue)
+	if got.Status != protocol.StatusContinue {
+		t.Errorf("Status = %q, want %q", got.Status, protocol.StatusContinue)
 	}
 }
 
@@ -301,7 +303,7 @@ func TestIsValid(t *testing.T) {
 		{
 			name: "valid CONTINUE status",
 			status: &ParsedStatus{
-				Status:  StatusContinue,
+				Status:  protocol.StatusContinue,
 				Summary: "Did work",
 			},
 			want: true,
@@ -309,7 +311,7 @@ func TestIsValid(t *testing.T) {
 		{
 			name: "valid DONE status",
 			status: &ParsedStatus{
-				Status:  StatusDone,
+				Status:  protocol.StatusDone,
 				Summary: "Finished",
 			},
 			want: true,
@@ -317,7 +319,7 @@ func TestIsValid(t *testing.T) {
 		{
 			name: "valid BLOCKED status with error",
 			status: &ParsedStatus{
-				Status:  StatusBlocked,
+				Status:  protocol.StatusBlocked,
 				Summary: "Attempted",
 				Error:   "Blocked reason",
 			},
@@ -355,14 +357,14 @@ func TestIsValid(t *testing.T) {
 }
 
 func TestStatusString(t *testing.T) {
-	if StatusContinue.String() != "CONTINUE" {
-		t.Errorf("StatusContinue.String() = %q, want CONTINUE", StatusContinue.String())
+	if protocol.StatusContinue.String() != "CONTINUE" {
+		t.Errorf("protocol.StatusContinue.String() = %q, want CONTINUE", protocol.StatusContinue.String())
 	}
-	if StatusDone.String() != "DONE" {
-		t.Errorf("StatusDone.String() = %q, want DONE", StatusDone.String())
+	if protocol.StatusDone.String() != "DONE" {
+		t.Errorf("protocol.StatusDone.String() = %q, want DONE", protocol.StatusDone.String())
 	}
-	if StatusBlocked.String() != "BLOCKED" {
-		t.Errorf("StatusBlocked.String() = %q, want BLOCKED", StatusBlocked.String())
+	if protocol.StatusBlocked.String() != "BLOCKED" {
+		t.Errorf("protocol.StatusBlocked.String() = %q, want BLOCKED", protocol.StatusBlocked.String())
 	}
 }
 
@@ -377,19 +379,19 @@ func TestParseQuestionPayload(t *testing.T) {
 	}{
 		{
 			name: "valid question with options",
-			output: `Some output
-<<<PROGRAMMATOR:QUESTION>>>
-{"question": "Which auth method?", "options": ["JWT", "OAuth2", "API keys"]}
-<<<PROGRAMMATOR:END>>>
-more output`,
+			output: "Some output\n" +
+				protocol.SignalQuestion + "\n" +
+				`{"question": "Which auth method?", "options": ["JWT", "OAuth2", "API keys"]}` + "\n" +
+				protocol.SignalEnd + "\n" +
+				"more output",
 			wantQuestion: "Which auth method?",
 			wantOptions:  []string{"JWT", "OAuth2", "API keys"},
 		},
 		{
 			name: "question with context",
-			output: `<<<PROGRAMMATOR:QUESTION>>>
-{"question": "Which database?", "options": ["PostgreSQL", "MySQL"], "context": "I see you have existing MySQL config"}
-<<<PROGRAMMATOR:END>>>`,
+			output: protocol.SignalQuestion + "\n" +
+				`{"question": "Which database?", "options": ["PostgreSQL", "MySQL"], "context": "I see you have existing MySQL config"}` + "\n" +
+				protocol.SignalEnd,
 			wantQuestion: "Which database?",
 			wantOptions:  []string{"PostgreSQL", "MySQL"},
 			wantContext:  "I see you have existing MySQL config",
@@ -401,29 +403,29 @@ more output`,
 		},
 		{
 			name: "missing END marker",
-			output: `<<<PROGRAMMATOR:QUESTION>>>
-{"question": "Test?", "options": ["A", "B"]}`,
+			output: protocol.SignalQuestion + "\n" +
+				`{"question": "Test?", "options": ["A", "B"]}`,
 			wantErr: "missing END marker",
 		},
 		{
 			name: "invalid JSON",
-			output: `<<<PROGRAMMATOR:QUESTION>>>
-{invalid json}
-<<<PROGRAMMATOR:END>>>`,
+			output: protocol.SignalQuestion + "\n" +
+				"{invalid json}\n" +
+				protocol.SignalEnd,
 			wantErr: "invalid JSON",
 		},
 		{
 			name: "missing question field",
-			output: `<<<PROGRAMMATOR:QUESTION>>>
-{"options": ["A", "B"]}
-<<<PROGRAMMATOR:END>>>`,
+			output: protocol.SignalQuestion + "\n" +
+				`{"options": ["A", "B"]}` + "\n" +
+				protocol.SignalEnd,
 			wantErr: "missing question field",
 		},
 		{
 			name: "empty options",
-			output: `<<<PROGRAMMATOR:QUESTION>>>
-{"question": "Test?", "options": []}
-<<<PROGRAMMATOR:END>>>`,
+			output: protocol.SignalQuestion + "\n" +
+				`{"question": "Test?", "options": []}` + "\n" +
+				protocol.SignalEnd,
 			wantErr: "missing or empty options field",
 		},
 	}
@@ -478,15 +480,10 @@ func TestParsePlanContent(t *testing.T) {
 	}{
 		{
 			name: "valid plan content",
-			output: `Claude analysis...
-
-<<<PROGRAMMATOR:PLAN_READY>>>
-# Plan: Add Authentication
-
-## Tasks
-- [ ] Task 1: Set up auth middleware
-- [ ] Task 2: Add login endpoint
-<<<PROGRAMMATOR:END>>>`,
+			output: "Claude analysis...\n\n" +
+				protocol.SignalPlanReady + "\n" +
+				"# Plan: Add Authentication\n\n## Tasks\n- [ ] Task 1: Set up auth middleware\n- [ ] Task 2: Add login endpoint\n" +
+				protocol.SignalEnd,
 			wantContent: `# Plan: Add Authentication
 
 ## Tasks
@@ -500,14 +497,14 @@ func TestParsePlanContent(t *testing.T) {
 		},
 		{
 			name: "missing END marker",
-			output: `<<<PROGRAMMATOR:PLAN_READY>>>
-# Plan content`,
+			output: protocol.SignalPlanReady + "\n" +
+				"# Plan content",
 			wantErr: "missing END marker",
 		},
 		{
 			name: "empty plan content",
-			output: `<<<PROGRAMMATOR:PLAN_READY>>>
-<<<PROGRAMMATOR:END>>>`,
+			output: protocol.SignalPlanReady + "\n" +
+				protocol.SignalEnd,
 			wantErr: "empty plan content",
 		},
 	}
@@ -547,7 +544,7 @@ func TestHasQuestionSignal(t *testing.T) {
 	}{
 		{
 			name:   "has signal",
-			output: "Some text <<<PROGRAMMATOR:QUESTION>>> more text",
+			output: "Some text " + protocol.SignalQuestion + " more text",
 			want:   true,
 		},
 		{
@@ -574,7 +571,7 @@ func TestHasPlanReadySignal(t *testing.T) {
 	}{
 		{
 			name:   "has signal",
-			output: "Some text <<<PROGRAMMATOR:PLAN_READY>>> more text",
+			output: "Some text " + protocol.SignalPlanReady + " more text",
 			want:   true,
 		},
 		{

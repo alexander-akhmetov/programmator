@@ -3,9 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -14,6 +12,7 @@ import (
 	"github.com/worksonmyai/programmator/internal/loop"
 	"github.com/worksonmyai/programmator/internal/progress"
 	"github.com/worksonmyai/programmator/internal/prompt"
+	"github.com/worksonmyai/programmator/internal/protocol"
 	"github.com/worksonmyai/programmator/internal/source"
 	"github.com/worksonmyai/programmator/internal/timing"
 	"github.com/worksonmyai/programmator/internal/tui"
@@ -93,13 +92,9 @@ func runStart(_ *cobra.Command, args []string) error {
 	// Convert to legacy safety.Config for compatibility
 	safetyConfig := cfg.ToSafetyConfig()
 
-	wd := workingDir
-	if wd == "" {
-		var err error
-		wd, err = os.Getwd()
-		if err != nil {
-			return fmt.Errorf("failed to get working directory: %w", err)
-		}
+	wd, err := resolveWorkingDir(workingDir)
+	if err != nil {
+		return err
 	}
 
 	if err := writeSessionFile(ticketID, wd); err != nil {
@@ -108,31 +103,15 @@ func runStart(_ *cobra.Command, args []string) error {
 	defer removeSessionFile()
 	timing.Log("runStart: session file written")
 
-	if guardMode {
-		if _, err := exec.LookPath("dcg"); err != nil {
-			fmt.Fprintln(os.Stderr, "Warning: dcg not found, falling back to interactive permissions. Install: https://github.com/Dicklesworthstone/destructive_command_guard")
-			guardMode = false
-		} else {
-			if safetyConfig.ClaudeFlags == "" {
-				safetyConfig.ClaudeFlags = "--dangerously-skip-permissions"
-			} else if !strings.Contains(safetyConfig.ClaudeFlags, "--dangerously-skip-permissions") {
-				safetyConfig.ClaudeFlags += " --dangerously-skip-permissions"
-			}
-		}
-	}
-
+	guardMode = resolveGuardMode(guardMode, &safetyConfig)
 	if skipPermissions {
-		if safetyConfig.ClaudeFlags == "" {
-			safetyConfig.ClaudeFlags = "--dangerously-skip-permissions"
-		} else if !strings.Contains(safetyConfig.ClaudeFlags, "--dangerously-skip-permissions") {
-			safetyConfig.ClaudeFlags += " --dangerously-skip-permissions"
-		}
+		applySkipPermissions(&safetyConfig)
 	}
 
 	// Create progress logger
-	sourceType := "ticket"
+	sourceType := protocol.SourceTypeTicket
 	if source.IsPlanPath(ticketID) {
-		sourceType = "plan"
+		sourceType = protocol.SourceTypePlan
 	}
 	progressLogger, err := progress.NewLogger(progress.Config{
 		LogsDir:    cfg.LogsDir,
@@ -197,14 +176,14 @@ func sessionFilePath() string {
 
 func writeSessionFile(ticketID, workingDir string) error {
 	path := sessionFilePath()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
 
 	content := fmt.Sprintf(`{"ticket_id": %q, "working_dir": %q, "started_at": %q, "pid": %d}`,
 		ticketID, workingDir, time.Now().Format(time.RFC3339), os.Getpid())
 
-	return os.WriteFile(path, []byte(content), 0644)
+	return os.WriteFile(path, []byte(content), 0600)
 }
 
 func removeSessionFile() {

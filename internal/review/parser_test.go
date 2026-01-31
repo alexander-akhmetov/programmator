@@ -87,6 +87,67 @@ REVIEW_RESULT:
 			wantErr:     false,
 		},
 		{
+			name: "line ranges parsed correctly",
+			input: `
+REVIEW_RESULT:
+  issues:
+    - file: "main.go"
+      line: 82-94
+      severity: high
+      category: "security"
+      description: "Sensitive data exposed"
+    - file: "util.go"
+      line: 42
+      severity: medium
+      category: "quality"
+      description: "Simple line number"
+  summary: "Found 2 issues"
+`,
+			wantIssues: []Issue{
+				{
+					File:        "main.go",
+					Line:        82,
+					LineEnd:     94,
+					Severity:    SeverityHigh,
+					Category:    "security",
+					Description: "Sensitive data exposed",
+				},
+				{
+					File:        "util.go",
+					Line:        42,
+					Severity:    SeverityMedium,
+					Category:    "quality",
+					Description: "Simple line number",
+				},
+			},
+			wantSummary: "Found 2 issues",
+			wantErr:     false,
+		},
+		{
+			name: "quoted string line number",
+			input: `
+REVIEW_RESULT:
+  issues:
+    - file: "main.go"
+      line: "82"
+      severity: medium
+      category: "quality"
+      description: "Quoted line number"
+  summary: "Found 1 issue"
+`,
+			wantIssues: []Issue{
+				{
+					File:        "main.go",
+					Line:        82,
+					Severity:    SeverityMedium,
+					Category:    "quality",
+					Description: "Quoted line number",
+				},
+			},
+			wantSummary: "Found 1 issue",
+			wantErr:     false,
+		},
+		{
 			name:        "no REVIEW_RESULT block",
 			input:       "Just some random output without the block",
 			wantIssues:  []Issue{},
@@ -111,6 +172,7 @@ REVIEW_RESULT:
 			for i, want := range tt.wantIssues {
 				require.Equal(t, want.File, issues[i].File)
 				require.Equal(t, want.Line, issues[i].Line)
+				require.Equal(t, want.LineEnd, issues[i].LineEnd)
 				require.Equal(t, want.Severity, issues[i].Severity)
 				require.Equal(t, want.Category, issues[i].Category)
 				require.Equal(t, want.Description, issues[i].Description)
@@ -178,6 +240,26 @@ func TestFormatIssuesMarkdown(t *testing.T) {
 
 		output := FormatIssuesMarkdown(results)
 		require.Empty(t, output)
+	})
+
+	t.Run("formats line ranges correctly", func(t *testing.T) {
+		results := []*Result{
+			{
+				AgentName: "security",
+				Issues: []Issue{
+					{
+						File:        "main.go",
+						Line:        82,
+						LineEnd:     94,
+						Severity:    SeverityHigh,
+						Description: "Issue with range",
+					},
+				},
+			},
+		}
+
+		output := FormatIssuesMarkdown(results)
+		require.Contains(t, output, "`main.go:82-94`")
 	})
 
 	t.Run("skips agents with no issues", func(t *testing.T) {

@@ -7,9 +7,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/require"
 
+	"github.com/worksonmyai/programmator/internal/domain"
+	"github.com/worksonmyai/programmator/internal/event"
 	"github.com/worksonmyai/programmator/internal/loop"
+	"github.com/worksonmyai/programmator/internal/protocol"
 	"github.com/worksonmyai/programmator/internal/safety"
-	"github.com/worksonmyai/programmator/internal/source"
 )
 
 func TestNewModel(t *testing.T) {
@@ -117,7 +119,7 @@ func TestModelUpdateKeyMsgs(t *testing.T) {
 func TestModelUpdateTicketMsg(t *testing.T) {
 	model := NewModel(safety.Config{})
 
-	testWorkItem := &source.WorkItem{
+	testWorkItem := &domain.WorkItem{
 		ID:    "test-123",
 		Title: "Test Ticket",
 	}
@@ -307,10 +309,10 @@ func TestModelRenderSidebar(t *testing.T) {
 
 func TestModelRenderSidebarWithTicket(t *testing.T) {
 	model := NewModel(safety.Config{MaxIterations: 10, StagnationLimit: 3})
-	model.workItem = &source.WorkItem{
+	model.workItem = &domain.WorkItem{
 		ID:    "t-123",
 		Title: "Test Ticket Title",
-		Phases: []source.Phase{
+		Phases: []domain.Phase{
 			{Name: "Phase 1", Completed: true},
 			{Name: "Phase 2", Completed: false},
 		},
@@ -447,9 +449,13 @@ func TestModelUpdateScrollKeys(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.key, func(_ *testing.T) {
-			_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.key)})
+		t.Run(tt.key, func(t *testing.T) {
+			updatedModel, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.key)})
 			_ = cmd
+			m := updatedModel.(Model)
+			if m.width != 80 || m.height != 24 {
+				t.Errorf("model dimensions changed: got %dx%d", m.width, m.height)
+			}
 		})
 	}
 }
@@ -495,7 +501,7 @@ func TestModelRenderSidebarWithResult(t *testing.T) {
 
 func TestModelRenderSidebarTruncatedTitle(t *testing.T) {
 	model := NewModel(safety.Config{MaxIterations: 10, StagnationLimit: 3})
-	model.workItem = &source.WorkItem{
+	model.workItem = &domain.WorkItem{
 		ID:    "t-123",
 		Title: "This is a very long ticket title that should be truncated because it exceeds 50 characters",
 	}
@@ -507,10 +513,10 @@ func TestModelRenderSidebarTruncatedTitle(t *testing.T) {
 
 func TestModelRenderSidebarAllPhasesComplete(t *testing.T) {
 	model := NewModel(safety.Config{MaxIterations: 10, StagnationLimit: 3})
-	model.workItem = &source.WorkItem{
+	model.workItem = &domain.WorkItem{
 		ID:    "t-123",
 		Title: "Test Ticket",
-		Phases: []source.Phase{
+		Phases: []domain.Phase{
 			{Name: "Phase 1", Completed: true},
 			{Name: "Phase 2", Completed: true},
 		},
@@ -581,7 +587,7 @@ func TestWrapLogsProgMessageWrapping(t *testing.T) {
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 200, Height: 24})
 	m := updatedModel.(Model)
 
-	longMsg := "[PROG]This is a very long programmator message that should be word-wrapped to fit within the viewport width properly and not just keep going on a single line forever"
+	longMsg := protocol.MarkerProg + "This is a very long programmator message that should be word-wrapped to fit within the viewport width properly and not just keep going on a single line forever"
 	m.logs = []string{longMsg}
 
 	result := m.wrapLogs()
@@ -597,7 +603,7 @@ func TestWrapLogsToolMessageWrapping(t *testing.T) {
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 200, Height: 24})
 	m := updatedModel.(Model)
 
-	longMsg := "[TOOL]This is a very long tool message that should be word-wrapped to fit within the viewport width properly and not overflow into a single extremely long line"
+	longMsg := protocol.MarkerTool + "This is a very long tool message that should be word-wrapped to fit within the viewport width properly and not overflow into a single extremely long line"
 	m.logs = []string{longMsg}
 
 	result := m.wrapLogs()
@@ -624,10 +630,10 @@ func TestModelViewWithLogs(t *testing.T) {
 	model.height = 40
 	model.ready = true
 	model.logs = []string{"Log line 1\n", "Log line 2\n"}
-	model.workItem = &source.WorkItem{
+	model.workItem = &domain.WorkItem{
 		ID:    "t-123",
 		Title: "Test",
-		Phases: []source.Phase{
+		Phases: []domain.Phase{
 			{Name: "Phase 1", Completed: false},
 		},
 	}
@@ -640,4 +646,86 @@ func TestModelViewWithLogs(t *testing.T) {
 	view := m.View()
 
 	require.NotEmpty(t, view)
+}
+
+func TestEventMsgAppended(t *testing.T) {
+	model := NewModel(safety.Config{})
+	model.width = 80
+	model.height = 24
+	model.ready = true
+
+	updated, _ := model.Update(EventMsg{Event: event.Prog("hello from event")})
+	m := updated.(Model)
+
+	require.Len(t, m.events, 1)
+	require.Equal(t, event.KindProg, m.events[0].Kind)
+}
+
+func TestRenderEventsProgAndTool(t *testing.T) {
+	model := NewModel(safety.Config{})
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 200, Height: 24})
+	m := updatedModel.(Model)
+
+	m.events = []event.Event{
+		event.Prog("Starting phase"),
+		event.ToolUse("Read /foo/bar.go"),
+		event.ToolResult("  ⎿  Read 42 lines"),
+		event.Review("Running agent: quality"),
+	}
+
+	result := m.renderEvents()
+	require.Contains(t, result, "programmator:")
+	require.Contains(t, result, "Starting phase")
+	require.Contains(t, result, "Read /foo/bar.go")
+	require.Contains(t, result, "42 lines")
+	require.Contains(t, result, "Running agent: quality")
+}
+
+func TestRenderEventsDiff(t *testing.T) {
+	model := NewModel(safety.Config{})
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 200, Height: 24})
+	m := updatedModel.(Model)
+
+	m.events = []event.Event{
+		event.DiffHunk("  ⎿  Added 2 lines"),
+		event.DiffAdd("      +new line"),
+		event.DiffDel("      -old line"),
+		event.DiffCtx("       context"),
+	}
+
+	result := m.renderEvents()
+	require.Contains(t, result, "Added 2 lines")
+	require.Contains(t, result, "+new line")
+	require.Contains(t, result, "-old line")
+	require.Contains(t, result, "context")
+}
+
+func TestRenderEventsMarkdown(t *testing.T) {
+	model := NewModel(safety.Config{})
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 200, Height: 24})
+	m := updatedModel.(Model)
+
+	m.events = []event.Event{
+		event.Markdown("Some **bold** text from Claude"),
+		event.Prog("Phase complete"),
+	}
+
+	result := m.renderEvents()
+	require.NotEmpty(t, result)
+	require.Contains(t, result, "Phase complete")
+}
+
+func TestWrapLogsUsesEventsWhenAvailable(t *testing.T) {
+	model := NewModel(safety.Config{})
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 200, Height: 24})
+	m := updatedModel.(Model)
+
+	// Add both logs and events
+	m.logs = []string{protocol.MarkerProg + "legacy log"}
+	m.events = []event.Event{event.Prog("event log")}
+
+	result := m.wrapLogs()
+	// Should use events, not logs
+	require.Contains(t, result, "event log")
+	require.NotContains(t, result, "legacy log")
 }

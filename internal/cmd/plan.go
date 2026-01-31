@@ -1,12 +1,9 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -16,6 +13,7 @@ import (
 
 	"github.com/worksonmyai/programmator/internal/config"
 	"github.com/worksonmyai/programmator/internal/input"
+	"github.com/worksonmyai/programmator/internal/llm"
 	"github.com/worksonmyai/programmator/internal/parser"
 	"github.com/worksonmyai/programmator/internal/progress"
 	"github.com/worksonmyai/programmator/internal/prompt"
@@ -240,60 +238,24 @@ func (p *planCreator) run() (string, error) {
 }
 
 func (p *planCreator) invokeClaude(ctx context.Context, promptText string) (string, error) {
-	args := []string{"--print"}
+	inv := llm.NewClaudeInvoker(llm.EnvConfig{})
 
-	if p.claudeFlags != "" {
-		args = append(args, strings.Fields(p.claudeFlags)...)
+	opts := llm.InvokeOptions{
+		WorkingDir: p.workDir,
+		ExtraFlags: p.claudeFlags,
+		Timeout:    int((5 * time.Minute).Seconds()),
+		OnOutput: func(text string) {
+			if strings.Contains(text, "Reading") || strings.Contains(text, "Searching") {
+				fmt.Print(".")
+			}
+		},
 	}
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-
-	cmd := exec.CommandContext(timeoutCtx, "claude", args...)
-	cmd.Dir = p.workDir
-	cmd.Env = os.Environ()
-
-	stdin, err := cmd.StdinPipe()
+	res, err := inv.Invoke(ctx, promptText, opts)
 	if err != nil {
 		return "", err
 	}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return "", err
-	}
-
-	if err := cmd.Start(); err != nil {
-		return "", err
-	}
-
-	go func() {
-		defer stdin.Close()
-		_, _ = io.WriteString(stdin, promptText)
-	}()
-
-	// Read output
-	var output strings.Builder
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		output.WriteString(line + "\n")
-		// Print progress dots for long operations
-		if strings.Contains(line, "Reading") || strings.Contains(line, "Searching") {
-			fmt.Print(".")
-		}
-	}
-
-	if err := cmd.Wait(); err != nil {
-		if timeoutCtx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("claude invocation timed out")
-		}
-		return "", err
-	}
-
-	return output.String(), nil
+	return res.Text, nil
 }
 
 func (p *planCreator) savePlan(content string) (string, error) {

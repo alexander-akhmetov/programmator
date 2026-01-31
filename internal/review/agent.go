@@ -3,10 +3,12 @@ package review
 import (
 	"context"
 	"fmt"
-	"io"
-	"os/exec"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/worksonmyai/programmator/internal/llm"
+	"gopkg.in/yaml.v3"
 )
 
 // Result holds the result of a single agent review.
@@ -23,10 +25,63 @@ type Result struct {
 type Issue struct {
 	File        string   `yaml:"file"`
 	Line        int      `yaml:"line,omitempty"`
+	LineEnd     int      `yaml:"line_end,omitempty"`
 	Severity    Severity `yaml:"severity"`
 	Category    string   `yaml:"category"`
 	Description string   `yaml:"description"`
 	Suggestion  string   `yaml:"suggestion,omitempty"`
+}
+
+// UnmarshalYAML handles line values that are either integers (42) or ranges ("82-94").
+func (issue *Issue) UnmarshalYAML(value *yaml.Node) error {
+	// Decode into a raw struct to handle the line field specially.
+	var raw struct {
+		File        string    `yaml:"file"`
+		Line        yaml.Node `yaml:"line"`
+		LineEnd     int       `yaml:"line_end,omitempty"`
+		Severity    Severity  `yaml:"severity"`
+		Category    string    `yaml:"category"`
+		Description string    `yaml:"description"`
+		Suggestion  string    `yaml:"suggestion,omitempty"`
+	}
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+
+	issue.File = raw.File
+	issue.Severity = raw.Severity
+	issue.Category = raw.Category
+	issue.Description = raw.Description
+	issue.Suggestion = raw.Suggestion
+
+	if raw.Line.Tag != "" {
+		lineStr := raw.Line.Value
+		if parts := strings.SplitN(lineStr, "-", 2); len(parts) == 2 {
+			start, err := strconv.Atoi(parts[0])
+			if err != nil {
+				return fmt.Errorf("invalid line range start %q: %w", parts[0], err)
+			}
+			end, err := strconv.Atoi(parts[1])
+			if err != nil {
+				return fmt.Errorf("invalid line range end %q: %w", parts[1], err)
+			}
+			issue.Line = start
+			issue.LineEnd = end
+		} else {
+			n, err := strconv.Atoi(lineStr)
+			if err != nil {
+				return fmt.Errorf("invalid line value %q: %w", lineStr, err)
+			}
+			issue.Line = n
+		}
+	}
+
+	// If line_end was set explicitly and not already populated from a range, use it.
+	if issue.LineEnd == 0 && raw.LineEnd > 0 {
+		issue.LineEnd = raw.LineEnd
+	}
+
+	return nil
 }
 
 // Severity represents the severity level of an issue.
@@ -60,6 +115,7 @@ type ClaudeAgent struct {
 	timeout      time.Duration
 	claudeArgs   []string
 	settingsJSON string
+	invoker      llm.Invoker
 }
 
 // ClaudeAgentOption is a functional option for ClaudeAgent.
@@ -191,53 +247,27 @@ REVIEW_RESULT:
 	return b.String()
 }
 
-// invokeClaude runs Claude with the given prompt.
+// invokeClaude runs Claude with the given prompt via llm.Invoker.
 func (a *ClaudeAgent) invokeClaude(ctx context.Context, workingDir, promptText string) (string, error) {
-	args := make([]string, 0, 1+len(a.claudeArgs)+2)
-	args = append(args, "--print")
-	args = append(args, a.claudeArgs...)
-	if a.settingsJSON != "" {
-		args = append(args, "--settings", a.settingsJSON)
+	inv := a.invoker
+	if inv == nil {
+		inv = llm.NewClaudeInvoker(llm.EnvConfig{})
 	}
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, a.timeout)
-	defer cancel()
+	extraFlags := strings.Join(a.claudeArgs, " ")
 
-	cmd := exec.CommandContext(timeoutCtx, "claude", args...)
-	cmd.Dir = workingDir
+	opts := llm.InvokeOptions{
+		WorkingDir:   workingDir,
+		ExtraFlags:   extraFlags,
+		SettingsJSON: a.settingsJSON,
+		Timeout:      int(a.timeout.Seconds()),
+	}
 
-	stdin, err := cmd.StdinPipe()
+	res, err := inv.Invoke(ctx, promptText, opts)
 	if err != nil {
-		return "", fmt.Errorf("failed to create stdin pipe: %w", err)
+		return "", fmt.Errorf("claude invocation failed: %w", err)
 	}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("failed to start claude: %w", err)
-	}
-
-	go func() {
-		defer stdin.Close()
-		_, _ = io.WriteString(stdin, promptText)
-	}()
-
-	output, err := io.ReadAll(stdout)
-	if err != nil {
-		return "", fmt.Errorf("failed to read stdout: %w", err)
-	}
-
-	if err := cmd.Wait(); err != nil {
-		if timeoutCtx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("claude invocation timed out after %v", a.timeout)
-		}
-		return "", fmt.Errorf("claude exited with error: %w", err)
-	}
-
-	return string(output), nil
+	return res.Text, nil
 }
 
 // MockAgent is a mock implementation for testing.

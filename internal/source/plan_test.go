@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/worksonmyai/programmator/internal/protocol"
 )
 
 func TestPlanSource_Get(t *testing.T) {
@@ -32,7 +34,7 @@ func TestPlanSource_Get(t *testing.T) {
 
 	assert.Equal(t, "test-plan", item.ID)
 	assert.Equal(t, "Test Feature", item.Title)
-	assert.Equal(t, "open", item.Status)
+	assert.Equal(t, protocol.WorkItemOpen, item.Status)
 	assert.Len(t, item.Phases, 3)
 	assert.Equal(t, []string{"go test ./..."}, item.ValidationCommands)
 
@@ -107,13 +109,13 @@ func TestPlanSource_SetStatus_NoOp(t *testing.T) {
 	source := NewPlanSource(planPath)
 
 	// SetStatus should be a no-op (not error)
-	err = source.SetStatus(planPath, "closed")
+	err = source.SetStatus(planPath, protocol.WorkItemClosed)
 	assert.NoError(t, err)
 }
 
 func TestPlanSource_Type(t *testing.T) {
 	source := NewPlanSource("/any/path")
-	assert.Equal(t, "plan", source.Type())
+	assert.Equal(t, TypePlan, source.Type())
 }
 
 func TestPlanSource_Get_NotFound(t *testing.T) {

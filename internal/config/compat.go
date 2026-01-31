@@ -20,8 +20,18 @@ func (c *Config) ToSafetyConfig() safety.Config {
 
 // ToReviewConfig converts the unified Config to a review.Config.
 func (c *Config) ToReviewConfig() review.Config {
-	phases := make([]review.Phase, len(c.Review.Phases))
-	for i, p := range c.Review.Phases {
+	return review.NewConfigFrom(review.ConfigParams{
+		MaxIterations: c.Review.MaxIterations,
+		Timeout:       c.Timeout,
+		ClaudeFlags:   c.ClaudeFlags,
+		Phases:        convertReviewPhases(c.Review.Phases),
+	})
+}
+
+// convertReviewPhases converts config review phases to review package phases.
+func convertReviewPhases(phases []ReviewPhase) []review.Phase {
+	result := make([]review.Phase, len(phases))
+	for i, p := range phases {
 		agents := make([]review.AgentConfig, len(p.Agents))
 		for j, a := range p.Agents {
 			agents[j] = review.AgentConfig{
@@ -36,7 +46,7 @@ func (c *Config) ToReviewConfig() review.Config {
 			severities[j] = review.Severity(s)
 		}
 
-		phases[i] = review.Phase{
+		result[i] = review.Phase{
 			Name:           p.Name,
 			IterationLimit: p.IterationLimit,
 			IterationPct:   p.IterationPct,
@@ -45,11 +55,5 @@ func (c *Config) ToReviewConfig() review.Config {
 			Parallel:       p.Parallel,
 		}
 	}
-
-	return review.Config{
-		MaxIterations: c.Review.MaxIterations,
-		Timeout:       c.Timeout,
-		Phases:        phases,
-		ClaudeFlags:   c.ClaudeFlags,
-	}
+	return result
 }

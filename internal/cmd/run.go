@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/worksonmyai/programmator/internal/llm"
 	"github.com/worksonmyai/programmator/internal/permission"
 )
 
@@ -66,13 +67,9 @@ func runRun(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("no prompt provided. Usage: programmator run \"your prompt here\"")
 	}
 
-	wd := runWorkingDir
-	if wd == "" {
-		var err error
-		wd, err = os.Getwd()
-		if err != nil {
-			return fmt.Errorf("failed to get working directory: %w", err)
-		}
+	wd, err := resolveWorkingDir(runWorkingDir)
+	if err != nil {
+		return err
 	}
 
 	if runNonInteractive {
@@ -83,25 +80,31 @@ func runRun(_ *cobra.Command, args []string) error {
 }
 
 func runClaudePrint(prompt, workingDir string) error {
-	args := []string{"--print", "-p", prompt}
+	inv := llm.NewClaudeInvoker(llm.EnvConfig{})
 
+	var extraFlags []string
 	if runSkipPermissions {
-		args = append([]string{"--dangerously-skip-permissions"}, args...)
+		extraFlags = append(extraFlags, "--dangerously-skip-permissions")
 	}
-
 	if runMaxTurns > 0 {
-		args = append(args, "--max-turns", fmt.Sprintf("%d", runMaxTurns))
+		extraFlags = append(extraFlags, "--max-turns", fmt.Sprintf("%d", runMaxTurns))
 	}
 
-	cmd := exec.Command("claude", args...)
-	cmd.Dir = workingDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
+	opts := llm.InvokeOptions{
+		WorkingDir: workingDir,
+		ExtraFlags: strings.Join(extraFlags, " "),
+		OnOutput: func(text string) {
+			fmt.Print(text)
+		},
+	}
 
-	return cmd.Run()
+	_, err := inv.Invoke(context.Background(), prompt, opts)
+	return err
 }
 
+// runClaudeTUI runs Claude in interactive (non-print) mode with stdout/stderr
+// pipes for TUI display. This intentionally uses exec.Command directly because
+// it is not a --print invocation — it runs an interactive Claude session.
 func runClaudeTUI(prompt, workingDir string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -123,7 +126,11 @@ func runClaudeTUI(prompt, workingDir string) error {
 			permServer.SetPreAllowed(runAllowPatterns)
 		}
 
-		go func() { _ = permServer.Serve(ctx) }()
+		go func() {
+			if err := permServer.Serve(ctx); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: permission server error: %v\n", err)
+			}
+		}()
 	}
 
 	// Build Claude command
@@ -132,8 +139,12 @@ func runClaudeTUI(prompt, workingDir string) error {
 	if runSkipPermissions {
 		args = append(args, "--dangerously-skip-permissions")
 	} else if permServer != nil {
-		hookSettings := buildRunHookSettings(permServer.SocketPath())
-		args = append(args, "--settings", hookSettings)
+		hookSettings := llm.BuildHookSettings(llm.HookConfig{
+			PermissionSocketPath: permServer.SocketPath(),
+		})
+		if hookSettings != "" {
+			args = append(args, "--settings", hookSettings)
+		}
 	}
 
 	if runMaxTurns > 0 {
@@ -171,9 +182,7 @@ func streamOutput(r io.Reader) {
 	for scanner.Scan() {
 		fmt.Println(scanner.Text())
 	}
-}
-
-func buildRunHookSettings(socketPath string) string {
-	exePath, _ := os.Executable()
-	return fmt.Sprintf(`{"hooks":{"PreToolUse":[{"type":"command","command":"%s hook","timeout":120000}]},"env":{"PROGRAMMATOR_PERMISSION_SOCKET":"%s"}}`, exePath, socketPath)
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: stream read error: %v\n", err)
+	}
 }
