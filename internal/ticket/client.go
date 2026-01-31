@@ -179,6 +179,10 @@ func (c *CLIClient) UpdatePhase(id string, phaseName string) error {
 		return fmt.Errorf("close temp file: %w", err)
 	}
 
+	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+		os.Remove(tmpName)
+		return fmt.Errorf("remove destination: %w", err)
+	}
 	return os.Rename(tmpName, filePath)
 }
 

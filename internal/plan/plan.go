@@ -251,6 +251,10 @@ func (p *Plan) SaveFile() error {
 		return fmt.Errorf("close temp file: %w", err)
 	}
 
+	if err := os.Remove(p.FilePath); err != nil && !os.IsNotExist(err) {
+		os.Remove(tmpName)
+		return fmt.Errorf("remove destination: %w", err)
+	}
 	return os.Rename(tmpName, p.FilePath)
 }
 

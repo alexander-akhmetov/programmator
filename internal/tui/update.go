@@ -172,7 +172,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.events) > 0 {
 				m.events = append(m.events, event.Prog(errText))
 			} else {
-				m.logs = append(m.logs, fmt.Sprintf("\n"+protocol.MarkerProg+"%s\n", msg.Err))
+				m.logs = append(m.logs, fmt.Sprintf("\n"+protocol.MarkerProg+"%s\n", errText))
 			}
 			atBottom := m.logViewport.AtBottom()
 			m.logViewport.SetContent(m.wrapLogs())
