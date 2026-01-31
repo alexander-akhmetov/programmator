@@ -3,10 +3,12 @@ package review
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/worksonmyai/programmator/internal/llm"
+	"gopkg.in/yaml.v3"
 )
 
 // Result holds the result of a single agent review.
@@ -23,10 +25,57 @@ type Result struct {
 type Issue struct {
 	File        string   `yaml:"file"`
 	Line        int      `yaml:"line,omitempty"`
+	LineEnd     int      `yaml:"line_end,omitempty"`
 	Severity    Severity `yaml:"severity"`
 	Category    string   `yaml:"category"`
 	Description string   `yaml:"description"`
 	Suggestion  string   `yaml:"suggestion,omitempty"`
+}
+
+// UnmarshalYAML handles line values that are either integers (42) or ranges ("82-94").
+func (issue *Issue) UnmarshalYAML(value *yaml.Node) error {
+	// Decode into a raw struct to handle the line field specially.
+	var raw struct {
+		File        string    `yaml:"file"`
+		Line        yaml.Node `yaml:"line"`
+		Severity    Severity  `yaml:"severity"`
+		Category    string    `yaml:"category"`
+		Description string    `yaml:"description"`
+		Suggestion  string    `yaml:"suggestion,omitempty"`
+	}
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+
+	issue.File = raw.File
+	issue.Severity = raw.Severity
+	issue.Category = raw.Category
+	issue.Description = raw.Description
+	issue.Suggestion = raw.Suggestion
+
+	if raw.Line.Tag != "" {
+		lineStr := raw.Line.Value
+		if parts := strings.SplitN(lineStr, "-", 2); len(parts) == 2 {
+			start, err := strconv.Atoi(parts[0])
+			if err != nil {
+				return fmt.Errorf("invalid line range start %q: %w", parts[0], err)
+			}
+			end, err := strconv.Atoi(parts[1])
+			if err != nil {
+				return fmt.Errorf("invalid line range end %q: %w", parts[1], err)
+			}
+			issue.Line = start
+			issue.LineEnd = end
+		} else {
+			n, err := strconv.Atoi(lineStr)
+			if err != nil {
+				return fmt.Errorf("invalid line value %q: %w", lineStr, err)
+			}
+			issue.Line = n
+		}
+	}
+
+	return nil
 }
 
 // Severity represents the severity level of an issue.

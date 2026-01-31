@@ -76,6 +76,10 @@ func FormatIssuesMarkdown(results []*Result) string {
 				if issue.Line > 0 {
 					b.WriteString(":")
 					b.WriteString(strconv.Itoa(issue.Line))
+					if issue.LineEnd > 0 {
+						b.WriteString("-")
+						b.WriteString(strconv.Itoa(issue.LineEnd))
+					}
 				}
 				b.WriteString("` - ")
 			}
