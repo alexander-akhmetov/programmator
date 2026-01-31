@@ -266,6 +266,84 @@ func TestBuilder_BuildReviewSecond(t *testing.T) {
 	assert.Contains(t, result, "critical and major")
 }
 
+func TestBuilder_BuildCodexEval(t *testing.T) {
+	builder, err := NewBuilder(nil)
+	require.NoError(t, err)
+
+	data := CodexEvalData{
+		CodexOutput: "Found unused variable in main.go:42",
+		BaseBranch:  "main",
+		FilesList:   "  - main.go\n  - util.go",
+		WorkItemID:  "t-123",
+		Title:       "Fix linting issues",
+		RawContent:  "Full content here",
+		AutoCommit:  false,
+	}
+
+	result, err := builder.BuildCodexEval(data)
+	require.NoError(t, err)
+
+	assert.Contains(t, result, "Found unused variable in main.go:42")
+	assert.Contains(t, result, "main")
+	assert.Contains(t, result, "main.go")
+	assert.Contains(t, result, "t-123")
+	assert.Contains(t, result, "Fix linting issues")
+	assert.Contains(t, result, "<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>")
+	assert.NotContains(t, result, "git commit")
+}
+
+func TestBuilder_BuildCodexEval_AutoCommit(t *testing.T) {
+	builder, err := NewBuilder(nil)
+	require.NoError(t, err)
+
+	data := CodexEvalData{
+		CodexOutput: "Issue found",
+		WorkItemID:  "t-456",
+		Title:       "Test",
+		AutoCommit:  true,
+	}
+
+	result, err := builder.BuildCodexEval(data)
+	require.NoError(t, err)
+
+	assert.Contains(t, result, "git commit")
+}
+
+func TestBuilder_BuildCodexEval_NoTemplate(t *testing.T) {
+	// Builder with no codex_eval template loaded
+	customPrompts := &config.Prompts{
+		Phased:       "{{.ID}}",
+		Phaseless:    "{{.ID}}",
+		ReviewFirst:  "{{.BaseBranch}}",
+		ReviewSecond: "{{.BaseBranch}}",
+		CodexEval:    "", // empty = not loaded
+	}
+
+	builder, err := NewBuilder(customPrompts)
+	require.NoError(t, err)
+
+	_, err = builder.BuildCodexEval(CodexEvalData{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "codex_eval template not loaded")
+}
+
+func TestBuilder_BuildCodexEval_EmptyFilesList(t *testing.T) {
+	builder, err := NewBuilder(nil)
+	require.NoError(t, err)
+
+	data := CodexEvalData{
+		CodexOutput: "No issues",
+		WorkItemID:  "t-789",
+		Title:       "Test",
+	}
+
+	result, err := builder.BuildCodexEval(data)
+	require.NoError(t, err)
+
+	// Should not contain file list section when no files
+	assert.Contains(t, result, "t-789")
+}
+
 func TestNewBuilder_InvalidTemplate(t *testing.T) {
 	badPrompts := &config.Prompts{
 		Phased:    "{{.Invalid",
