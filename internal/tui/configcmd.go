@@ -1,4 +1,4 @@
-package cmd
+package tui
 
 import (
 	"fmt"
@@ -79,11 +79,7 @@ func runConfigShow(_ *cobra.Command, _ []string) error {
 		fmt.Printf("  claude_config_dir: (default)\n")
 	}
 	if cfg.AnthropicAPIKey != "" {
-		if len(cfg.AnthropicAPIKey) > 20 {
-			fmt.Printf("  anthropic_api_key: %s...%s\n", cfg.AnthropicAPIKey[:4], cfg.AnthropicAPIKey[len(cfg.AnthropicAPIKey)-4:])
-		} else {
-			fmt.Printf("  anthropic_api_key: ****\n")
-		}
+		fmt.Printf("  anthropic_api_key: (set)\n")
 	} else {
 		fmt.Printf("  anthropic_api_key: (not set)\n")
 	}

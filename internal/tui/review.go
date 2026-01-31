@@ -1,4 +1,4 @@
-package cmd
+package tui
 
 import (
 	"fmt"
@@ -17,6 +17,10 @@ import (
 	"github.com/worksonmyai/programmator/internal/prompt"
 	"github.com/worksonmyai/programmator/internal/review"
 )
+
+// errReviewFailed is returned when the review finds issues. The summary is
+// already printed to stdout, so this error carries no extra message.
+var errReviewFailed = fmt.Errorf("review failed: issues found")
 
 var (
 	reviewBaseBranch      string
@@ -37,7 +41,8 @@ Examples:
   programmator review                    # Review changes vs main
   programmator review --base=develop     # Review changes vs develop
   programmator review -d /path/to/repo   # Review specific directory`,
-	RunE: runReview,
+	SilenceErrors: true,
+	RunE:          runReview,
 }
 
 func init() {
@@ -54,7 +59,7 @@ func runReview(_ *cobra.Command, _ []string) error {
 	}
 
 	// Verify we're in a git repo
-	if !isGitRepo(wd) {
+	if !git.IsInsideRepo(wd) {
 		return fmt.Errorf("not a git repository: %s", wd)
 	}
 
@@ -101,11 +106,11 @@ func runReview(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not create progress logger: %v\n", err)
 	}
-	closeLogger := func() {
+	defer func() {
 		if progressLogger != nil {
 			progressLogger.Close()
 		}
-	}
+	}()
 
 	// Create loop for review-only mode
 	reviewLoop := loop.New(safetyConfig, wd, func(text string) {
@@ -127,24 +132,17 @@ func runReview(_ *cobra.Command, _ []string) error {
 	// Run review-only loop
 	result, err := reviewLoop.RunReviewOnly(reviewBaseBranch, filesChanged)
 	if err != nil {
-		closeLogger()
 		return fmt.Errorf("review failed: %w", err)
 	}
 
 	// Print summary
 	printReviewOnlySummary(result)
 
-	closeLogger()
 	if !result.Passed {
-		os.Exit(1) // Non-zero exit for CI integration
+		return errReviewFailed
 	}
 
 	return nil
-}
-
-// isGitRepo checks if the directory is inside a git repository.
-func isGitRepo(dir string) bool {
-	return git.IsInsideRepo(dir)
 }
 
 // Styles for summary output

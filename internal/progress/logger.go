@@ -46,7 +46,7 @@ func NewLogger(cfg Config) (*Logger, error) {
 		logsDir = filepath.Join(home, ".programmator", "logs")
 	}
 
-	if err := os.MkdirAll(logsDir, 0o755); err != nil {
+	if err := os.MkdirAll(logsDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create logs dir: %w", err)
 	}
 
@@ -55,7 +55,7 @@ func NewLogger(cfg Config) (*Logger, error) {
 	sanitizedID := sanitizeFilename(cfg.SourceID)
 	logPath := filepath.Join(logsDir, fmt.Sprintf("%s-%s.log", timestamp, sanitizedID))
 
-	f, err := os.Create(logPath)
+	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("create log file: %w", err)
 	}
@@ -188,20 +188,7 @@ func (l *Logger) writef(format string, args ...any) {
 }
 
 func (l *Logger) elapsed() string {
-	d := time.Since(l.startTime).Round(time.Second)
-	h := int64(d / time.Hour)
-	d -= time.Duration(h) * time.Hour
-	m := int64(d / time.Minute)
-	d -= time.Duration(m) * time.Minute
-	s := int64(d / time.Second)
-
-	if h > 0 {
-		return fmt.Sprintf("%dh%dm%ds", h, m, s)
-	}
-	if m > 0 {
-		return fmt.Sprintf("%dm%ds", m, s)
-	}
-	return fmt.Sprintf("%ds", s)
+	return time.Since(l.startTime).Round(time.Second).String()
 }
 
 // sanitizeFilename converts a source ID to a safe filename component.

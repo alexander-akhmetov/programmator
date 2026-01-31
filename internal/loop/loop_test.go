@@ -2652,3 +2652,62 @@ func TestConsecutiveInvocationFailures(t *testing.T) {
 	require.Contains(t, result.ExitMessage, "3 consecutive invocation failures")
 	require.Equal(t, 3, invokeCount)
 }
+
+func TestFormatToolResultSummary(t *testing.T) {
+	tests := []struct {
+		name     string
+		toolName string
+		result   string
+		expected string
+	}{
+		{name: "empty result", toolName: "Read", result: "", expected: ""},
+		{name: "Read lines", toolName: "Read", result: "line1\nline2\nline3\n", expected: "Read 3 lines"},
+		{name: "Read single line", toolName: "Read", result: "line1", expected: "Read 1 lines"},
+		{name: "Glob with files", toolName: "Glob", result: "foo.go\nbar.go\n", expected: "Found 2 files"},
+		{name: "Glob no files", toolName: "Glob", result: "\n", expected: "No files found"},
+		{name: "Grep with matches", toolName: "Grep", result: "match1\nmatch2\n", expected: "Found 2 matches"},
+		{name: "Grep no matches", toolName: "Grep", result: "\n", expected: "No matches found"},
+		{name: "Bash empty trailing newline", toolName: "Bash", result: "\n", expected: ""},
+		{name: "Bash single line", toolName: "Bash", result: "ok", expected: "ok"},
+		{name: "Bash multi line", toolName: "Bash", result: "first\nsecond\nthird\n", expected: "first (+2 more lines)"},
+		{name: "Bash long line truncated", toolName: "Bash", result: strings.Repeat("x", 100), expected: strings.Repeat("x", 57) + "..."},
+		{name: "Write", toolName: "Write", result: "done", expected: "File written"},
+		{name: "Edit", toolName: "Edit", result: "done", expected: "File updated"},
+		{name: "unknown single line", toolName: "Other", result: "hello", expected: "hello"},
+		{name: "unknown multi line", toolName: "Other", result: "a\nb\nc\n", expected: "3 lines"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := formatToolResultSummary(tc.toolName, tc.result)
+			require.Equal(t, tc.expected, got)
+		})
+	}
+}
+
+func TestFormatToolArg(t *testing.T) {
+	tests := []struct {
+		name     string
+		toolName string
+		input    map[string]any
+		expected string
+	}{
+		{name: "Read with path", toolName: "Read", input: map[string]any{"file_path": "/foo/bar.go"}, expected: " /foo/bar.go"},
+		{name: "Write with path", toolName: "Write", input: map[string]any{"file_path": "/a/b.go"}, expected: " /a/b.go"},
+		{name: "Edit with path", toolName: "Edit", input: map[string]any{"file_path": "/c.go"}, expected: " /c.go"},
+		{name: "Read missing path", toolName: "Read", input: map[string]any{}, expected: ""},
+		{name: "Bash short cmd", toolName: "Bash", input: map[string]any{"command": "ls -la"}, expected: " ls -la"},
+		{name: "Bash long cmd truncated", toolName: "Bash", input: map[string]any{"command": strings.Repeat("a", 100)}, expected: " " + strings.Repeat("a", 80) + "..."},
+		{name: "Glob pattern", toolName: "Glob", input: map[string]any{"pattern": "**/*.go"}, expected: " **/*.go"},
+		{name: "Grep pattern", toolName: "Grep", input: map[string]any{"pattern": "TODO"}, expected: " TODO"},
+		{name: "Task description", toolName: "Task", input: map[string]any{"description": "search files"}, expected: " search files"},
+		{name: "unknown tool", toolName: "Unknown", input: map[string]any{"foo": "bar"}, expected: ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := formatToolArg(tc.toolName, tc.input)
+			require.Equal(t, tc.expected, got)
+		})
+	}
+}

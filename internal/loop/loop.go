@@ -17,7 +17,6 @@ import (
 	"github.com/worksonmyai/programmator/internal/codex"
 	"github.com/worksonmyai/programmator/internal/config"
 	"github.com/worksonmyai/programmator/internal/domain"
-	"github.com/worksonmyai/programmator/internal/engine"
 	"github.com/worksonmyai/programmator/internal/event"
 	gitutil "github.com/worksonmyai/programmator/internal/git"
 	"github.com/worksonmyai/programmator/internal/llm"
@@ -81,7 +80,7 @@ type Loop struct {
 	currentWorkItem *domain.WorkItem
 
 	// Engine for pure decision logic.
-	engine engine.Engine
+	engine Engine
 
 	// Review configuration
 	reviewConfig     review.Config
@@ -130,7 +129,7 @@ func NewWithSource(config safety.Config, workingDir string, onOutput OutputCallb
 		streaming:     streaming,
 		source:        src,
 		reviewConfig:  review.ConfigFromEnv(),
-		engine: engine.Engine{
+		engine: Engine{
 			SafetyConfig: config,
 		},
 	}
@@ -521,23 +520,31 @@ func (l *Loop) moveCompletedPlan(rc *runContext) error {
 		// path as an unstaged deletion).
 		relOrig, relOrigErr := filepath.Rel(l.workingDir, origPath)
 		relNew, relNewErr := filepath.Rel(l.workingDir, newPath)
+		stagingOK := true
 		if relOrigErr != nil || relNewErr != nil {
 			l.log(fmt.Sprintf("Warning: failed to get relative paths for plan move: orig=%v, new=%v", relOrigErr, relNewErr))
+			stagingOK = false
 		} else {
 			if addErr := l.gitRepo.Add(relNew); addErr != nil {
 				l.log(fmt.Sprintf("Warning: failed to stage new plan path: %v", addErr))
+				stagingOK = false
 			}
 			if rmErr := l.gitRepo.Remove(relOrig); rmErr != nil {
 				l.log(fmt.Sprintf("Warning: failed to stage plan deletion: %v", rmErr))
+				stagingOK = false
 			}
 		}
 
-		commitMsg := "chore: move completed plan to completed/"
-		if err := l.gitRepo.Commit(commitMsg); err != nil {
-			l.log(fmt.Sprintf("Warning: failed to commit plan move: %v", err))
+		if !stagingOK {
+			l.log("Warning: skipping commit due to staging failures")
 		} else {
-			l.log("Committed plan move")
-			l.logProgressf("Committed plan move")
+			commitMsg := "chore: move completed plan to completed/"
+			if err := l.gitRepo.Commit(commitMsg); err != nil {
+				l.log(fmt.Sprintf("Warning: failed to commit plan move: %v", err))
+			} else {
+				l.log("Committed plan move")
+				l.logProgressf("Committed plan move")
+			}
 		}
 	}
 
@@ -640,115 +647,118 @@ func (l *Loop) handleMultiPhaseReview(rc *runContext) loopAction {
 		return loopReturn
 	}
 
-	// Check if all phases are done
-	if l.engine.CurrentPhaseIdx >= len(phases) {
-		l.engine.ReviewPassed = true
-		l.log("All review phases passed!")
-		l.addNote(rc, "progress: All review phases passed")
-		return l.completeAllPhases(rc)
-	}
-
-	currentPhase := phases[l.engine.CurrentPhaseIdx]
-	phaseMaxIter := currentPhase.MaxIterations(l.reviewConfig.MaxIterations)
-
-	l.log(fmt.Sprintf("Review phase %d/%d: %s (iter %d/%d)",
-		l.engine.CurrentPhaseIdx+1, len(phases), currentPhase.Name,
-		l.engine.CurrentPhaseIter+1, phaseMaxIter+1))
-
-	// Run the current phase's agents (I/O)
-	l.logReviewStart(l.engine.CurrentPhaseIter+1, phaseMaxIter+1)
-	rc.state.EnterReviewPhase()
-	if l.reviewRunner == nil {
-		l.applySettingsToReviewConfig()
-		l.applyReviewContext(rc.workItem)
-		var outputCallback review.OutputCallback
-		if l.onOutput != nil && l.onEvent == nil {
-			outputCallback = func(text string) {
-				l.onOutput(text)
-			}
-		}
-		l.reviewRunner = review.NewRunner(l.reviewConfig, outputCallback)
-		if l.onEvent != nil {
-			l.reviewRunner.SetEventCallback(event.Handler(l.onEvent))
-		}
-	}
-
-	reviewResult, err := l.reviewRunner.RunPhase(rc.ctx, l.workingDir, rc.result.TotalFilesChanged, currentPhase)
-	if err != nil {
-		l.log(fmt.Sprintf("Review phase error: %v", err))
-		l.addNote(rc, fmt.Sprintf("error: Review phase %s failed: %v", currentPhase.Name, err))
-		rc.result.ExitReason = safety.ExitReasonError
-		rc.result.Iterations = rc.state.Iteration
-		return loopReturn
-	}
-
-	// Apply severity filter if configured
-	if len(currentPhase.SeverityFilter) > 0 {
-		reviewResult = reviewResult.FilterBySeverity(currentPhase.SeverityFilter)
-	}
-
-	rc.state.RecordReviewIteration()
-	l.logReviewResult(reviewResult.Passed, reviewResult.TotalIssues)
-
-	// Use engine to decide what to do next
-	decision := l.engine.DecideReview(reviewResult.Passed)
-
-	if decision.ExitError != "" {
-		l.log(decision.ExitError)
-		l.addNote(rc, fmt.Sprintf("error: %s", decision.ExitError))
-		rc.result.ExitReason = safety.ExitReasonError
-		rc.result.ExitMessage = decision.ExitError
-		return loopReturn
-	}
-
-	if decision.PhasePassed {
-		l.log(fmt.Sprintf("Review phase %s passed - no issues found", currentPhase.Name))
-		l.addNote(rc, fmt.Sprintf("progress: Review phase %s passed", currentPhase.Name))
-		rc.state.ExitReviewPhase()
-
-		// Run codex loop after the first (comprehensive) phase passes.
-		// DecideReview increments CurrentPhaseIdx to 1 after phase 0 passes,
-		// so checking == 1 means "just finished comprehensive phase".
-		// baseBranch is empty here because the main loop doesn't track a base
-		// branch — codex falls back to `git diff` + `git diff --cached`.
-		if l.codexEnabled && !l.codexDone && l.engine.CurrentPhaseIdx == 1 {
-			l.runCodexLoop(rc.ctx, "", rc.result.TotalFilesChanged, rc.workItem)
-		}
-
-		if decision.AllPhasesDone {
+	for {
+		// Check if all phases are done
+		if l.engine.CurrentPhaseIdx >= len(phases) {
+			l.engine.ReviewPassed = true
 			l.log("All review phases passed!")
 			l.addNote(rc, "progress: All review phases passed")
 			return l.completeAllPhases(rc)
 		}
-		// Continue to check next phase
-		return l.handleMultiPhaseReview(rc)
-	}
 
-	// Phase found issues
-	l.log(fmt.Sprintf("Review phase %s found %d issues", currentPhase.Name, reviewResult.TotalIssues))
-	issueNote := review.FormatIssuesMarkdown(reviewResult.Results)
-	l.addNote(rc, fmt.Sprintf("review: [phase %s, iter %d] Found %d issues:\n%s",
-		currentPhase.Name, l.engine.CurrentPhaseIter, reviewResult.TotalIssues, issueNote))
+		currentPhase := phases[l.engine.CurrentPhaseIdx]
+		phaseMaxIter := currentPhase.MaxIterations(l.reviewConfig.MaxIterations)
 
-	l.lastReviewIssues = issueNote
+		l.log(fmt.Sprintf("Review phase %d/%d: %s (iter %d/%d)",
+			l.engine.CurrentPhaseIdx+1, len(phases), currentPhase.Name,
+			l.engine.CurrentPhaseIter+1, phaseMaxIter+1))
 
-	if decision.ExceededLimit {
-		l.log(fmt.Sprintf("Review phase %s exceeded max iterations (%d) - moving to next phase", currentPhase.Name, phaseMaxIter))
-		l.addNote(rc, fmt.Sprintf("warning: Review phase %s exceeded max iterations with %d issues remaining - moving on",
-			currentPhase.Name, reviewResult.TotalIssues))
-		rc.state.ExitReviewPhase()
-
-		if decision.AllPhasesDone {
-			return l.completeAllPhases(rc)
+		// Run the current phase's agents (I/O)
+		l.logReviewStart(l.engine.CurrentPhaseIter+1, phaseMaxIter+1)
+		rc.state.EnterReviewPhase()
+		if l.reviewRunner == nil {
+			l.applySettingsToReviewConfig()
+			l.applyReviewContext(rc.workItem)
+			var outputCallback review.OutputCallback
+			if l.onOutput != nil && l.onEvent == nil {
+				outputCallback = func(text string) {
+					l.onOutput(text)
+				}
+			}
+			l.reviewRunner = review.NewRunner(l.reviewConfig, outputCallback)
+			if l.onEvent != nil {
+				l.reviewRunner.SetEventCallback(event.Handler(l.onEvent))
+			}
 		}
-		return l.handleMultiPhaseReview(rc)
+
+		reviewResult, err := l.reviewRunner.RunPhase(rc.ctx, l.workingDir, rc.result.TotalFilesChanged, currentPhase)
+		if err != nil {
+			l.log(fmt.Sprintf("Review phase error: %v", err))
+			l.addNote(rc, fmt.Sprintf("error: Review phase %s failed: %v", currentPhase.Name, err))
+			rc.result.ExitReason = safety.ExitReasonError
+			rc.result.Iterations = rc.state.Iteration
+			return loopReturn
+		}
+
+		// Apply severity filter if configured
+		if len(currentPhase.SeverityFilter) > 0 {
+			reviewResult = reviewResult.FilterBySeverity(currentPhase.SeverityFilter)
+		}
+
+		rc.state.RecordReviewIteration()
+		l.logReviewResult(reviewResult.Passed, reviewResult.TotalIssues)
+
+		// Use engine to decide what to do next
+		decision := l.engine.DecideReview(reviewResult.Passed)
+
+		if decision.ExitError != "" {
+			l.log(decision.ExitError)
+			l.addNote(rc, fmt.Sprintf("error: %s", decision.ExitError))
+			rc.result.ExitReason = safety.ExitReasonError
+			rc.result.ExitMessage = decision.ExitError
+			return loopReturn
+		}
+
+		if decision.PhasePassed {
+			l.log(fmt.Sprintf("Review phase %s passed - no issues found", currentPhase.Name))
+			l.addNote(rc, fmt.Sprintf("progress: Review phase %s passed", currentPhase.Name))
+			rc.state.ExitReviewPhase()
+
+			// Run codex loop after the first (comprehensive) phase passes.
+			// DecideReview increments CurrentPhaseIdx to 1 after phase 0 passes,
+			// so checking == 1 means "just finished comprehensive phase".
+			// baseBranch is empty here because the main loop doesn't track a base
+			// branch — codex falls back to `git diff` + `git diff --cached`.
+			if l.codexEnabled && !l.codexDone && l.engine.CurrentPhaseIdx == 1 {
+				l.runCodexLoop(rc.ctx, "", rc.result.TotalFilesChanged, rc.workItem)
+			}
+
+			if decision.AllPhasesDone {
+				l.log("All review phases passed!")
+				l.addNote(rc, "progress: All review phases passed")
+				return l.completeAllPhases(rc)
+			}
+			// Continue to next phase
+			continue
+		}
+
+		// Phase found issues
+		l.log(fmt.Sprintf("Review phase %s found %d issues", currentPhase.Name, reviewResult.TotalIssues))
+		issueNote := review.FormatIssuesMarkdown(reviewResult.Results)
+		l.addNote(rc, fmt.Sprintf("review: [phase %s, iter %d] Found %d issues:\n%s",
+			currentPhase.Name, l.engine.CurrentPhaseIter, reviewResult.TotalIssues, issueNote))
+
+		l.lastReviewIssues = issueNote
+
+		if decision.ExceededLimit {
+			l.log(fmt.Sprintf("Review phase %s exceeded max iterations (%d) - moving to next phase", currentPhase.Name, phaseMaxIter))
+			l.addNote(rc, fmt.Sprintf("warning: Review phase %s exceeded max iterations with %d issues remaining - moving on",
+				currentPhase.Name, reviewResult.TotalIssues))
+			rc.state.ExitReviewPhase()
+
+			if decision.AllPhasesDone {
+				return l.completeAllPhases(rc)
+			}
+			// Continue to next phase
+			continue
+		}
+
+		// NeedsFix: invoke Claude to fix issues
+		rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[phase %s, iter %d] Review found %d issues - please fix them:\n%s",
+			currentPhase.Name, l.engine.CurrentPhaseIter, reviewResult.TotalIssues, issueNote))
+
+		return loopBreakToClaudeInvocation
 	}
-
-	// NeedsFix: invoke Claude to fix issues
-	rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[phase %s, iter %d] Review found %d issues - please fix them:\n%s",
-		currentPhase.Name, l.engine.CurrentPhaseIter, reviewResult.TotalIssues, issueNote))
-
-	return loopBreakToClaudeInvocation
 }
 
 // completeAllPhases marks the work item as complete and returns.
@@ -785,12 +795,12 @@ func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) 
 
 	// Track iteration summary for stagnation debugging
 	rc.iterationSummaries = append(rc.iterationSummaries,
-		engine.FormatIterationSummary(rc.state.Iteration, status.Summary, status.FilesChanged))
+		FormatIterationSummary(rc.state.Iteration, status.Summary, status.FilesChanged))
 
 	rc.state.RecordIteration(status.FilesChanged, status.Error)
 
 	// Use engine to process status
-	result := l.engine.ProcessStatus(engine.ProcessStatusInput{
+	result := l.engine.ProcessStatus(ProcessStatusInput{
 		Status:           status,
 		Iteration:        rc.state.Iteration,
 		PendingReviewFix: l.engine.PendingReviewFix,
@@ -1028,6 +1038,7 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 
 		status, err := parser.Parse(output)
 		if err != nil {
+			l.logErrorf("failed to parse response: %v", err)
 			rc.result.ExitReason = safety.ExitReasonError
 			return rc.result, err
 		}
@@ -1107,17 +1118,14 @@ func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string
 	}
 
 	if l.onProcessStats != nil {
-		var stopStats chan struct{}
+		stopStats := make(chan struct{})
 		var stopOnce sync.Once
 		closeStats := func() {
 			stopOnce.Do(func() {
-				if stopStats != nil {
-					close(stopStats)
-				}
+				close(stopStats)
 			})
 		}
 		opts.OnProcessStart = func(pid int) {
-			stopStats = make(chan struct{})
 			go l.pollProcessStats(pid, stopStats)
 		}
 		opts.OnProcessEnd = func() {

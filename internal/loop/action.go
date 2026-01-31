@@ -1,8 +1,8 @@
-// Package engine implements a pure state machine that decides the next action
-// for the main orchestration loop. The engine receives inputs (work item state,
+// The engine is a pure state machine that decides the next action
+// for the main orchestration loop. It receives inputs (work item state,
 // parsed status, safety checks, user stop signals) and returns Action values
 // describing side effects for the runner to execute.
-package engine
+package loop
 
 import (
 	"github.com/worksonmyai/programmator/internal/parser"

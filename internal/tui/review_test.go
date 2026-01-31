@@ -1,4 +1,4 @@
-package cmd
+package tui
 
 import (
 	"io"
@@ -52,11 +52,11 @@ func TestIsGitRepo(t *testing.T) {
 	}
 
 	// Current directory should be a git repo
-	assert.True(t, isGitRepo(cwd))
+	assert.True(t, git.IsInsideRepo(cwd))
 
 	// A fresh temp directory should not be a git repo
 	nonRepoDir := t.TempDir()
-	assert.False(t, isGitRepo(nonRepoDir))
+	assert.False(t, git.IsInsideRepo(nonRepoDir))
 }
 
 func TestGetChangedFiles(t *testing.T) {
@@ -64,7 +64,7 @@ func TestGetChangedFiles(t *testing.T) {
 	cwd, err := os.Getwd()
 	require.NoError(t, err)
 
-	if !isGitRepo(cwd) {
+	if !git.IsInsideRepo(cwd) {
 		t.Skip("Not in a git repository")
 	}
 
