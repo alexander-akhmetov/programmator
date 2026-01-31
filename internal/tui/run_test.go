@@ -159,18 +159,18 @@ func (errReader) Read([]byte) (int, error) {
 }
 
 func TestStreamOutput(t *testing.T) {
-	t.Run("normal input", func(t *testing.T) {
+	t.Run("normal input", func(_ *testing.T) {
 		r := strings.NewReader("line1\nline2\n")
 		streamOutput(r)
 	})
 
-	t.Run("reader error", func(t *testing.T) {
+	t.Run("reader error", func(_ *testing.T) {
 		// errReader returns an error immediately; streamOutput should handle
 		// it gracefully (prints warning to stderr, does not panic).
 		streamOutput(errReader{})
 	})
 
-	t.Run("empty input", func(t *testing.T) {
+	t.Run("empty input", func(_ *testing.T) {
 		streamOutput(io.LimitReader(strings.NewReader(""), 0))
 	})
 }
