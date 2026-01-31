@@ -2,6 +2,7 @@ package review
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"strings"
@@ -305,8 +306,16 @@ func (r *Runner) ValidateSimplifications(ctx context.Context, workingDir string,
 		return simplificationResult, nil
 	}
 
-	if result == nil || len(result.Issues) == 0 {
-		// Validator returned no structured output - check if it intentionally filtered everything
+	if result == nil {
+		r.log("Simplification validator returned no output, filtering all suggestions")
+		return &Result{
+			AgentName: "simplification",
+			Issues:    []Issue{},
+			Summary:   "All simplification suggestions filtered by validator",
+		}, nil
+	}
+
+	if len(result.Issues) == 0 {
 		r.log("Simplification validator filtered all suggestions")
 		return &Result{
 			AgentName: "simplification",
@@ -320,6 +329,131 @@ func (r *Runner) ValidateSimplifications(ctx context.Context, workingDir string,
 	result.AgentName = "simplification"
 	r.log(fmt.Sprintf("Simplification validator kept %d of %d suggestions", len(result.Issues), len(simplificationResult.Issues)))
 	return result, nil
+}
+
+// ValidateIssues runs a validation agent to filter false positives from all review results
+// (excluding simplification, which has its own validator).
+// It returns updated results with filtered issues, or the original results if validation fails.
+func (r *Runner) ValidateIssues(ctx context.Context, workingDir string, results []*Result) ([]*Result, error) {
+	// Collect non-simplification results that have issues
+	var toValidate []*Result
+	for _, res := range results {
+		if res.AgentName == "simplification" {
+			continue
+		}
+		if len(res.Issues) > 0 {
+			toValidate = append(toValidate, res)
+		}
+	}
+
+	if len(toValidate) == 0 {
+		return results, nil
+	}
+
+	r.log("Validating issues across agents...")
+
+	input := FormatIssuesYAML(toValidate)
+
+	validatorCfg := AgentConfig{
+		Name:  "issue-validator",
+		Focus: []string{"filter false positive review findings"},
+	}
+
+	agent := r.getOrCreateAgent(validatorCfg)
+
+	// VALIDATION_INPUT prefix signals to the validator agent that the filesChanged
+	// content is structured YAML input to validate, not actual file paths.
+	validatorResult, err := agent.Review(ctx, workingDir, []string{"VALIDATION_INPUT:\n" + input})
+	if err != nil {
+		r.log(fmt.Sprintf("Issue validation failed, using original results: %v", err))
+		return results, nil
+	}
+
+	// Nil result with no error means validator produced no usable output; keep originals.
+	if validatorResult == nil {
+		r.log("Issue validator returned no result, using original results")
+		return results, nil
+	}
+	if strings.TrimSpace(validatorResult.Summary) == noStructuredReviewOutputSummary {
+		r.log("Issue validator returned no structured output, using original results")
+		return results, nil
+	}
+
+	// Build verdict map from validator output (id → verdict string).
+	verdicts := make(map[string]string)
+	for _, issue := range validatorResult.Issues {
+		if issue.ID != "" {
+			verdicts[issue.ID] = strings.ToLower(strings.TrimSpace(issue.Verdict))
+		}
+	}
+
+	// If validator returned issues but none had IDs, assume it didn't understand
+	// the ID protocol and fall back to originals (safe default: keep all).
+	if len(validatorResult.Issues) > 0 && len(verdicts) == 0 {
+		r.log("Issue validator returned issues without IDs, using original results")
+		return results, nil
+	}
+
+	// Filter original results by verdict.
+	// - "false_positive" → drop
+	// - "valid" → keep
+	// - no verdict / unknown verdict / ID not in validator output → keep (safe default)
+	totalBefore := 0
+	totalAfter := 0
+	filtered := make([]*Result, len(results))
+	for i, res := range results {
+		if res.AgentName == "simplification" || len(res.Issues) == 0 {
+			filtered[i] = res
+			continue
+		}
+
+		totalBefore += len(res.Issues)
+		kept := make([]Issue, 0, len(res.Issues))
+		for _, issue := range res.Issues {
+			verdict, hasVerdict := verdicts[issue.ID]
+			if hasVerdict && verdict == "false_positive" {
+				continue
+			}
+			kept = append(kept, issue)
+		}
+		totalAfter += len(kept)
+
+		filtered[i] = &Result{
+			AgentName:  res.AgentName,
+			Issues:     kept,
+			Summary:    res.Summary,
+			Error:      res.Error,
+			Duration:   res.Duration,
+			TokensUsed: res.TokensUsed,
+		}
+	}
+
+	r.log(fmt.Sprintf("Issue validator kept %d of %d issues", totalAfter, totalBefore))
+	return filtered, nil
+}
+
+// assignIssueIDs assigns stable IDs to issues that don't already have one.
+func assignIssueIDs(results []*Result) {
+	for _, res := range results {
+		for i := range res.Issues {
+			if res.Issues[i].ID == "" {
+				res.Issues[i].ID = issueFingerprint(res.AgentName, res.Issues[i])
+			}
+		}
+	}
+}
+
+// issueFingerprint generates a deterministic ID from agent name and issue fields.
+func issueFingerprint(agent string, issue Issue) string {
+	desc := strings.ToLower(strings.TrimSpace(issue.Description))
+	cat := strings.ToLower(issue.Category)
+	linePart := ""
+	if issue.Line > 0 {
+		linePart = fmt.Sprintf("%d", issue.Line)
+	}
+	data := fmt.Sprintf("%s|%s|%s|%s|%s", agent, issue.File, linePart, cat, desc)
+	hash := sha256.Sum256([]byte(data))
+	return fmt.Sprintf("%x", hash[:8])
 }
 
 // RunPhase executes a single phase and returns the result.
@@ -349,12 +483,34 @@ func (r *Runner) RunPhase(ctx context.Context, workingDir string, filesChanged [
 		return result, err
 	}
 
+	// Assign stable IDs to issues for tracking across iterations
+	assignIssueIDs(passResults)
+
 	// Post-process: validate simplification results
 	for i, res := range passResults {
 		if res.AgentName == "simplification" && len(res.Issues) > 0 {
 			validated, validateErr := r.ValidateSimplifications(ctx, workingDir, res)
 			if validateErr == nil {
 				passResults[i] = validated
+				// Re-assign IDs to validated simplification issues since the validator
+				// returns new Issue structs that may lack IDs.
+				assignIssueIDs([]*Result{passResults[i]})
+			}
+		}
+	}
+
+	// Post-process: validate all issues (excluding simplification)
+	if phase.Validate {
+		totalNonSimp := 0
+		for _, res := range passResults {
+			if res.AgentName != "simplification" {
+				totalNonSimp += len(res.Issues)
+			}
+		}
+		if totalNonSimp > 0 {
+			validated, validateErr := r.ValidateIssues(ctx, workingDir, passResults)
+			if validateErr == nil {
+				passResults = validated
 			}
 		}
 	}

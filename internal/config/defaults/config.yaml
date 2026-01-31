@@ -46,8 +46,9 @@ review:
   phases:
     # Phase 1: Comprehensive review - run all 6 agents once
     - name: comprehensive
-      iteration_limit: 3    # Fix-and-verify cycles before moving to next phase
+      iteration_limit: 5    # Fix-and-verify cycles before moving to next phase
       parallel: true
+      validate: true
       agents:
         - name: quality
           focus:
@@ -87,6 +88,7 @@ review:
         - critical
         - high
       parallel: true
+      validate: true
       agents:
         - name: quality
           focus:
@@ -106,6 +108,7 @@ review:
         - critical
         - high
       parallel: true
+      validate: true
       agents:
         - name: quality
           focus:

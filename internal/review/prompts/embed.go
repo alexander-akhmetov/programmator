@@ -28,3 +28,6 @@ var ClaudeMDPrompt string
 
 //go:embed simplification_validator.md
 var SimplificationValidatorPrompt string
+
+//go:embed issue_validator.md
+var IssueValidatorPrompt string

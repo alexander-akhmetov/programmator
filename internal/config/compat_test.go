@@ -44,6 +44,7 @@ func TestToReviewConfig(t *testing.T) {
 					IterationLimit: 2,
 					IterationPct:   25,
 					Parallel:       true,
+					Validate:       true,
 					SeverityFilter: []string{"critical", "high"},
 					Agents: []ReviewAgentConfig{
 						{Name: "quality", Focus: []string{"bugs"}, Prompt: "custom.md"},
@@ -64,6 +65,7 @@ func TestToReviewConfig(t *testing.T) {
 	assert.Equal(t, 2, phase.IterationLimit)
 	assert.Equal(t, 25, phase.IterationPct)
 	assert.True(t, phase.Parallel)
+	assert.True(t, phase.Validate)
 	assert.Len(t, phase.SeverityFilter, 2)
 	assert.Equal(t, review.Severity("critical"), phase.SeverityFilter[0])
 	assert.Equal(t, review.Severity("high"), phase.SeverityFilter[1])

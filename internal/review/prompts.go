@@ -24,6 +24,8 @@ func GetDefaultPrompt(agentName string) string {
 		return prompts.ClaudeMDPrompt
 	case "simplification-validator":
 		return prompts.SimplificationValidatorPrompt
+	case "issue-validator":
+		return prompts.IssueValidatorPrompt
 	default:
 		return defaultGenericPrompt
 	}
