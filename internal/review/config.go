@@ -39,6 +39,7 @@ type Phase struct {
 	SeverityFilter []Severity    `yaml:"severity_filter,omitempty"` // empty = all severities
 	Agents         []AgentConfig `yaml:"agents"`
 	Parallel       bool          `yaml:"parallel"`
+	Validate       bool          `yaml:"validate,omitempty"`
 }
 
 // MaxIterations returns the maximum iterations allowed for this phase.
@@ -93,6 +94,7 @@ func DefaultPhases() []Phase {
 			Name:           "comprehensive",
 			IterationLimit: 1,
 			Parallel:       true,
+			Validate:       true,
 			Agents: []AgentConfig{
 				{Name: "quality", Focus: []string{"error handling", "resource management", "concurrency", "race conditions"}},
 				{Name: "quality-2", Focus: []string{"logic errors", "edge cases", "off-by-one", "incorrect conditionals", "nil handling"}},
@@ -109,6 +111,7 @@ func DefaultPhases() []Phase {
 			IterationPct:   10, // max(3, maxIter*10/100)
 			SeverityFilter: []Severity{SeverityCritical, SeverityHigh},
 			Parallel:       true,
+			Validate:       true,
 			Agents: []AgentConfig{
 				{Name: "quality", Focus: []string{"bugs", "security", "race conditions", "error handling"}},
 				{Name: "implementation", Focus: []string{"correctness", "completeness"}},
@@ -119,6 +122,7 @@ func DefaultPhases() []Phase {
 			IterationPct:   10,
 			SeverityFilter: []Severity{SeverityCritical, SeverityHigh},
 			Parallel:       true,
+			Validate:       true,
 			Agents: []AgentConfig{
 				{Name: "quality", Focus: []string{"bugs", "security", "race conditions", "error handling"}},
 				{Name: "implementation", Focus: []string{"correctness", "completeness"}},

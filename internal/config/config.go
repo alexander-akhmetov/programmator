@@ -38,6 +38,7 @@ type ReviewPhase struct {
 	SeverityFilter []string            `yaml:"severity_filter,omitempty"` // empty = all severities
 	Agents         []ReviewAgentConfig `yaml:"agents"`
 	Parallel       bool                `yaml:"parallel"`
+	Validate       bool                `yaml:"validate,omitempty"`
 }
 
 // CodexConfig holds codex review configuration.
