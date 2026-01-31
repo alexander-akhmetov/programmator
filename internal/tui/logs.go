@@ -1,7 +1,6 @@
-package cmd
+package tui
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -106,8 +105,12 @@ func listLogs(logsDir, filter string) error {
 	if len(logs) == 0 {
 		fmt.Println("No log files found.")
 		if logsDir == "" {
-			home, _ := os.UserHomeDir()
-			fmt.Printf("Log directory: %s/.programmator/logs/\n", home)
+			home, err := os.UserHomeDir()
+			if err == nil {
+				fmt.Printf("Log directory: %s/.programmator/logs/\n", home)
+			} else {
+				fmt.Println("Log directory: ~/.programmator/logs/")
+			}
 		} else {
 			fmt.Printf("Log directory: %s\n", logsDir)
 		}
@@ -197,14 +200,22 @@ func followLogs(logsDir, sourceID string) error {
 		return fmt.Errorf("failed to start tail: %w", err)
 	}
 
-	// Kill tail process on interrupt signal
+	// Kill tail process on interrupt signal.
+	// Use a done channel to ensure the goroutine exits when the function returns.
 	sigCh := make(chan os.Signal, 1)
+	done := make(chan struct{})
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		<-sigCh
-		_ = cmd.Process.Kill()
+		select {
+		case <-sigCh:
+			_ = cmd.Process.Kill()
+		case <-done:
+		}
 	}()
-	defer signal.Stop(sigCh)
+	defer func() {
+		signal.Stop(sigCh)
+		close(done)
+	}()
 
 	return cmd.Wait()
 }
@@ -286,18 +297,14 @@ func isProgrammatorLogLine(line string) bool {
 }
 
 func formatLogLine(line string) string {
-	scanner := bufio.NewScanner(strings.NewReader(line))
-	scanner.Scan()
-	text := scanner.Text()
-
-	if strings.HasPrefix(text, "**") {
-		dateEnd := strings.Index(text[2:], "**")
+	if strings.HasPrefix(line, "**") {
+		dateEnd := strings.Index(line[2:], "**")
 		if dateEnd > 0 {
-			timestamp := text[2 : 2+dateEnd]
-			rest := strings.TrimSpace(text[4+dateEnd:])
+			timestamp := line[2 : 2+dateEnd]
+			rest := strings.TrimSpace(line[4+dateEnd:])
 			return fmt.Sprintf("[%s] %s", timestamp, rest)
 		}
 	}
 
-	return text
+	return line
 }

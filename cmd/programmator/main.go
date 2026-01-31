@@ -4,7 +4,7 @@ package main
 import (
 	"os"
 
-	"github.com/worksonmyai/programmator/internal/cmd"
+	"github.com/worksonmyai/programmator/internal/tui"
 )
 
 // Version information set via ldflags at build time.
@@ -15,8 +15,8 @@ var (
 )
 
 func main() {
-	cmd.SetVersionInfo(version, commit, date)
-	if err := cmd.Execute(); err != nil {
+	tui.SetVersionInfo(version, commit, date)
+	if err := tui.Execute(); err != nil {
 		os.Exit(1)
 	}
 }

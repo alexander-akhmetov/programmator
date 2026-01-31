@@ -1,4 +1,4 @@
-package cmd
+package tui
 
 import (
 	"context"
@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/worksonmyai/programmator/internal/config"
-	"github.com/worksonmyai/programmator/internal/input"
 	"github.com/worksonmyai/programmator/internal/llm"
 	"github.com/worksonmyai/programmator/internal/parser"
 	"github.com/worksonmyai/programmator/internal/progress"
@@ -100,7 +99,7 @@ func runPlanCreate(_ *cobra.Command, args []string) error {
 	}
 
 	// Create input collector
-	collector := input.NewTerminalCollector()
+	collector := NewTerminalCollector()
 
 	// Run the plan creation loop
 	creator := &planCreator{
@@ -153,7 +152,7 @@ type planCreator struct {
 	outDir         string
 	maxTurns       int
 	builder        *prompt.Builder
-	collector      input.Collector
+	collector      Collector
 	progressLogger *progress.Logger
 	claudeFlags    string
 	qa             []prompt.QA
@@ -271,7 +270,7 @@ func (p *planCreator) savePlan(content string) (string, error) {
 		content = fmt.Sprintf("# Plan: %s\n\n%s", p.description, content)
 	}
 
-	if err := os.WriteFile(planPath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(planPath, []byte(content), 0600); err != nil {
 		return "", fmt.Errorf("write plan file: %w", err)
 	}
 
