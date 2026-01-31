@@ -1,5 +1,4 @@
-// Package input provides terminal input collection for interactive plan creation.
-package input
+package tui
 
 import (
 	"bufio"
@@ -109,6 +108,9 @@ func (c *TerminalCollector) selectWithNumbers(question string, options []string)
 	reader := bufio.NewReader(stdin)
 	line, err := reader.ReadString('\n')
 	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return "", errors.New("input stream closed")
+		}
 		return "", fmt.Errorf("read input: %w", err)
 	}
 

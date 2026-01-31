@@ -1,6 +1,7 @@
-package cmd
+package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,7 +16,6 @@ import (
 	"github.com/worksonmyai/programmator/internal/protocol"
 	"github.com/worksonmyai/programmator/internal/source"
 	"github.com/worksonmyai/programmator/internal/timing"
-	"github.com/worksonmyai/programmator/internal/tui"
 )
 
 var (
@@ -126,7 +126,7 @@ func runStart(_ *cobra.Command, args []string) error {
 	}
 
 	timing.Log("runStart: creating TUI")
-	t := tui.New(safetyConfig)
+	t := New(safetyConfig)
 	t.SetInteractivePermissions(!skipPermissions && !guardMode)
 	t.SetGuardMode(guardMode)
 	t.SetAllowPatterns(allowPatterns)
@@ -143,16 +143,13 @@ func runStart(_ *cobra.Command, args []string) error {
 	t.SetTicketCommand(cfg.TicketCommand)
 
 	// Set git workflow config from CLI flags and config file
-	gitConfig := loop.GitWorkflowConfig{
+	t.SetGitWorkflowConfig(loop.GitWorkflowConfig{
 		AutoCommit:         autoCommit || cfg.Git.AutoCommit,
 		MoveCompletedPlans: moveCompletedPlans || cfg.Git.MoveCompletedPlans,
 		CompletedPlansDir:  cfg.Git.CompletedPlansDir,
 		BranchPrefix:       cfg.Git.BranchPrefix,
 		AutoBranch:         autoBranch,
-	}
-	if gitConfig.AutoCommit || gitConfig.MoveCompletedPlans || gitConfig.AutoBranch {
-		t.SetGitWorkflowConfig(gitConfig)
-	}
+	})
 
 	// Wire codex config
 	t.SetCodexConfig(cfg.Codex)
@@ -168,27 +165,42 @@ func runStart(_ *cobra.Command, args []string) error {
 	return nil
 }
 
-func sessionFilePath() string {
+func sessionFilePath() (string, error) {
 	dir := os.Getenv("PROGRAMMATOR_STATE_DIR")
 	if dir == "" {
-		home, _ := os.UserHomeDir()
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("cannot determine home directory: %w", err)
+		}
 		dir = filepath.Join(home, ".programmator")
 	}
-	return filepath.Join(dir, "session.json")
+	return filepath.Join(dir, "session.json"), nil
 }
 
 func writeSessionFile(ticketID, workingDir string) error {
-	path := sessionFilePath()
+	path, err := sessionFilePath()
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
 
-	content := fmt.Sprintf(`{"ticket_id": %q, "working_dir": %q, "started_at": %q, "pid": %d}`,
-		ticketID, workingDir, time.Now().Format(time.RFC3339), os.Getpid())
+	data, err := json.Marshal(map[string]any{
+		"ticket_id":   ticketID,
+		"working_dir": workingDir,
+		"started_at":  time.Now().Format(time.RFC3339),
+		"pid":         os.Getpid(),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal session data: %w", err)
+	}
 
-	return os.WriteFile(path, []byte(content), 0600)
+	return os.WriteFile(path, data, 0600)
 }
 
 func removeSessionFile() {
-	os.Remove(sessionFilePath())
+	if path, err := sessionFilePath(); err == nil {
+		os.Remove(path)
+	}
 }

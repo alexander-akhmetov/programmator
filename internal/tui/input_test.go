@@ -1,4 +1,4 @@
-package input
+package tui
 
 import (
 	"context"
@@ -88,6 +88,16 @@ func TestTerminalCollector_SelectWithNumbers(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTerminalCollector_SelectWithNumbers_EOF(t *testing.T) {
+	stdin := strings.NewReader("") // empty reader triggers EOF
+	stdout := &strings.Builder{}
+	collector := NewTerminalCollectorWithIO(stdin, stdout)
+
+	_, err := collector.selectWithNumbers("Pick one", []string{"A", "B"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "input stream closed")
 }
 
 func TestTerminalCollector_AskQuestion_NoOptions(t *testing.T) {

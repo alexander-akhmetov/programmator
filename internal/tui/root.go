@@ -1,5 +1,4 @@
-// Package cmd implements the CLI commands for programmator.
-package cmd
+package tui
 
 import (
 	"fmt"

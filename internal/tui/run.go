@@ -1,4 +1,4 @@
-package cmd
+package tui
 
 import (
 	"bufio"
@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"github.com/spf13/cobra"
 
@@ -46,25 +47,33 @@ func init() {
 	runCmd.Flags().IntVar(&runMaxTurns, "max-turns", 0, "Maximum agentic turns (0 = unlimited)")
 }
 
-func runRun(_ *cobra.Command, args []string) error {
-	var prompt string
-
+// buildPrompt assembles the prompt from CLI args or stdin.
+// Returns the prompt string or an error if no prompt is available.
+func buildPrompt(args []string, stdin io.Reader) (string, error) {
 	if len(args) > 0 {
-		prompt = strings.Join(args, " ")
-	} else {
-		// Read from stdin if no args
-		stat, _ := os.Stdin.Stat()
-		if (stat.Mode() & os.ModeCharDevice) == 0 {
-			data, err := io.ReadAll(os.Stdin)
+		return strings.Join(args, " "), nil
+	}
+
+	if f, ok := stdin.(*os.File); ok {
+		stat, err := f.Stat()
+		if err == nil && (stat.Mode()&os.ModeCharDevice) == 0 {
+			data, err := io.ReadAll(f)
 			if err != nil {
-				return fmt.Errorf("failed to read from stdin: %w", err)
+				return "", fmt.Errorf("failed to read from stdin: %w", err)
 			}
-			prompt = strings.TrimSpace(string(data))
+			if p := strings.TrimSpace(string(data)); p != "" {
+				return p, nil
+			}
 		}
 	}
 
-	if prompt == "" {
-		return fmt.Errorf("no prompt provided. Usage: programmator run \"your prompt here\"")
+	return "", fmt.Errorf("no prompt provided. Usage: programmator run \"your prompt here\"")
+}
+
+func runRun(_ *cobra.Command, args []string) error {
+	prompt, err := buildPrompt(args, os.Stdin)
+	if err != nil {
+		return err
 	}
 
 	wd, err := resolveWorkingDir(runWorkingDir)
@@ -79,20 +88,24 @@ func runRun(_ *cobra.Command, args []string) error {
 	return runClaudeTUI(prompt, wd)
 }
 
+// buildCommonFlags returns CLI flags shared by both print and TUI modes.
+func buildCommonFlags() []string {
+	var flags []string
+	if runSkipPermissions {
+		flags = append(flags, "--dangerously-skip-permissions")
+	}
+	if runMaxTurns > 0 {
+		flags = append(flags, "--max-turns", fmt.Sprintf("%d", runMaxTurns))
+	}
+	return flags
+}
+
 func runClaudePrint(prompt, workingDir string) error {
 	inv := llm.NewClaudeInvoker(llm.EnvConfig{})
 
-	var extraFlags []string
-	if runSkipPermissions {
-		extraFlags = append(extraFlags, "--dangerously-skip-permissions")
-	}
-	if runMaxTurns > 0 {
-		extraFlags = append(extraFlags, "--max-turns", fmt.Sprintf("%d", runMaxTurns))
-	}
-
 	opts := llm.InvokeOptions{
 		WorkingDir: workingDir,
-		ExtraFlags: strings.Join(extraFlags, " "),
+		ExtraFlags: strings.Join(buildCommonFlags(), " "),
 		OnOutput: func(text string) {
 			fmt.Print(text)
 		},
@@ -134,21 +147,15 @@ func runClaudeTUI(prompt, workingDir string) error {
 	}
 
 	// Build Claude command
-	args := []string{}
+	args := buildCommonFlags()
 
-	if runSkipPermissions {
-		args = append(args, "--dangerously-skip-permissions")
-	} else if permServer != nil {
+	if !runSkipPermissions && permServer != nil {
 		hookSettings := llm.BuildHookSettings(llm.HookConfig{
 			PermissionSocketPath: permServer.SocketPath(),
 		})
 		if hookSettings != "" {
 			args = append(args, "--settings", hookSettings)
 		}
-	}
-
-	if runMaxTurns > 0 {
-		args = append(args, "--max-turns", fmt.Sprintf("%d", runMaxTurns))
 	}
 
 	args = append(args, "-p", prompt)
@@ -170,11 +177,16 @@ func runClaudeTUI(prompt, workingDir string) error {
 		return fmt.Errorf("failed to start claude: %w", err)
 	}
 
-	// Stream output
-	go streamOutput(stdout)
-	go streamOutput(stderr)
+	// Stream output; wait for both goroutines before returning so no
+	// data is lost when cmd.Wait() closes the pipes.
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); streamOutput(stdout) }()
+	go func() { defer wg.Done(); streamOutput(stderr) }()
 
-	return cmd.Wait()
+	err = cmd.Wait()
+	wg.Wait()
+	return err
 }
 
 func streamOutput(r io.Reader) {

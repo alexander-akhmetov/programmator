@@ -1,4 +1,4 @@
-package cmd
+package tui
 
 import (
 	"encoding/json"
@@ -31,7 +31,11 @@ Displays information about the currently running loop including:
 }
 
 func runStatus(_ *cobra.Command, _ []string) error {
-	path := sessionFilePath()
+	path, err := sessionFilePath()
+	if err != nil {
+		fmt.Println("No active programmator sessions")
+		return nil //nolint:nilerr // intentional: no home dir means no session file to check
+	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -44,24 +48,26 @@ func runStatus(_ *cobra.Command, _ []string) error {
 
 	var session sessionInfo
 	if err := json.Unmarshal(data, &session); err != nil {
-		fmt.Println("No active programmator sessions (corrupted session file)")
+		fmt.Println("No active programmator sessions (corrupted session file, removed)")
 		os.Remove(path)
 		return nil //nolint:nilerr // intentional: corrupted file is not a user-facing error
 	}
 
 	if !isProcessRunning(session.PID) {
-		fmt.Println("No active programmator sessions (stale session file)")
+		fmt.Println("No active programmator sessions (stale session file, removed)")
 		os.Remove(path)
 		return nil
 	}
 
-	startedAt, _ := time.Parse(time.RFC3339, session.StartedAt)
-	elapsed := time.Since(startedAt).Truncate(time.Second)
-
 	fmt.Println("Active programmator session:")
 	fmt.Printf("  Ticket:      %s\n", session.TicketID)
 	fmt.Printf("  Working dir: %s\n", session.WorkingDir)
-	fmt.Printf("  Started:     %s (%s ago)\n", startedAt.Format("15:04:05"), elapsed)
+	if startedAt, err := time.Parse(time.RFC3339, session.StartedAt); err == nil {
+		elapsed := time.Since(startedAt).Truncate(time.Second)
+		fmt.Printf("  Started:     %s (%s ago)\n", startedAt.Format("15:04:05"), elapsed)
+	} else {
+		fmt.Printf("  Started:     unknown\n")
+	}
 	fmt.Printf("  PID:         %d\n", session.PID)
 
 	return nil
