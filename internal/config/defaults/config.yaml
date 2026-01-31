@@ -27,6 +27,18 @@ git:
   completed_plans_dir: ""    # Directory for completed plans (default: plans/completed)
   branch_prefix: ""          # Prefix for auto-created branches (default: programmator/)
 
+# Codex review settings
+codex:
+  enabled: true
+  command: "codex"
+  model: "gpt-5.2-codex"
+  reasoning_effort: "xhigh"
+  timeout_ms: 3600000
+  sandbox: "read-only"
+  error_patterns:
+    - "Rate limit"
+    - "quota exceeded"
+
 # Review settings
 review:
   max_iterations: 50      # Maximum review fix iterations (used as base for iteration_pct)

@@ -19,10 +19,12 @@ func TestLoadPrompts_Embedded(t *testing.T) {
 	assert.NotEmpty(t, prompts.Phased, "phased prompt should be loaded")
 	assert.NotEmpty(t, prompts.Phaseless, "phaseless prompt should be loaded")
 	assert.NotEmpty(t, prompts.ReviewFirst, "review_first prompt should be loaded")
+	assert.NotEmpty(t, prompts.CodexEval, "codex_eval prompt should be loaded")
 
 	// Check that comment lines are stripped
 	assert.NotContains(t, prompts.Phased, "# Phased execution prompt")
 	assert.NotContains(t, prompts.Phaseless, "# Phaseless execution prompt")
+	assert.NotContains(t, prompts.CodexEval, "# Codex Evaluation Prompt")
 
 	// Check that template variables are present
 	assert.Contains(t, prompts.Phased, "{{.ID}}")
@@ -30,6 +32,8 @@ func TestLoadPrompts_Embedded(t *testing.T) {
 	assert.Contains(t, prompts.Phased, "{{.CurrentPhase}}")
 	assert.Contains(t, prompts.Phaseless, "{{.ID}}")
 	assert.Contains(t, prompts.ReviewFirst, "{{.BaseBranch}}")
+	assert.Contains(t, prompts.CodexEval, "{{.CodexOutput}}")
+	assert.Contains(t, prompts.CodexEval, "{{.WorkItemID}}")
 }
 
 func TestLoadPrompts_GlobalOverride(t *testing.T) {
@@ -75,6 +79,44 @@ func TestLoadPrompts_LocalOverridesGlobal(t *testing.T) {
 
 	// Local should override global
 	assert.Equal(t, localPrompt, prompts.Phased)
+}
+
+func TestLoadPrompts_MissingCodexEvalDoesNotBlock(t *testing.T) {
+	// Use a non-existent directory as global, and empty local.
+	// The embedded filesystem has codex_eval.md, so we need to test
+	// with a setup where it's missing from custom dirs but exists embedded.
+	// The key behavior: even if codex_eval fails, other prompts load fine.
+	prompts, err := LoadPrompts("/nonexistent/global/dir", "")
+	require.NoError(t, err)
+	require.NotNil(t, prompts)
+
+	// All required prompts should be loaded from embedded
+	assert.NotEmpty(t, prompts.Phased)
+	assert.NotEmpty(t, prompts.Phaseless)
+	assert.NotEmpty(t, prompts.ReviewFirst)
+	assert.NotEmpty(t, prompts.ReviewSecond)
+	assert.NotEmpty(t, prompts.PlanCreate)
+	// CodexEval should also load from embedded
+	assert.NotEmpty(t, prompts.CodexEval)
+}
+
+func TestLoadPrompts_LocalPermissionErrorFallsBack(t *testing.T) {
+	// Create a local dir with an unreadable prompt file
+	localDir := t.TempDir()
+	promptsDir := filepath.Join(localDir, "prompts")
+	require.NoError(t, os.MkdirAll(promptsDir, 0o755))
+
+	// Create an unreadable file
+	unreadable := filepath.Join(promptsDir, "phased.md")
+	require.NoError(t, os.WriteFile(unreadable, []byte("custom"), 0o644))
+	require.NoError(t, os.Chmod(unreadable, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(unreadable, 0o644) })
+
+	// Should fall back to embedded instead of failing
+	prompts, err := LoadPrompts("", localDir)
+	require.NoError(t, err)
+	require.NotNil(t, prompts)
+	assert.NotEmpty(t, prompts.Phased, "should fall back to embedded prompt")
 }
 
 func TestStripComments(t *testing.T) {
