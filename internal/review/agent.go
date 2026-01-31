@@ -229,25 +229,27 @@ func (a *ClaudeAgent) buildPrompt(filesChanged []string) string {
 
 	b.WriteString(`## Output Format
 
-Respond with a YAML block containing your findings:
+Respond with a YAML block containing your findings.
+
+IMPORTANT: Always single-quote all string values. Do NOT use double-quoted strings — they cause parse errors with backslashes like \d, \w, \s. For multiline values, use ` + "`|`" + ` block scalars. If a value contains a single quote, escape it by doubling: ` + "`''`" + `.
 
 ` + "```yaml" + `
 REVIEW_RESULT:
   issues:
-    - file: "path/to/file.go"
+    - file: 'path/to/file.go'
       line: 42
-      severity: high  # critical, high, medium, low, info
-      category: "error handling"
-      description: "Error is ignored without logging"
-      suggestion: "Add error logging or return the error"
-  summary: "Brief summary of findings"
+      severity: 'high'  # critical, high, medium, low, info
+      category: 'error handling'
+      description: 'Error is ignored without logging'
+      suggestion: 'Add error logging or return the error'
+  summary: 'Brief summary of findings'
 ` + "```" + `
 
 If no issues found:
 ` + "```yaml" + `
 REVIEW_RESULT:
   issues: []
-  summary: "No issues found"
+  summary: 'No issues found'
 ` + "```")
 
 	return b.String()
