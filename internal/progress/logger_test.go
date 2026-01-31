@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/worksonmyai/programmator/internal/protocol"
 )
 
 func TestNewLogger(t *testing.T) {
@@ -16,7 +18,7 @@ func TestNewLogger(t *testing.T) {
 	logger, err := NewLogger(Config{
 		LogsDir:    tmpDir,
 		SourceID:   "test-ticket-123",
-		SourceType: "ticket",
+		SourceType: protocol.SourceTypeTicket,
 		WorkDir:    "/tmp/test",
 	})
 	require.NoError(t, err)
@@ -31,7 +33,7 @@ func TestNewLogger(t *testing.T) {
 	// Write some logs
 	logger.Printf("Test message %d", 1)
 	logger.Iteration(1, 5, "Phase 1")
-	logger.Status("CONTINUE", "Working on it", []string{"file1.go", "file2.go"})
+	logger.Status(protocol.StatusContinue.String(), "Working on it", []string{"file1.go", "file2.go"})
 	logger.PhaseComplete("Phase 1")
 	logger.Errorf("Test error: %s", "something went wrong")
 	logger.ReviewStart(1, 3)

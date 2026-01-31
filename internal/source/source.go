@@ -3,72 +3,70 @@
 // as the source of work items and phases.
 package source
 
-// Phase represents a single phase or task in a work item.
-type Phase struct {
-	Name      string
-	Completed bool
+import (
+	"errors"
+
+	"github.com/worksonmyai/programmator/internal/domain"
+	"github.com/worksonmyai/programmator/internal/protocol"
+)
+
+// Re-export source type constants for use by source implementations.
+const (
+	TypePlan   = protocol.SourceTypePlan
+	TypeTicket = protocol.SourceTypeTicket
+)
+
+// Sentinel errors returned by source implementations.
+var (
+	// ErrNotFound is returned when a work item, phase, or task cannot be found.
+	ErrNotFound = errors.New("not found")
+	// ErrAlreadyComplete is returned when a phase or task is already marked complete.
+	ErrAlreadyComplete = errors.New("already complete")
+)
+
+// --- Capability interfaces ---
+
+// Reader retrieves a work item by identifier.
+type Reader interface {
+	Get(id string) (*domain.WorkItem, error)
 }
 
-// WorkItem represents a ticket or plan that programmator operates on.
-type WorkItem struct {
-	// ID is a unique identifier (ticket ID or plan filename).
-	ID string
-	// Title is the human-readable title of the work item.
-	Title string
-	// Status is the current status (e.g., "open", "in_progress", "closed").
-	Status string
-	// Phases are the checkboxed items to complete.
-	Phases []Phase
-	// RawContent is the full content of the source file.
-	RawContent string
-	// ValidationCommands are commands to run after each phase (plan files only).
-	ValidationCommands []string
+// PhaseUpdater marks a phase as completed.
+type PhaseUpdater interface {
+	UpdatePhase(id, phaseName string) error
 }
 
-// CurrentPhase returns the first incomplete phase, or nil if all are complete.
-func (w *WorkItem) CurrentPhase() *Phase {
-	for i := range w.Phases {
-		if !w.Phases[i].Completed {
-			return &w.Phases[i]
-		}
-	}
-	return nil
+// StatusUpdater updates the work item's status (e.g. open, in_progress, closed).
+type StatusUpdater interface {
+	SetStatus(id, status string) error
 }
 
-// AllPhasesComplete returns true if all phases are completed.
-func (w *WorkItem) AllPhasesComplete() bool {
-	for _, p := range w.Phases {
-		if !p.Completed {
-			return false
-		}
-	}
-	return len(w.Phases) > 0
+// Noter adds a progress note to the work item.
+type Noter interface {
+	AddNote(id, note string) error
 }
 
-// HasPhases returns true if the work item has any phases defined.
-// This is used to distinguish between phased and phaseless execution modes.
-func (w *WorkItem) HasPhases() bool {
-	return len(w.Phases) > 0
+// TypeProvider returns the source type string (e.g. "ticket" or "plan").
+type TypeProvider interface {
+	Type() string
+}
+
+// Mover can relocate a work item to a destination directory.
+// Only plan sources support this.
+type Mover interface {
+	// FilePath returns the current path of the source file.
+	FilePath() string
+	// MoveTo moves the source file to destDir and returns the new path.
+	MoveTo(destDir string) (string, error)
 }
 
 // Source is the common interface for ticket and plan sources.
-// It provides methods to get, update, and manage work items.
+// It composes the core capability interfaces. Implementations may
+// additionally satisfy Mover for plan-file relocation.
 type Source interface {
-	// Get retrieves a work item by its identifier.
-	// For tickets, this is the ticket ID; for plans, this is the file path.
-	Get(id string) (*WorkItem, error)
-
-	// UpdatePhase marks a phase as completed.
-	UpdatePhase(id, phaseName string) error
-
-	// AddNote adds a progress note to the work item.
-	// For tickets, this uses the ticket CLI; for plans, this may be a no-op or append to the file.
-	AddNote(id, note string) error
-
-	// SetStatus updates the work item's status.
-	// For tickets, this uses the ticket CLI; for plans, this may be a no-op.
-	SetStatus(id, status string) error
-
-	// Type returns the type of source ("ticket" or "plan").
-	Type() string
+	Reader
+	PhaseUpdater
+	StatusUpdater
+	Noter
+	TypeProvider
 }

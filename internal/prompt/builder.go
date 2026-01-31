@@ -5,10 +5,12 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"sync"
 	"text/template"
 
 	"github.com/worksonmyai/programmator/internal/config"
-	"github.com/worksonmyai/programmator/internal/source"
+	"github.com/worksonmyai/programmator/internal/domain"
+	"github.com/worksonmyai/programmator/internal/protocol"
 )
 
 // Builder creates prompts using customizable templates.
@@ -92,7 +94,7 @@ type PlanCreateData struct {
 }
 
 // Build creates a prompt from a work item and optional progress notes.
-func (b *Builder) Build(w *source.WorkItem, notes []string) (string, error) {
+func (b *Builder) Build(w *domain.WorkItem, notes []string) (string, error) {
 	data := Data{
 		ID:         w.ID,
 		Title:      w.Title,
@@ -112,7 +114,7 @@ func (b *Builder) Build(w *source.WorkItem, notes []string) (string, error) {
 		data.CurrentPhaseName = currentPhase.Name
 	} else {
 		data.CurrentPhase = "All phases complete"
-		data.CurrentPhaseName = "null"
+		data.CurrentPhaseName = protocol.NullPhase
 	}
 
 	return b.render(b.phasedTmpl, data)
@@ -195,7 +197,7 @@ func formatFilesList(files []string) string {
 }
 
 // BuildPhaseList creates a formatted list of phases with checkboxes.
-func BuildPhaseList(phases []source.Phase) string {
+func BuildPhaseList(phases []domain.Phase) string {
 	lines := make([]string, 0, len(phases))
 	for _, p := range phases {
 		checkbox := "[ ]"
@@ -207,20 +209,25 @@ func BuildPhaseList(phases []source.Phase) string {
 	return strings.Join(lines, "\n")
 }
 
-// DefaultBuilder is a package-level builder using embedded defaults.
-// It is lazily initialized on first use.
-var defaultBuilder *Builder
+// defaultBuilder is a package-level builder using embedded defaults.
+// It is lazily initialized on first use via defaultBuilderOnce.
+var (
+	defaultBuilder     *Builder
+	defaultBuilderOnce sync.Once
+)
 
 // Build creates a prompt using the default builder (embedded templates).
 // This is a convenience function for backward compatibility.
-func Build(w *source.WorkItem, notes []string) string {
-	if defaultBuilder == nil {
+func Build(w *domain.WorkItem, notes []string) string {
+	defaultBuilderOnce.Do(func() {
 		var err error
 		defaultBuilder, err = NewBuilder(nil)
 		if err != nil {
-			// Fall back to simple format if templates fail
-			return fmt.Sprintf("Work item %s: %s\n\n%s", w.ID, w.Title, w.RawContent)
+			defaultBuilder = nil
 		}
+	})
+	if defaultBuilder == nil {
+		return fmt.Sprintf("Work item %s: %s\n\n%s", w.ID, w.Title, w.RawContent)
 	}
 	result, err := defaultBuilder.Build(w, notes)
 	if err != nil {

@@ -8,21 +8,12 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/worksonmyai/programmator/internal/protocol"
 )
 
-type Status string
-
-const (
-	StatusContinue   Status = "CONTINUE"
-	StatusDone       Status = "DONE"
-	StatusBlocked    Status = "BLOCKED"
-	StatusReviewPass Status = "REVIEW_PASS"
-	StatusReviewFail Status = "REVIEW_FAIL"
-)
-
-func (s Status) String() string {
-	return string(s)
-}
+// Status is an alias for protocol.Status.
+type Status = protocol.Status
 
 type ParsedStatus struct {
 	PhaseCompleted string   `yaml:"phase_completed"`
@@ -38,19 +29,14 @@ func (p *ParsedStatus) IsValid() bool {
 	if p == nil {
 		return false
 	}
-	switch p.Status {
-	case StatusContinue, StatusDone, StatusBlocked, StatusReviewPass, StatusReviewFail:
-		return true
-	default:
-		return false
-	}
+	return p.Status.IsValid()
 }
 
 // statusBlockRegex matches PROGRAMMATOR_STATUS: blocks in Claude output.
 // It handles both cases:
 // 1. Status block followed by closing backticks (```)
 // 2. Status block at end of output with no closing backticks
-var statusBlockRegex = regexp.MustCompile(`(?s)PROGRAMMATOR_STATUS:\s*\n(.*?)(?:\n\s*\x60{3}|$)`)
+var statusBlockRegex = regexp.MustCompile(`(?s)` + protocol.StatusBlockKey + `:\s*\n(.*?)(?:\n\s*\x60{3}|$)`)
 
 // Parse extracts and parses a PROGRAMMATOR_STATUS block from Claude output.
 // Returns nil, nil if no status block is found.
@@ -61,7 +47,7 @@ func Parse(output string) (*ParsedStatus, error) {
 		return nil, nil
 	}
 
-	yamlContent := "PROGRAMMATOR_STATUS:\n" + match[1]
+	yamlContent := protocol.StatusBlockKey + ":\n" + match[1]
 	yamlContent = strings.TrimRight(yamlContent, "`\n ")
 
 	var wrapper struct {
@@ -85,19 +71,11 @@ func ParseDirect(output string) (*ParsedStatus, error) {
 	return &status, nil
 }
 
-// Signal constants for plan creation control.
-// Using <<<PROGRAMMATOR:...>>> format for clear detection.
-const (
-	SignalQuestion  = "<<<PROGRAMMATOR:QUESTION>>>"
-	SignalPlanReady = "<<<PROGRAMMATOR:PLAN_READY>>>"
-	SignalEnd       = "<<<PROGRAMMATOR:END>>>"
-)
-
 // questionSignalRe matches the QUESTION signal block with JSON payload.
-var questionSignalRe = regexp.MustCompile(`<<<PROGRAMMATOR:QUESTION>>>\s*([\s\S]*?)\s*<<<PROGRAMMATOR:END>>>`)
+var questionSignalRe = regexp.MustCompile(regexp.QuoteMeta(protocol.SignalQuestion) + `\s*([\s\S]*?)\s*` + regexp.QuoteMeta(protocol.SignalEnd))
 
 // planReadySignalRe matches the PLAN_READY signal block with the plan content.
-var planReadySignalRe = regexp.MustCompile(`<<<PROGRAMMATOR:PLAN_READY>>>\s*([\s\S]*?)\s*<<<PROGRAMMATOR:END>>>`)
+var planReadySignalRe = regexp.MustCompile(regexp.QuoteMeta(protocol.SignalPlanReady) + `\s*([\s\S]*?)\s*` + regexp.QuoteMeta(protocol.SignalEnd))
 
 // QuestionPayload represents a question signal from Claude during plan creation.
 type QuestionPayload struct {
@@ -116,12 +94,10 @@ var ErrNoPlanReadySignal = errors.New("no plan ready signal found")
 // Returns ErrNoQuestionSignal if no question signal is found.
 // Returns other error if signal is found but JSON is malformed.
 func ParseQuestionPayload(output string) (*QuestionPayload, error) {
-	// Check if output contains the question signal at all
-	if !strings.Contains(output, SignalQuestion) {
+	if !strings.Contains(output, protocol.SignalQuestion) {
 		return nil, ErrNoQuestionSignal
 	}
 
-	// Extract the JSON payload between QUESTION and END markers
 	matches := questionSignalRe.FindStringSubmatch(output)
 	if len(matches) < 2 {
 		return nil, errors.New("malformed question signal: missing END marker or empty payload")
@@ -137,7 +113,6 @@ func ParseQuestionPayload(output string) (*QuestionPayload, error) {
 		return nil, errors.New("malformed question signal: invalid JSON: " + err.Error())
 	}
 
-	// Validate required fields
 	if payload.Question == "" {
 		return nil, errors.New("malformed question signal: missing question field")
 	}
@@ -150,18 +125,18 @@ func ParseQuestionPayload(output string) (*QuestionPayload, error) {
 
 // HasQuestionSignal checks if output contains a question signal.
 func HasQuestionSignal(output string) bool {
-	return strings.Contains(output, SignalQuestion)
+	return strings.Contains(output, protocol.SignalQuestion)
 }
 
 // HasPlanReadySignal checks if output contains a plan ready signal.
 func HasPlanReadySignal(output string) bool {
-	return strings.Contains(output, SignalPlanReady)
+	return strings.Contains(output, protocol.SignalPlanReady)
 }
 
 // ParsePlanContent extracts the plan content from a PLAN_READY signal.
 // Returns ErrNoPlanReadySignal if no plan ready signal is found.
 func ParsePlanContent(output string) (string, error) {
-	if !strings.Contains(output, SignalPlanReady) {
+	if !strings.Contains(output, protocol.SignalPlanReady) {
 		return "", ErrNoPlanReadySignal
 	}
 

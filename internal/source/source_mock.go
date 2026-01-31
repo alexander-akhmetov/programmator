@@ -1,12 +1,16 @@
 package source
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/worksonmyai/programmator/internal/domain"
+)
 
 // MockSource implements the Source interface for testing.
 type MockSource struct {
 	mu sync.Mutex
 
-	GetFunc         func(id string) (*WorkItem, error)
+	GetFunc         func(id string) (*domain.WorkItem, error)
 	UpdatePhaseFunc func(id, phaseName string) error
 	AddNoteFunc     func(id, note string) error
 	SetStatusFunc   func(id, status string) error
@@ -31,7 +35,7 @@ func NewMockSource() *MockSource {
 }
 
 // Get retrieves a work item by ID.
-func (m *MockSource) Get(id string) (*WorkItem, error) {
+func (m *MockSource) Get(id string) (*domain.WorkItem, error) {
 	m.mu.Lock()
 	m.GetCalls = append(m.GetCalls, id)
 	m.mu.Unlock()
@@ -39,7 +43,7 @@ func (m *MockSource) Get(id string) (*WorkItem, error) {
 	if m.GetFunc != nil {
 		return m.GetFunc(id)
 	}
-	return &WorkItem{ID: id}, nil
+	return &domain.WorkItem{ID: id}, nil
 }
 
 // UpdatePhase marks a phase as completed.
@@ -80,8 +84,12 @@ func (m *MockSource) SetStatus(id, status string) error {
 
 // Type returns the type of source.
 func (m *MockSource) Type() string {
-	if m.TypeFunc != nil {
-		return m.TypeFunc()
+	m.mu.Lock()
+	f := m.TypeFunc
+	m.mu.Unlock()
+
+	if f != nil {
+		return f()
 	}
 	return "mock"
 }

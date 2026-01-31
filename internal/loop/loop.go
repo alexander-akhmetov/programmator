@@ -2,13 +2,8 @@
 package loop
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -18,11 +13,15 @@ import (
 
 	"github.com/aymanbagabas/go-udiff"
 
-	"github.com/worksonmyai/programmator/internal/debug"
+	"github.com/worksonmyai/programmator/internal/domain"
+	"github.com/worksonmyai/programmator/internal/engine"
+	"github.com/worksonmyai/programmator/internal/event"
 	gitutil "github.com/worksonmyai/programmator/internal/git"
+	"github.com/worksonmyai/programmator/internal/llm"
 	"github.com/worksonmyai/programmator/internal/parser"
 	"github.com/worksonmyai/programmator/internal/progress"
 	"github.com/worksonmyai/programmator/internal/prompt"
+	"github.com/worksonmyai/programmator/internal/protocol"
 	"github.com/worksonmyai/programmator/internal/review"
 	"github.com/worksonmyai/programmator/internal/safety"
 	"github.com/worksonmyai/programmator/internal/source"
@@ -40,8 +39,15 @@ type Result struct {
 }
 
 type OutputCallback func(text string)
-type StateCallback func(state *safety.State, workItem *source.WorkItem, filesChanged []string)
+type StateCallback func(state *safety.State, workItem *domain.WorkItem, filesChanged []string)
 type ProcessStatsCallback func(pid int, memoryKB int64)
+
+// EventCallback receives typed events from the loop and review runner.
+// When set, the loop emits structured events instead of marker-prefixed strings.
+type EventCallback func(event.Event)
+
+// ClaudeInvoker is the legacy function-based invoker type, kept for test
+// compatibility. Prefer using llm.Invoker for new code.
 type ClaudeInvoker func(ctx context.Context, promptText string) (string, error)
 
 // GitWorkflowConfig holds configuration for automatic git operations.
@@ -57,12 +63,14 @@ type Loop struct {
 	config               safety.Config
 	workingDir           string
 	onOutput             OutputCallback
+	onEvent              EventCallback
 	onStateChange        StateCallback
 	onProcessStats       ProcessStatsCallback
 	streaming            bool
 	cancelFunc           context.CancelFunc
 	source               source.Source
-	claudeInvoker        ClaudeInvoker
+	claudeInvoker        ClaudeInvoker // legacy function invoker (tests)
+	invoker              llm.Invoker   // preferred interface-based invoker
 	permissionSocketPath string
 	guardMode            bool
 
@@ -72,19 +80,16 @@ type Loop struct {
 	pauseCond     *sync.Cond
 
 	currentState    *safety.State
-	currentWorkItem *source.WorkItem
+	currentWorkItem *domain.WorkItem
+
+	// Engine for pure decision logic.
+	engine engine.Engine
 
 	// Review configuration
 	reviewConfig     review.Config
 	reviewOnly       bool
-	reviewPassed     bool
 	reviewRunner     *review.Runner
-	pendingReviewFix bool   // true when Claude needs to fix review issues before next review
 	lastReviewIssues string // formatted issues from last review for Claude to fix
-
-	// Multi-phase review state
-	currentPhaseIdx  int // index into reviewConfig.Phases
-	currentPhaseIter int // iterations spent on current phase
 
 	// Prompt builder (uses customizable templates)
 	promptBuilder *prompt.Builder
@@ -118,6 +123,9 @@ func NewWithSource(config safety.Config, workingDir string, onOutput OutputCallb
 		streaming:     streaming,
 		source:        src,
 		reviewConfig:  review.ConfigFromEnv(),
+		engine: engine.Engine{
+			SafetyConfig: config,
+		},
 	}
 	l.pauseCond = sync.NewCond(&l.mu)
 	return l
@@ -126,11 +134,19 @@ func NewWithSource(config safety.Config, workingDir string, onOutput OutputCallb
 // SetReviewConfig sets the review configuration.
 func (l *Loop) SetReviewConfig(cfg review.Config) {
 	l.reviewConfig = cfg
+	l.engine.ReviewPhaseCount = len(cfg.Phases)
+	l.engine.PhaseMaxIterFunc = func(phaseIdx int) int {
+		if phaseIdx < len(cfg.Phases) {
+			return cfg.Phases[phaseIdx].MaxIterations(cfg.MaxIterations)
+		}
+		return 0
+	}
 }
 
 // SetReviewOnly enables review-only mode (skips task phases).
 func (l *Loop) SetReviewOnly(reviewOnly bool) {
 	l.reviewOnly = reviewOnly
+	l.engine.ReviewOnly = reviewOnly
 }
 
 // SetPromptBuilder sets a custom prompt builder (for customizable templates).
@@ -214,8 +230,8 @@ func (l *Loop) moveCompletedPlan(rc *runContext) error {
 		return nil
 	}
 
-	// Only move plan files, not tickets
-	planSource, ok := rc.source.(*source.PlanSource)
+	// Only move sources that implement Mover (e.g. plan files, not tickets)
+	mover, ok := rc.source.(source.Mover)
 	if !ok {
 		return nil
 	}
@@ -231,10 +247,10 @@ func (l *Loop) moveCompletedPlan(rc *runContext) error {
 	}
 
 	// Capture original path before move for staging the deletion
-	origPath := planSource.FilePath()
+	origPath := mover.FilePath()
 
 	// Move the plan
-	newPath, err := planSource.MoveTo(destDir)
+	newPath, err := mover.MoveTo(destDir)
 	if err != nil {
 		return fmt.Errorf("move plan: %w", err)
 	}
@@ -290,7 +306,7 @@ type runContext struct {
 	result             *Result
 	progressNotes      []string
 	filesChangedSet    map[string]struct{}
-	workItem           *source.WorkItem
+	workItem           *domain.WorkItem
 	iterationSummaries []string // Track summaries for each iteration
 	taskCompleted      bool     // Claude reported DONE for the task
 }
@@ -302,15 +318,18 @@ func (l *Loop) checkStopRequested(rc *runContext) loopAction {
 	for l.paused && !l.stopRequested {
 		l.pauseCond.Wait()
 	}
-	if l.stopRequested {
-		l.mu.Unlock()
+	stopped := l.stopRequested
+	l.mu.Unlock()
+
+	if stopped {
 		l.log("Stop requested by user")
-		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: Stopped by user after %d iterations", rc.state.Iteration))
+		if err := rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: Stopped by user after %d iterations", rc.state.Iteration)); err != nil {
+			l.logErrorf("failed to add stop note: %v", err)
+		}
 		rc.result.ExitReason = safety.ExitReasonUserInterrupt
 		rc.result.Iterations = rc.state.Iteration
 		return loopReturn
 	}
-	l.mu.Unlock()
 	return loopContinue
 }
 
@@ -337,72 +356,71 @@ func (l *Loop) handleAllPhasesComplete(rc *runContext) loopAction {
 	}
 
 	// If we have pending review fixes, invoke Claude to fix them
-	if l.pendingReviewFix {
+	if l.engine.PendingReviewFix {
 		l.log("Pending review fixes - invoking Claude to fix issues")
 		return loopBreakToClaudeInvocation
 	}
 
 	// Check if we should run review
-	if !l.reviewPassed {
-		return l.handleReviewPhase(rc)
+	if !l.engine.ReviewPassed {
+		return l.handleMultiPhaseReview(rc)
 	}
 
 	// No review needed or already passed
 	return l.completeAllPhases(rc)
 }
 
-// handleReviewPhase handles the review phase when all tasks are complete.
-func (l *Loop) handleReviewPhase(rc *runContext) loopAction {
-	return l.handleMultiPhaseReview(rc)
-}
-
-// handleMultiPhaseReview handles the new multi-phase review system.
+// handleMultiPhaseReview handles the multi-phase review system.
+// It runs the review, then uses the engine to decide next steps.
 func (l *Loop) handleMultiPhaseReview(rc *runContext) loopAction {
 	phases := l.reviewConfig.Phases
 
 	if len(phases) == 0 {
 		err := fmt.Errorf("review enabled but no review phases configured (review.phases)")
 		l.log(err.Error())
-		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("error: %s", err.Error()))
+		l.addNote(rc, fmt.Sprintf("error: %s", err.Error()))
 		rc.result.ExitReason = safety.ExitReasonError
 		rc.result.ExitMessage = err.Error()
 		return loopReturn
 	}
 
 	// Check if all phases are done
-	if l.currentPhaseIdx >= len(phases) {
-		l.reviewPassed = true
+	if l.engine.CurrentPhaseIdx >= len(phases) {
+		l.engine.ReviewPassed = true
 		l.log("All review phases passed!")
-		_ = rc.source.AddNote(rc.workItemID, "progress: All review phases passed")
+		l.addNote(rc, "progress: All review phases passed")
 		return l.completeAllPhases(rc)
 	}
 
-	currentPhase := phases[l.currentPhaseIdx]
+	currentPhase := phases[l.engine.CurrentPhaseIdx]
 	phaseMaxIter := currentPhase.MaxIterations(l.reviewConfig.MaxIterations)
 
 	l.log(fmt.Sprintf("Review phase %d/%d: %s (iter %d/%d)",
-		l.currentPhaseIdx+1, len(phases), currentPhase.Name,
-		l.currentPhaseIter+1, phaseMaxIter+1))
+		l.engine.CurrentPhaseIdx+1, len(phases), currentPhase.Name,
+		l.engine.CurrentPhaseIter+1, phaseMaxIter+1))
 
-	// Run the current phase's agents
-	l.logReviewStart(l.currentPhaseIter+1, phaseMaxIter+1)
+	// Run the current phase's agents (I/O)
+	l.logReviewStart(l.engine.CurrentPhaseIter+1, phaseMaxIter+1)
 	rc.state.EnterReviewPhase()
 	if l.reviewRunner == nil {
 		l.applySettingsToReviewConfig()
 		l.applyReviewContext(rc.workItem)
 		var outputCallback review.OutputCallback
-		if l.onOutput != nil {
+		if l.onOutput != nil && l.onEvent == nil {
 			outputCallback = func(text string) {
 				l.onOutput(text)
 			}
 		}
 		l.reviewRunner = review.NewRunner(l.reviewConfig, outputCallback)
+		if l.onEvent != nil {
+			l.reviewRunner.SetEventCallback(event.Handler(l.onEvent))
+		}
 	}
 
 	reviewResult, err := l.reviewRunner.RunPhase(rc.ctx, l.workingDir, rc.result.TotalFilesChanged, currentPhase)
 	if err != nil {
 		l.log(fmt.Sprintf("Review phase error: %v", err))
-		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("error: Review phase %s failed: %v", currentPhase.Name, err))
+		l.addNote(rc, fmt.Sprintf("error: Review phase %s failed: %v", currentPhase.Name, err))
 		rc.result.ExitReason = safety.ExitReasonError
 		rc.result.Iterations = rc.state.Iteration
 		return loopReturn
@@ -416,16 +434,27 @@ func (l *Loop) handleMultiPhaseReview(rc *runContext) loopAction {
 	rc.state.RecordReviewIteration()
 	l.logReviewResult(reviewResult.Passed, reviewResult.TotalIssues)
 
-	// Check if phase passed
-	if reviewResult.Passed {
-		l.log(fmt.Sprintf("Review phase %s passed - no issues found", currentPhase.Name))
-		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: Review phase %s passed", currentPhase.Name))
+	// Use engine to decide what to do next
+	decision := l.engine.DecideReview(reviewResult.Passed)
 
-		// Advance to next phase
-		l.currentPhaseIdx++
-		l.currentPhaseIter = 0
+	if decision.ExitError != "" {
+		l.log(decision.ExitError)
+		l.addNote(rc, fmt.Sprintf("error: %s", decision.ExitError))
+		rc.result.ExitReason = safety.ExitReasonError
+		rc.result.ExitMessage = decision.ExitError
+		return loopReturn
+	}
+
+	if decision.PhasePassed {
+		l.log(fmt.Sprintf("Review phase %s passed - no issues found", currentPhase.Name))
+		l.addNote(rc, fmt.Sprintf("progress: Review phase %s passed", currentPhase.Name))
 		rc.state.ExitReviewPhase()
 
+		if decision.AllPhasesDone {
+			l.log("All review phases passed!")
+			l.addNote(rc, "progress: All review phases passed")
+			return l.completeAllPhases(rc)
+		}
 		// Continue to check next phase
 		return l.handleMultiPhaseReview(rc)
 	}
@@ -433,27 +462,26 @@ func (l *Loop) handleMultiPhaseReview(rc *runContext) loopAction {
 	// Phase found issues
 	l.log(fmt.Sprintf("Review phase %s found %d issues", currentPhase.Name, reviewResult.TotalIssues))
 	issueNote := review.FormatIssuesMarkdown(reviewResult.Results)
-	_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("review: [phase %s, iter %d] Found %d issues:\n%s",
-		currentPhase.Name, l.currentPhaseIter+1, reviewResult.TotalIssues, issueNote))
+	l.addNote(rc, fmt.Sprintf("review: [phase %s, iter %d] Found %d issues:\n%s",
+		currentPhase.Name, l.engine.CurrentPhaseIter, reviewResult.TotalIssues, issueNote))
 
-	// Set pending fix flag so next iteration invokes Claude to fix the issues
-	l.currentPhaseIter++
-	l.pendingReviewFix = true
 	l.lastReviewIssues = issueNote
 
-	// Check if we've exceeded phase iteration limit (after setting pending fix,
-	// so iteration_limit:1 means: run review, give Claude one fix attempt, then abort)
-	if l.currentPhaseIter > phaseMaxIter {
+	if decision.ExceededLimit {
 		l.log(fmt.Sprintf("Review phase %s exceeded max iterations (%d) - moving to next phase", currentPhase.Name, phaseMaxIter))
-		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("warning: Review phase %s exceeded max iterations with %d issues remaining - moving on",
+		l.addNote(rc, fmt.Sprintf("warning: Review phase %s exceeded max iterations with %d issues remaining - moving on",
 			currentPhase.Name, reviewResult.TotalIssues))
-		l.currentPhaseIdx++
-		l.currentPhaseIter = 0
 		rc.state.ExitReviewPhase()
+
+		if decision.AllPhasesDone {
+			return l.completeAllPhases(rc)
+		}
 		return l.handleMultiPhaseReview(rc)
 	}
+
+	// NeedsFix: invoke Claude to fix issues
 	rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[phase %s, iter %d] Review found %d issues - please fix them:\n%s",
-		currentPhase.Name, l.currentPhaseIter, reviewResult.TotalIssues, issueNote))
+		currentPhase.Name, l.engine.CurrentPhaseIter, reviewResult.TotalIssues, issueNote))
 
 	return loopBreakToClaudeInvocation
 }
@@ -461,8 +489,12 @@ func (l *Loop) handleMultiPhaseReview(rc *runContext) loopAction {
 // completeAllPhases marks the work item as complete and returns.
 func (l *Loop) completeAllPhases(rc *runContext) loopAction {
 	l.log("All phases complete!")
-	_ = rc.source.SetStatus(rc.workItemID, "closed")
-	_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: Completed all phases in %d iterations", rc.state.Iteration))
+	if err := rc.source.SetStatus(rc.workItemID, protocol.WorkItemClosed); err != nil {
+		l.logErrorf("failed to set status to closed: %v", err)
+	}
+	if err := rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: Completed all phases in %d iterations", rc.state.Iteration)); err != nil {
+		l.logErrorf("failed to add completion note: %v", err)
+	}
 
 	// Move completed plan if configured
 	if err := l.moveCompletedPlan(rc); err != nil {
@@ -487,19 +519,20 @@ func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) 
 	l.trackFilesChanged(rc, status)
 
 	// Track iteration summary for stagnation debugging
-	iterSummary := fmt.Sprintf("[iter %d] %s", rc.state.Iteration, status.Summary)
-	if len(status.FilesChanged) > 0 {
-		iterSummary += fmt.Sprintf(" (files: %s)", strings.Join(status.FilesChanged, ", "))
-	} else {
-		iterSummary += " (no files changed)"
-	}
-	rc.iterationSummaries = append(rc.iterationSummaries, iterSummary)
+	rc.iterationSummaries = append(rc.iterationSummaries,
+		engine.FormatIterationSummary(rc.state.Iteration, status.Summary, status.FilesChanged))
 
 	rc.state.RecordIteration(status.FilesChanged, status.Error)
 
-	// Reset pending review fix flag - Claude has attempted to fix the issues
-	if l.pendingReviewFix {
-		l.pendingReviewFix = false
+	// Use engine to process status
+	result := l.engine.ProcessStatus(engine.ProcessStatusInput{
+		Status:           status,
+		Iteration:        rc.state.Iteration,
+		PendingReviewFix: l.engine.PendingReviewFix,
+	})
+
+	if result.ResetPendingReviewFix {
+		l.engine.PendingReviewFix = false
 		l.lastReviewIssues = ""
 	}
 
@@ -507,19 +540,19 @@ func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) 
 		l.onStateChange(rc.state, rc.workItem, rc.result.TotalFilesChanged)
 	}
 
-	if status.Status == parser.StatusDone {
+	if result.TaskCompleted {
 		l.log("Claude reported DONE")
 		rc.taskCompleted = true
 		if !rc.state.InReviewPhase {
-			_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: Task marked complete in %d iterations", rc.state.Iteration))
+			l.addNote(rc, fmt.Sprintf("progress: Task marked complete in %d iterations", rc.state.Iteration))
 		}
 		return loopContinue
 	}
 
-	if status.Status == parser.StatusBlocked {
-		l.log(fmt.Sprintf("Claude reported BLOCKED: %s", status.Error))
-		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("error: [iter %d] BLOCKED: %s", rc.state.Iteration, status.Error))
-		rc.result.ExitReason = safety.ExitReasonBlocked
+	if result.ShouldExit {
+		l.log(fmt.Sprintf("Claude reported BLOCKED: %s", result.BlockedError))
+		l.addNote(rc, fmt.Sprintf("error: [iter %d] BLOCKED: %s", rc.state.Iteration, result.BlockedError))
+		rc.result.ExitReason = result.ExitReason
 		rc.result.Iterations = rc.state.Iteration
 		return loopReturn
 	}
@@ -537,7 +570,7 @@ func (l *Loop) recordPhaseProgress(rc *runContext, status *parser.ParsedStatus) 
 			l.logErrorf("failed to update phase '%s': %v", status.PhaseCompleted, err)
 		}
 		rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[iter %d] Completed: %s", rc.state.Iteration, status.PhaseCompleted))
-		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: [iter %d] Completed %s", rc.state.Iteration, status.PhaseCompleted))
+		l.addNote(rc, fmt.Sprintf("progress: [iter %d] Completed %s", rc.state.Iteration, status.PhaseCompleted))
 
 		// Auto-commit after phase completion if enabled
 		if err := l.autoCommitPhase(status.PhaseCompleted, status.FilesChanged); err != nil {
@@ -546,7 +579,7 @@ func (l *Loop) recordPhaseProgress(rc *runContext, status *parser.ParsedStatus) 
 		}
 	} else {
 		rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[iter %d] %s", rc.state.Iteration, status.Summary))
-		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: [iter %d] %s", rc.state.Iteration, status.Summary))
+		l.addNote(rc, fmt.Sprintf("progress: [iter %d] %s", rc.state.Iteration, status.Summary))
 	}
 }
 
@@ -598,10 +631,22 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 
 	l.log(fmt.Sprintf("Starting on %s %s: %s", src.Type(), workItemID, workItem.Title))
 	l.logProgressf("Starting on %s %s: %s", src.Type(), workItemID, workItem.Title)
-	_ = src.SetStatus(workItemID, "in_progress")
+
+	// Validate review config before changing ticket state
+	if len(l.reviewConfig.Phases) == 0 {
+		err := fmt.Errorf("review enabled but no review phases configured (review.phases)")
+		l.log(err.Error())
+		result.ExitReason = safety.ExitReasonError
+		result.ExitMessage = err.Error()
+		return result, err
+	}
+
+	if err := src.SetStatus(workItemID, protocol.WorkItemInProgress); err != nil {
+		l.logErrorf("failed to set status to in-progress: %v", err)
+	}
 
 	// Set up git repo and optionally create branch
-	if err := l.setupGitWorkflow(workItemID, src.Type() == "plan"); err != nil {
+	if err := l.setupGitWorkflow(workItemID, src.Type() == protocol.SourceTypePlan); err != nil {
 		l.log(fmt.Sprintf("Warning: git workflow setup failed: %v", err))
 		l.logErrorf("git workflow setup failed: %v", err)
 	}
@@ -615,15 +660,6 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 		progressNotes:   nil,
 		filesChangedSet: make(map[string]struct{}),
 		workItem:        workItem,
-	}
-
-	if len(l.reviewConfig.Phases) == 0 {
-		err := fmt.Errorf("review enabled but no review phases configured (review.phases)")
-		l.log(err.Error())
-		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("error: %s", err.Error()))
-		rc.result.ExitReason = safety.ExitReasonError
-		rc.result.ExitMessage = err.Error()
-		return rc.result, err
 	}
 
 	if l.onStateChange != nil {
@@ -656,7 +692,7 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 		checkResult := safety.Check(l.config, rc.state)
 		if checkResult.ShouldExit {
 			l.log(fmt.Sprintf("Safety exit: %s", checkResult.Reason))
-			_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("error: Safety exit after %d iters: %s", rc.state.Iteration, checkResult.Reason))
+			l.addNote(rc, fmt.Sprintf("error: Safety exit after %d iters: %s", rc.state.Iteration, checkResult.Reason))
 			rc.result.ExitReason = checkResult.Reason
 			rc.result.ExitMessage = checkResult.Message
 			rc.result.Iterations = rc.state.Iteration
@@ -675,10 +711,10 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 		l.logIteration(rc.state.Iteration, l.config.MaxIterations, phaseName)
 
 		var promptText string
-		if l.pendingReviewFix {
+		if l.engine.PendingReviewFix {
 			// Use review fix prompt with the stored issues so review templates apply
 			var promptErr error
-			promptText, promptErr = l.buildReviewFixPrompt("", rc.result.TotalFilesChanged, l.lastReviewIssues, l.currentPhaseIter)
+			promptText, promptErr = l.buildReviewFixPrompt("", rc.result.TotalFilesChanged, l.lastReviewIssues, l.engine.CurrentPhaseIter)
 			if promptErr != nil {
 				l.log(fmt.Sprintf("Failed to build review fix prompt: %v, falling back to task prompt", promptErr))
 				promptText = prompt.Build(rc.workItem, rc.progressNotes)
@@ -703,6 +739,8 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 
 		l.log("Invoking Claude...")
 
+		// Legacy function invoker (set by tests via SetClaudeInvoker) takes
+		// precedence over the llm.Invoker interface used in production.
 		invoker := l.claudeInvoker
 		if invoker == nil {
 			invoker = l.invokeClaudePrint
@@ -726,7 +764,7 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 		}
 
 		if status == nil {
-			l.log("Warning: No PROGRAMMATOR_STATUS found in output")
+			l.log("Warning: No " + protocol.StatusBlockKey + " found in output")
 			rc.state.RecordIteration(nil, "no_status_block")
 			if l.onStateChange != nil {
 				l.onStateChange(rc.state, rc.workItem, rc.result.TotalFilesChanged)
@@ -741,200 +779,100 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 	}
 }
 
+// invokeClaudePrint invokes Claude via the llm.Invoker interface.
+// It wires loop-specific callbacks (output formatting, token tracking,
+// process stats) into InvokeOptions.
 func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string, error) {
-	args := []string{"--print"}
-
-	if l.config.ClaudeFlags != "" {
-		args = append(args, strings.Fields(l.config.ClaudeFlags)...)
+	inv := l.invoker
+	if inv == nil {
+		inv = llm.NewClaudeInvoker(llm.EnvConfig{
+			ClaudeConfigDir: l.config.ClaudeConfigDir,
+			AnthropicAPIKey: l.config.AnthropicAPIKey,
+		})
 	}
 
-	if l.streaming {
-		args = append(args, "--output-format", "stream-json", "--verbose")
-	}
-
+	settingsJSON := ""
 	if l.permissionSocketPath != "" || l.guardMode {
-		hookSettings := l.buildHookSettings()
-		args = append(args, "--settings", hookSettings)
+		settingsJSON = llm.BuildHookSettings(llm.HookConfig{
+			PermissionSocketPath: l.permissionSocketPath,
+			GuardMode:            l.guardMode,
+		})
 	}
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(l.config.Timeout)*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(timeoutCtx, "claude", args...)
-	if l.workingDir != "" {
-		cmd.Dir = l.workingDir
+	opts := llm.InvokeOptions{
+		WorkingDir:   l.workingDir,
+		Streaming:    l.streaming,
+		ExtraFlags:   l.config.ClaudeFlags,
+		SettingsJSON: settingsJSON,
+		Timeout:      l.config.Timeout,
+		OnOutput: func(text string) {
+			l.emit(event.Markdown(text))
+			if l.onOutput != nil && l.onEvent == nil {
+				l.onOutput(text)
+			}
+		},
+		OnToolUse: func(name string, input any) {
+			l.outputToolUse(name, input)
+		},
+		OnToolResult: func(toolName, result string) {
+			l.handleToolResult(toolName, result)
+		},
+		OnSystemInit: func(model string) {
+			if l.currentState != nil {
+				l.currentState.Model = model
+				l.notifyStateChange()
+			}
+		},
+		OnTokens: func(inputTokens, outputTokens int) {
+			if l.currentState != nil {
+				l.currentState.SetCurrentIterTokens(inputTokens, outputTokens)
+				l.notifyStateChange()
+			}
+		},
+		OnFinalTokens: func(model string, inputTokens, outputTokens int) {
+			if l.currentState != nil {
+				l.currentState.FinalizeIterTokens(model, inputTokens, outputTokens)
+				l.notifyStateChange()
+			}
+		},
 	}
 
-	cmd.Env = buildClaudeEnv(l.config.ClaudeConfigDir, l.config.AnthropicAPIKey)
-
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return "", err
-	}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return "", err
-	}
-
-	var stderrBuf bytes.Buffer
-	cmd.Stderr = &stderrBuf
-
-	if err := cmd.Start(); err != nil {
-		return "", err
-	}
-
-	stopStats := make(chan struct{})
 	if l.onProcessStats != nil {
-		go l.pollProcessStats(cmd.Process.Pid, stopStats)
+		var stopStats chan struct{}
+		opts.OnProcessStart = func(pid int) {
+			stopStats = make(chan struct{})
+			go l.pollProcessStats(pid, stopStats)
+		}
+		opts.OnProcessEnd = func() {
+			if stopStats != nil {
+				close(stopStats)
+			}
+			l.onProcessStats(0, 0) // Signal process ended
+		}
 	}
 
-	go func() {
-		defer stdin.Close()
-		_, _ = io.WriteString(stdin, promptText)
-	}()
-
-	var output string
-	if l.streaming {
-		output = l.processStreamingOutput(stdout)
-	} else {
-		output = l.processTextOutput(stdout)
-	}
-
-	err = cmd.Wait()
-	close(stopStats)
-	if l.onProcessStats != nil {
-		l.onProcessStats(0, 0) // Signal process ended
-	}
+	res, err := inv.Invoke(ctx, promptText, opts)
 	if err != nil {
-		if timeoutCtx.Err() == context.DeadlineExceeded {
-			return timeoutBlockedStatus(), nil
-		}
-		if stderrStr := strings.TrimSpace(stderrBuf.String()); stderrStr != "" {
-			return "", fmt.Errorf("claude exited: %w\nstderr: %s", err, stderrStr)
-		}
-		return "", fmt.Errorf("claude exited: %w", err)
+		return "", err
 	}
-
-	return output, nil
+	return res.Text, nil
 }
 
-func (l *Loop) processTextOutput(stdout io.Reader) string {
-	var output strings.Builder
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text() + "\n"
-		output.WriteString(line)
-		if l.onOutput != nil {
-			l.onOutput(line)
-		}
-	}
-
-	return output.String()
-}
-
-type messageUsage struct {
-	InputTokens              int `json:"input_tokens"`
-	OutputTokens             int `json:"output_tokens"`
-	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-}
-
-func (u messageUsage) TotalInputTokens() int {
-	return u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
-}
-
-type modelUsageStats struct {
-	InputTokens              int `json:"inputTokens"`
-	OutputTokens             int `json:"outputTokens"`
-	CacheCreationInputTokens int `json:"cacheCreationInputTokens"`
-	CacheReadInputTokens     int `json:"cacheReadInputTokens"`
-}
-
-func (u modelUsageStats) TotalInputTokens() int {
-	return u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
-}
-
-type streamEvent struct {
-	Type    string `json:"type"`
-	Subtype string `json:"subtype"`
-	Model   string `json:"model"`
-	Message struct {
-		Model   string `json:"model"`
-		Content []struct {
-			Type  string `json:"type"`
-			Text  string `json:"text"`
-			Name  string `json:"name,omitempty"`  // tool name
-			Input any    `json:"input,omitempty"` // tool input
-			ID    string `json:"id,omitempty"`    // tool use id
-		} `json:"content"`
-		Usage messageUsage `json:"usage"`
-	} `json:"message"`
-	ModelUsage map[string]modelUsageStats `json:"modelUsage"`
-	Result     string                     `json:"result"`
-	ToolName   string                     `json:"tool_name,omitempty"`   // for user events with tool results
-	ToolResult string                     `json:"tool_result,omitempty"` // tool result content
-}
-
-func (l *Loop) processStreamingOutput(stdout io.Reader) string {
-	var fullOutput strings.Builder
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-	processedBlockIDs := make(map[string]bool)
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		var event streamEvent
-		if err := json.Unmarshal([]byte(line), &event); err != nil {
-			debug.Logf("stream: failed to parse JSON: %v (line: %.100s...)", err, line)
-			continue
-		}
-
-		debug.Logf("stream: event type=%s subtype=%s", event.Type, event.Subtype)
-
-		switch event.Type {
-		case "system":
-			l.handleSystemEvent(&event)
-		case "assistant":
-			l.handleAssistantEvent(&event, &fullOutput, processedBlockIDs)
-		case "user":
-			l.handleUserEvent(&event)
-		case "result":
-			l.handleResultEvent(&event, &fullOutput)
-		default:
-			debug.Logf("stream: unhandled event type=%s", event.Type)
-		}
-	}
-
-	return fullOutput.String()
-}
-
-func (l *Loop) handleSystemEvent(event *streamEvent) {
-	if event.Subtype == "init" && event.Model != "" && l.currentState != nil {
-		l.currentState.Model = event.Model
-		l.notifyStateChange()
-	}
-}
-
-func (l *Loop) handleUserEvent(event *streamEvent) {
-	if l.onOutput == nil || event.ToolName == "" {
+func (l *Loop) handleToolResult(toolName, result string) {
+	if (l.onOutput == nil && l.onEvent == nil) || toolName == "" {
 		return
 	}
 
-	// Format tool result summary like Claude Code
-	summary := l.formatToolResultSummary(event.ToolName, event.ToolResult)
+	summary := formatToolResultSummary(toolName, result)
 	if summary != "" {
-		l.onOutput(fmt.Sprintf("[TOOLRES]  ⎿  %s\n", summary))
+		l.emit(event.ToolResult(fmt.Sprintf("  ⎿  %s", summary)))
+		if l.onOutput != nil && l.onEvent == nil {
+			l.onOutput(fmt.Sprintf(protocol.MarkerToolRes+"  ⎿  %s\n", summary))
+		}
 	}
 }
 
-func (l *Loop) formatToolResultSummary(toolName, result string) string {
+func formatToolResultSummary(toolName, result string) string {
 	if result == "" {
 		return ""
 	}
@@ -949,7 +887,6 @@ func (l *Loop) formatToolResultSummary(toolName, result string) string {
 	case "Read":
 		return fmt.Sprintf("Read %d lines", lineCount)
 	case "Glob":
-		// Count non-empty lines as files found
 		fileCount := 0
 		for _, line := range lines {
 			if strings.TrimSpace(line) != "" {
@@ -961,7 +898,6 @@ func (l *Loop) formatToolResultSummary(toolName, result string) string {
 		}
 		return fmt.Sprintf("Found %d files", fileCount)
 	case "Grep":
-		// Count matches
 		matchCount := 0
 		for _, line := range lines {
 			if strings.TrimSpace(line) != "" {
@@ -973,7 +909,6 @@ func (l *Loop) formatToolResultSummary(toolName, result string) string {
 		}
 		return fmt.Sprintf("Found %d matches", matchCount)
 	case "Bash":
-		// Show first line of output or line count
 		if lineCount == 0 {
 			return "(no output)"
 		}
@@ -997,47 +932,8 @@ func (l *Loop) formatToolResultSummary(toolName, result string) string {
 	}
 }
 
-func (l *Loop) handleAssistantEvent(event *streamEvent, fullOutput *strings.Builder, processedBlockIDs map[string]bool) {
-	if l.currentState != nil {
-		l.currentState.SetCurrentIterTokens(
-			event.Message.Usage.TotalInputTokens(),
-			event.Message.Usage.OutputTokens,
-		)
-		l.notifyStateChange()
-	}
-
-	for _, block := range event.Message.Content {
-		debug.Logf("stream: assistant block type=%s name=%s id=%s", block.Type, block.Name, block.ID)
-		l.handleContentBlock(&block, fullOutput, processedBlockIDs)
-	}
-}
-
-func (l *Loop) handleContentBlock(block *struct {
-	Type  string `json:"type"`
-	Text  string `json:"text"`
-	Name  string `json:"name,omitempty"`
-	Input any    `json:"input,omitempty"`
-	ID    string `json:"id,omitempty"`
-}, fullOutput *strings.Builder, processedBlockIDs map[string]bool) {
-	if block.Type == "text" && block.Text != "" {
-		fullOutput.WriteString(block.Text)
-		if l.onOutput != nil {
-			l.onOutput(block.Text)
-		}
-	} else if block.Type == "tool_use" && block.Name != "" {
-		// Skip blocks we've already processed (streaming sends cumulative content)
-		if block.ID != "" && processedBlockIDs[block.ID] {
-			return
-		}
-		if block.ID != "" {
-			processedBlockIDs[block.ID] = true
-		}
-		l.outputToolUse(block.Name, block.Input)
-	}
-}
-
 func (l *Loop) outputToolUse(name string, input any) {
-	if l.onOutput == nil {
+	if l.onOutput == nil && l.onEvent == nil {
 		return
 	}
 	toolLine := name
@@ -1045,7 +941,10 @@ func (l *Loop) outputToolUse(name string, input any) {
 	if hasInput {
 		toolLine += formatToolArg(name, inputMap)
 	}
-	l.onOutput(fmt.Sprintf("\n[TOOL]%s\n", toolLine))
+	l.emit(event.ToolUse(toolLine))
+	if l.onOutput != nil && l.onEvent == nil {
+		l.onOutput(fmt.Sprintf("\n"+protocol.MarkerTool+"%s\n", toolLine))
+	}
 
 	// Show diff for Edit operations
 	if name == "Edit" && hasInput {
@@ -1094,7 +993,11 @@ func (l *Loop) outputEditDiff(input map[string]any) {
 	}
 
 	if len(parts) > 0 {
-		l.onOutput(fmt.Sprintf("[DIFF@]  ⎿  %s\n", strings.Join(parts, ", ")))
+		hunkText := fmt.Sprintf("  ⎿  %s", strings.Join(parts, ", "))
+		l.emit(event.DiffHunk(hunkText))
+		if l.onOutput != nil && l.onEvent == nil {
+			l.onOutput(fmt.Sprintf(protocol.MarkerDiffAt+"%s\n", hunkText))
+		}
 	}
 
 	// Generate unified diff for the actual changes
@@ -1108,34 +1011,28 @@ func (l *Loop) outputEditDiff(input map[string]any) {
 		if line == "" {
 			continue
 		}
+		lineText := fmt.Sprintf("      %s", line)
 		switch {
 		case strings.HasPrefix(line, "---"), strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "@@"):
 			// Skip file headers and hunk markers
 			continue
 		case strings.HasPrefix(line, "-"):
-			l.onOutput(fmt.Sprintf("[DIFF-]      %s\n", line))
+			l.emit(event.DiffDel(lineText))
+			if l.onOutput != nil && l.onEvent == nil {
+				l.onOutput(fmt.Sprintf(protocol.MarkerDiffDel+"%s\n", lineText))
+			}
 		case strings.HasPrefix(line, "+"):
-			l.onOutput(fmt.Sprintf("[DIFF+]      %s\n", line))
+			l.emit(event.DiffAdd(lineText))
+			if l.onOutput != nil && l.onEvent == nil {
+				l.onOutput(fmt.Sprintf(protocol.MarkerDiffAdd+"%s\n", lineText))
+			}
 		default:
 			// Context lines - show them dimmed for context
-			l.onOutput(fmt.Sprintf("[DIFF ]      %s\n", line))
+			l.emit(event.DiffCtx(lineText))
+			if l.onOutput != nil && l.onEvent == nil {
+				l.onOutput(fmt.Sprintf(protocol.MarkerDiffCtx+"%s\n", lineText))
+			}
 		}
-	}
-}
-
-func (l *Loop) handleResultEvent(event *streamEvent, fullOutput *strings.Builder) {
-	if l.currentState != nil && len(event.ModelUsage) > 0 {
-		for model, usage := range event.ModelUsage {
-			l.currentState.FinalizeIterTokens(
-				model,
-				usage.TotalInputTokens(),
-				usage.OutputTokens,
-			)
-		}
-		l.notifyStateChange()
-	}
-	if event.Result != "" && fullOutput.Len() == 0 {
-		fullOutput.WriteString(event.Result)
 	}
 }
 
@@ -1174,35 +1071,6 @@ func formatToolArg(toolName string, input map[string]any) string {
 	return ""
 }
 
-// buildClaudeEnv builds the environment for the Claude subprocess.
-// It filters ANTHROPIC_API_KEY from the inherited environment and only
-// sets it if explicitly configured via PROGRAMMATOR_ANTHROPIC_API_KEY.
-func buildClaudeEnv(claudeConfigDir, anthropicAPIKey string) []string {
-	environ := os.Environ()
-	env := make([]string, 0, len(environ))
-	for _, e := range environ {
-		if !strings.HasPrefix(e, "ANTHROPIC_API_KEY=") {
-			env = append(env, e)
-		}
-	}
-	if claudeConfigDir != "" {
-		env = append(env, "CLAUDE_CONFIG_DIR="+claudeConfigDir)
-	}
-	if anthropicAPIKey != "" {
-		env = append(env, "ANTHROPIC_API_KEY="+anthropicAPIKey)
-	}
-	return env
-}
-
-func timeoutBlockedStatus() string {
-	return `PROGRAMMATOR_STATUS:
-  phase_completed: null
-  status: BLOCKED
-  files_changed: []
-  summary: "Timeout"
-  error: "Claude invocation timed out"`
-}
-
 func (l *Loop) Stop() {
 	l.mu.Lock()
 	l.stopRequested = true
@@ -1231,15 +1099,16 @@ func (l *Loop) IsPaused() bool {
 }
 
 func (l *Loop) log(message string) {
-	if l.onOutput != nil {
-		// [PROG] marker for TUI to detect and style with lipgloss
-		l.onOutput(fmt.Sprintf("\n[PROG]%s\n", message))
+	l.emit(event.Prog(message))
+	if l.onOutput != nil && l.onEvent == nil {
+		l.onOutput(fmt.Sprintf("\n"+protocol.MarkerProg+"%s\n", message))
 	}
 }
 
 func (l *Loop) logIterationSeparator(iteration, maxIterations int) {
-	if l.onOutput != nil {
-		separator := fmt.Sprintf("\n\n---\n\n### 🔄 Iteration %d/%d\n\n", iteration, maxIterations)
+	separator := fmt.Sprintf("\n\n---\n\n### 🔄 Iteration %d/%d\n\n", iteration, maxIterations)
+	l.emit(event.IterationSeparator(separator))
+	if l.onOutput != nil && l.onEvent == nil {
 		l.onOutput(separator)
 	}
 }
@@ -1312,6 +1181,13 @@ func (l *Loop) getRecentSummaries(rc *runContext, n int) []string {
 	return rc.iterationSummaries[len(rc.iterationSummaries)-n:]
 }
 
+// addNote logs AddNote errors instead of silently discarding them.
+func (l *Loop) addNote(rc *runContext, note string) {
+	if err := rc.source.AddNote(rc.workItemID, note); err != nil {
+		l.logErrorf("failed to add note: %v", err)
+	}
+}
+
 func (l *Loop) pollProcessStats(pid int, stop <-chan struct{}) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -1346,6 +1222,11 @@ func (l *Loop) SetClaudeInvoker(invoker ClaudeInvoker) {
 	l.claudeInvoker = invoker
 }
 
+// SetInvoker sets the llm.Invoker used for Claude invocations.
+func (l *Loop) SetInvoker(inv llm.Invoker) {
+	l.invoker = inv
+}
+
 func (l *Loop) SetProcessStatsCallback(cb ProcessStatsCallback) {
 	l.onProcessStats = cb
 }
@@ -1358,51 +1239,26 @@ func (l *Loop) SetGuardMode(enabled bool) {
 	l.guardMode = enabled
 }
 
+// SetEventCallback sets the typed event handler. When set, the loop emits
+// structured events for prog/tool/review/diff messages instead of (or in
+// addition to) the legacy marker-prefixed strings on OutputCallback.
+func (l *Loop) SetEventCallback(cb EventCallback) {
+	l.onEvent = cb
+}
+
+// emit sends a typed event to the event callback, if set.
+func (l *Loop) emit(e event.Event) {
+	if l.onEvent != nil {
+		l.onEvent(e)
+	}
+}
+
+// buildHookSettings delegates to llm.BuildHookSettings.
 func (l *Loop) buildHookSettings() string {
-	var preToolUse []map[string]any
-
-	if l.permissionSocketPath != "" {
-		hookCmd := fmt.Sprintf("programmator hook --socket %s", l.permissionSocketPath)
-		preToolUse = append(preToolUse, map[string]any{
-			"matcher": "",
-			"hooks": []map[string]any{
-				{
-					"type":    "command",
-					"command": hookCmd,
-					"timeout": 120000,
-				},
-			},
-		})
-	}
-
-	if l.guardMode {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			debug.Logf("Warning: could not determine home directory for guard mode: %v", err)
-		} else {
-			dcgConfigPath := filepath.Join(home, ".config", "dcg", "config.toml")
-			dcgCmd := fmt.Sprintf("DCG_CONFIG=%s dcg", dcgConfigPath)
-			preToolUse = append(preToolUse, map[string]any{
-				"matcher": "Bash",
-				"hooks": []map[string]any{
-					{
-						"type":    "command",
-						"command": dcgCmd,
-						"timeout": 5000,
-					},
-				},
-			})
-		}
-	}
-
-	settings := map[string]any{
-		"hooks": map[string]any{
-			"PreToolUse": preToolUse,
-		},
-	}
-
-	data, _ := json.Marshal(settings)
-	return string(data)
+	return llm.BuildHookSettings(llm.HookConfig{
+		PermissionSocketPath: l.permissionSocketPath,
+		GuardMode:            l.guardMode,
+	})
 }
 
 // applySettingsToReviewConfig copies guard mode / permission socket settings
@@ -1416,7 +1272,7 @@ func (l *Loop) applySettingsToReviewConfig() {
 	}
 }
 
-func (l *Loop) applyReviewContext(workItem *source.WorkItem) {
+func (l *Loop) applyReviewContext(workItem *domain.WorkItem) {
 	if workItem == nil {
 		return
 	}
@@ -1471,12 +1327,15 @@ func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewO
 		l.reviewConfig.TicketContext = ""
 		l.applySettingsToReviewConfig()
 		var outputCallback review.OutputCallback
-		if l.onOutput != nil {
+		if l.onOutput != nil && l.onEvent == nil {
 			outputCallback = func(text string) {
 				l.onOutput(text)
 			}
 		}
 		l.reviewRunner = review.NewRunner(l.reviewConfig, outputCallback)
+		if l.onEvent != nil {
+			l.reviewRunner.SetEventCallback(event.Handler(l.onEvent))
+		}
 	}
 
 	roc := &reviewOnlyContext{
@@ -1492,7 +1351,7 @@ func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewO
 	for phaseIdx := 0; phaseIdx < len(l.reviewConfig.Phases); phaseIdx++ {
 		phase := l.reviewConfig.Phases[phaseIdx]
 		phaseMaxIter := phase.MaxIterations(l.reviewConfig.MaxIterations)
-		l.currentPhaseIdx = phaseIdx // for buildReviewFixPrompt template selection
+		l.engine.CurrentPhaseIdx = phaseIdx // for buildReviewFixPrompt template selection
 
 		l.log(fmt.Sprintf("Review phase %d/%d: %s", phaseIdx+1, len(l.reviewConfig.Phases), phase.Name))
 
@@ -1649,7 +1508,7 @@ func (l *Loop) invokeFixAndProcess(roc *reviewOnlyContext, reviewResult *review.
 	}
 
 	if status == nil {
-		l.log("Warning: No PROGRAMMATOR_STATUS found in output")
+		l.log("Warning: No " + protocol.StatusBlockKey + " found in output")
 		roc.state.RecordIteration(nil, "no_status_block")
 		return false, nil
 	}
@@ -1673,7 +1532,7 @@ func (l *Loop) invokeFixAndProcess(roc *reviewOnlyContext, reviewResult *review.
 		l.onStateChange(roc.state, nil, roc.result.FilesFixed)
 	}
 
-	if status.Status == parser.StatusBlocked {
+	if status.Status == protocol.StatusBlocked {
 		l.log(fmt.Sprintf("Claude reported BLOCKED: %s", status.Error))
 		roc.result.ExitReason = safety.ExitReasonBlocked
 		return true, nil
@@ -1706,7 +1565,7 @@ func (l *Loop) invokeFixAndProcess(roc *reviewOnlyContext, reviewResult *review.
 		roc.filesChanged = refreshedFiles
 	}
 
-	if status.Status == parser.StatusDone {
+	if status.Status == protocol.StatusDone {
 		l.log("Claude reports fixes complete - re-reviewing")
 	}
 
@@ -1730,8 +1589,8 @@ func (l *Loop) autoCommitChanges(files []string, summary string) error {
 // buildReviewFixPrompt creates a prompt for Claude to fix review issues using the template.
 // Selects the appropriate template based on the current phase.
 func (l *Loop) buildReviewFixPrompt(baseBranch string, filesChanged []string, issuesMarkdown string, iteration int) (string, error) {
-	if l.promptBuilder != nil && l.currentPhaseIdx < len(l.reviewConfig.Phases) {
-		phase := l.reviewConfig.Phases[l.currentPhaseIdx]
+	if l.promptBuilder != nil && l.engine.CurrentPhaseIdx < len(l.reviewConfig.Phases) {
+		phase := l.reviewConfig.Phases[l.engine.CurrentPhaseIdx]
 		// Use ReviewFirst for comprehensive phase (typically first phase)
 		// Use ReviewSecond for critical/filtered phases (typically have severity filters)
 		if len(phase.SeverityFilter) > 0 {

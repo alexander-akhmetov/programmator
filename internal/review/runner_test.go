@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/worksonmyai/programmator/internal/protocol"
 )
 
 func TestRunResult_HasCriticalIssues(t *testing.T) {
@@ -83,7 +85,7 @@ func TestClaudeAgent(t *testing.T) {
 		require.Contains(t, prompt, "focus2")
 		require.Contains(t, prompt, "file1.go")
 		require.Contains(t, prompt, "file2.go")
-		require.Contains(t, prompt, "REVIEW_RESULT")
+		require.Contains(t, prompt, protocol.ReviewResultBlockKey)
 	})
 
 	t.Run("respects options", func(t *testing.T) {
@@ -370,5 +372,21 @@ func TestRunner_RunPhase(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, result.Passed)
 		require.Equal(t, 2, result.TotalIssues)
+	})
+
+	t.Run("empty agents list passes", func(t *testing.T) {
+		cfg := Config{MaxIterations: 3}
+		runner := NewRunner(cfg, nil)
+
+		phase := Phase{
+			Name:   "empty_phase",
+			Agents: []AgentConfig{},
+		}
+
+		result, err := runner.RunPhase(context.Background(), "/tmp", []string{}, phase)
+		require.NoError(t, err)
+		require.True(t, result.Passed)
+		require.Equal(t, 0, result.TotalIssues)
+		require.Empty(t, result.Results)
 	})
 }
