@@ -681,17 +681,16 @@ func TestRunGetTicketErrorDuringLoop(t *testing.T) {
 	require.Equal(t, safety.ExitReasonError, result.ExitReason)
 }
 
-func TestSetClaudeInvoker(t *testing.T) {
+func TestSetInvoker(t *testing.T) {
 	l := New(safety.Config{}, "", nil, nil, false)
 
-	require.Nil(t, l.claudeInvoker)
+	require.Nil(t, l.invoker)
 
-	invoker := func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return "test", nil
-	}
-	l.SetClaudeInvoker(invoker)
+	}})
 
-	require.NotNil(t, l.claudeInvoker)
+	require.NotNil(t, l.invoker)
 }
 
 func TestRunParseError(t *testing.T) {

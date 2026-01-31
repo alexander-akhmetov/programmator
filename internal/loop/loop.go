@@ -45,9 +45,6 @@ type OutputCallback func(text string)
 type StateCallback func(state *safety.State, workItem *domain.WorkItem, filesChanged []string)
 type ProcessStatsCallback func(pid int, memoryKB int64)
 
-// ClaudeInvoker is a function that invokes Claude with a prompt and returns the output.
-type ClaudeInvoker func(ctx context.Context, promptText string) (string, error)
-
 // EventCallback receives typed events from the loop and review runner.
 // When set, the loop emits structured events instead of marker-prefixed strings.
 type EventCallback func(event.Event)
@@ -71,7 +68,6 @@ type Loop struct {
 	streaming            bool
 	cancelFunc           context.CancelFunc
 	source               source.Source
-	claudeInvoker        ClaudeInvoker
 	invoker              llm.Invoker
 	permissionSocketPath string
 	guardMode            bool
@@ -1496,11 +1492,6 @@ func getProcessMemory(pid int) int64 {
 		return 0
 	}
 	return rss
-}
-
-// SetClaudeInvoker sets a legacy function-based invoker (used by tests).
-func (l *Loop) SetClaudeInvoker(invoker ClaudeInvoker) {
-	l.claudeInvoker = invoker
 }
 
 // SetInvoker sets the llm.Invoker used for Claude invocations.
