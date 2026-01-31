@@ -228,7 +228,7 @@ func showTicketLogs(ticketCmd, ticketID string) error {
 	if ticketCmd == "" {
 		ticketCmd = "tk"
 	}
-	out, err := exec.Command(ticketCmd, "show", "--", ticketID).CombinedOutput()
+	out, err := exec.Command(ticketCmd, "show", ticketID).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to get ticket %s: %s", ticketID, strings.TrimSpace(string(out)))
 	}
