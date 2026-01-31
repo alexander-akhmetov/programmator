@@ -20,6 +20,9 @@ func TestLoadEmbedded(t *testing.T) {
 	assert.Equal(t, "", cfg.ClaudeFlags)
 	assert.Equal(t, 50, cfg.Review.MaxIterations) // Used as base for iteration_pct calculations
 	assert.Len(t, cfg.Review.Phases, 3)
+	for _, phase := range cfg.Review.Phases {
+		assert.True(t, phase.Validate)
+	}
 }
 
 func TestLoadWithDirs_GlobalOnly(t *testing.T) {

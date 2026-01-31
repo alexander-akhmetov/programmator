@@ -564,7 +564,7 @@ func TestRunner_RunPhase(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
 		runner := NewRunner(cfg, nil)
 
-		// The quality agent returns 2 issues; the validator confirms only 1 by ID
+		// The quality agent returns 2 issues; the validator marks one as false_positive
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			switch agentCfg.Name {
@@ -583,7 +583,8 @@ func TestRunner_RunPhase(t *testing.T) {
 					return &Result{
 						AgentName: "issue-validator",
 						Issues: []Issue{
-							{ID: "id-keep", File: "a.go", Severity: SeverityHigh, Category: "bugs", Description: "Real bug"},
+							{ID: "id-keep", Verdict: "valid", File: "a.go", Severity: SeverityHigh, Category: "bugs", Description: "Real bug"},
+							{ID: "id-drop", Verdict: "false_positive", File: "b.go", Severity: SeverityLow, Category: "style", Description: "False positive"},
 						},
 						Summary: "Validated 1 of 2",
 					}, nil
@@ -594,6 +595,7 @@ func TestRunner_RunPhase(t *testing.T) {
 
 		phase := Phase{
 			Name:     "test_validate",
+			Validate: true,
 			Parallel: false,
 			Agents:   []AgentConfig{{Name: "quality"}},
 		}
@@ -607,7 +609,7 @@ func TestRunner_RunPhase(t *testing.T) {
 			require.NotEqual(t, "id-drop", issue.ID)
 		}
 	})
-	t.Run("validator runs by default", func(t *testing.T) {
+	t.Run("validator skipped when Validate is false", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
 		runner := NewRunner(cfg, nil)
 
@@ -641,11 +643,11 @@ func TestRunner_RunPhase(t *testing.T) {
 
 		result, err := runner.RunPhase(context.Background(), "/tmp", []string{"a.go"}, phase)
 		require.NoError(t, err)
-		require.True(t, validatorCalled)
-		require.Equal(t, 0, result.TotalIssues)
+		require.False(t, validatorCalled)
+		require.Equal(t, 1, result.TotalIssues)
 	})
 
-	t.Run("filters using generated IDs", func(t *testing.T) {
+	t.Run("filters using generated IDs and verdicts", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
 		runner := NewRunner(cfg, nil)
 
@@ -681,16 +683,19 @@ func TestRunner_RunPhase(t *testing.T) {
 						Issues []validatorIssue `yaml:"issues"`
 					}
 					if err := yaml.Unmarshal([]byte(yamlContent), &parsed); err == nil && len(parsed.Issues) > 0 {
-						// Confirm only the first issue (a.go)
+						var issues []Issue
 						for _, iss := range parsed.Issues {
 							if iss.File == "a.go" {
-								return &Result{
-									AgentName: "issue-validator",
-									Issues:    []Issue{{ID: iss.ID}},
-									Summary:   "Validated 1 of 2",
-								}, nil
+								issues = append(issues, Issue{ID: iss.ID, Verdict: "valid"})
+							} else {
+								issues = append(issues, Issue{ID: iss.ID, Verdict: "false_positive"})
 							}
 						}
+						return &Result{
+							AgentName: "issue-validator",
+							Issues:    issues,
+							Summary:   "Validated 1 of 2",
+						}, nil
 					}
 					return &Result{AgentName: "issue-validator", Issues: []Issue{}}, nil
 				})
@@ -700,6 +705,7 @@ func TestRunner_RunPhase(t *testing.T) {
 
 		phase := Phase{
 			Name:     "test_validate_generated",
+			Validate: true,
 			Parallel: false,
 			Agents:   []AgentConfig{{Name: "quality"}},
 		}
@@ -755,7 +761,7 @@ func TestRunner_RunPhase(t *testing.T) {
 			case "issue-validator":
 				mock.SetReviewFunc(func(_ context.Context, _ string, filesChanged []string) (*Result, error) {
 					issueValidatorCalled = true
-					// Parse the YAML to get IDs and confirm only the real bug
+					// Parse the YAML to get IDs and assign verdicts
 					var yamlContent string
 					for _, f := range filesChanged {
 						if _, after, ok := strings.Cut(f, "VALIDATION_INPUT:\n"); ok {
@@ -771,14 +777,15 @@ func TestRunner_RunPhase(t *testing.T) {
 						Issues []vi `yaml:"issues"`
 					}
 					if err := yaml.Unmarshal([]byte(yamlContent), &parsed); err == nil {
+						var issues []Issue
 						for _, iss := range parsed.Issues {
 							if iss.File == "a.go" {
-								return &Result{
-									AgentName: "issue-validator",
-									Issues:    []Issue{{ID: iss.ID}},
-								}, nil
+								issues = append(issues, Issue{ID: iss.ID, Verdict: "valid"})
+							} else {
+								issues = append(issues, Issue{ID: iss.ID, Verdict: "false_positive"})
 							}
 						}
+						return &Result{AgentName: "issue-validator", Issues: issues}, nil
 					}
 					return &Result{AgentName: "issue-validator", Issues: []Issue{}}, nil
 				})
@@ -788,6 +795,7 @@ func TestRunner_RunPhase(t *testing.T) {
 
 		phase := Phase{
 			Name:     "test_both_validators",
+			Validate: true,
 			Parallel: false,
 			Agents: []AgentConfig{
 				{Name: "quality"},
@@ -826,7 +834,7 @@ func TestRunner_RunPhase(t *testing.T) {
 }
 
 func TestRunner_ValidateIssues(t *testing.T) {
-	t.Run("filters issues by validator output", func(t *testing.T) {
+	t.Run("filters issues by validator verdict", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
 		runner := NewRunner(cfg, nil)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
@@ -835,9 +843,10 @@ func TestRunner_ValidateIssues(t *testing.T) {
 				return &Result{
 					AgentName: agentCfg.Name,
 					Issues: []Issue{
-						{ID: "confirmed-1", File: "x.go", Severity: SeverityHigh, Category: "bugs", Description: "Confirmed"},
+						{ID: "confirmed-1", Verdict: "valid", File: "x.go", Severity: SeverityHigh, Category: "bugs", Description: "Confirmed"},
+						{ID: "filtered-out", Verdict: "false_positive", File: "y.go", Severity: SeverityLow, Category: "style", Description: "FP"},
 					},
-					Summary: "1 confirmed",
+					Summary: "1 confirmed, 1 false positive",
 				}, nil
 			})
 			return mock
@@ -877,7 +886,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 					return &Result{
 						AgentName: "issue-validator",
 						Issues: []Issue{
-							{ID: "quality-1", File: "a.go", Severity: SeverityHigh, Category: "bugs", Description: "Bug"},
+							{ID: "quality-1", Verdict: "valid", File: "a.go", Severity: SeverityHigh, Category: "bugs", Description: "Bug"},
 						},
 					}, nil
 				})
@@ -993,7 +1002,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 		require.Equal(t, input, validated)
 	})
 
-	t.Run("orphan IDs from validator are ignored", func(t *testing.T) {
+	t.Run("orphan IDs from validator are ignored and missing IDs kept", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
 		runner := NewRunner(cfg, nil)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
@@ -1002,8 +1011,9 @@ func TestRunner_ValidateIssues(t *testing.T) {
 				return &Result{
 					AgentName: agentCfg.Name,
 					Issues: []Issue{
-						{ID: "confirmed-1", File: "x.go", Severity: SeverityHigh, Description: "Real"},
-						{ID: "orphan-id", File: "z.go", Severity: SeverityHigh, Description: "Orphan"},
+						{ID: "confirmed-1", Verdict: "valid", File: "x.go", Severity: SeverityHigh, Description: "Real"},
+						{ID: "orphan-id", Verdict: "valid", File: "z.go", Severity: SeverityHigh, Description: "Orphan"},
+						{ID: "will-drop", Verdict: "false_positive", File: "y.go", Severity: SeverityLow, Description: "Drop"},
 					},
 				}, nil
 			})
@@ -1038,7 +1048,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 				return &Result{
 					AgentName: agentCfg.Name,
 					Issues: []Issue{
-						{ID: "id-1", File: "x.go", Severity: SeverityMedium, Description: "Modified description"},
+						{ID: "id-1", Verdict: "valid", File: "x.go", Severity: SeverityMedium, Description: "Modified description"},
 					},
 				}, nil
 			})
@@ -1123,7 +1133,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 		require.Equal(t, input, validated)
 	})
 
-	t.Run("validator returning empty issues filters all", func(t *testing.T) {
+	t.Run("validator returning empty issues keeps all originals", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
 		runner := NewRunner(cfg, nil)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
@@ -1150,7 +1160,8 @@ func TestRunner_ValidateIssues(t *testing.T) {
 
 		validated, err := runner.ValidateIssues(context.Background(), "/tmp", input)
 		require.NoError(t, err)
-		require.Len(t, validated[0].Issues, 0)
+		// Empty validator output = no verdicts = keep all (safe default)
+		require.Len(t, validated[0].Issues, 2)
 	})
 
 	t.Run("validator returning issues without IDs falls back to originals", func(t *testing.T) {
@@ -1184,7 +1195,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 		require.Equal(t, input, validated)
 	})
 
-	t.Run("issues without IDs in input are skipped as defensive fallback", func(t *testing.T) {
+	t.Run("issues without IDs in input are kept as safe default", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
 		runner := NewRunner(cfg, nil)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
@@ -1193,7 +1204,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 				return &Result{
 					AgentName: agentCfg.Name,
 					Issues: []Issue{
-						{ID: "id-1", File: "a.go", Severity: SeverityHigh, Category: "bugs", Description: "Bug"},
+						{ID: "id-1", Verdict: "valid", File: "a.go", Severity: SeverityHigh, Category: "bugs", Description: "Bug"},
 					},
 				}, nil
 			})
@@ -1212,11 +1223,11 @@ func TestRunner_ValidateIssues(t *testing.T) {
 
 		validated, err := runner.ValidateIssues(context.Background(), "/tmp", input)
 		require.NoError(t, err)
-		require.Len(t, validated[0].Issues, 1)
-		require.Equal(t, "id-1", validated[0].Issues[0].ID)
+		// Both kept: id-1 has verdict "valid", empty ID has no verdict match → kept
+		require.Len(t, validated[0].Issues, 2)
 	})
 
-	t.Run("validator with mixed IDs uses only those with IDs for filtering", func(t *testing.T) {
+	t.Run("validator with mixed IDs uses verdicts for filtering", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
 		runner := NewRunner(cfg, nil)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
@@ -1225,8 +1236,8 @@ func TestRunner_ValidateIssues(t *testing.T) {
 				return &Result{
 					AgentName: agentCfg.Name,
 					Issues: []Issue{
-						{ID: "id-1", File: "a.go", Severity: SeverityHigh, Description: "Confirmed with ID"},
-						{File: "b.go", Severity: SeverityMedium, Description: "No ID from validator"},
+						{ID: "id-1", Verdict: "valid", File: "a.go", Severity: SeverityHigh, Description: "Confirmed with ID"},
+						{ID: "id-2", Verdict: "false_positive", File: "c.go", Severity: SeverityMedium, Description: "FP"},
 					},
 				}, nil
 			})
@@ -1245,7 +1256,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 
 		validated, err := runner.ValidateIssues(context.Background(), "/tmp", input)
 		require.NoError(t, err)
-		// Only id-1 confirmed; id-2 not in validator output so filtered out
+		// id-1 verdict=valid → kept; id-2 verdict=false_positive → dropped
 		require.Len(t, validated[0].Issues, 1)
 		require.Equal(t, "id-1", validated[0].Issues[0].ID)
 	})
@@ -1259,8 +1270,10 @@ func TestRunner_ValidateIssues(t *testing.T) {
 				return &Result{
 					AgentName: agentCfg.Name,
 					Issues: []Issue{
-						{ID: "q-1", File: "a.go", Severity: SeverityHigh, Description: "Quality confirmed"},
-						{ID: "s-1", File: "b.go", Severity: SeverityCritical, Description: "Security confirmed"},
+						{ID: "q-1", Verdict: "valid", File: "a.go", Severity: SeverityHigh, Description: "Quality confirmed"},
+						{ID: "q-2", Verdict: "false_positive", File: "c.go", Severity: SeverityLow, Description: "Quality FP"},
+						{ID: "s-1", Verdict: "valid", File: "b.go", Severity: SeverityCritical, Description: "Security confirmed"},
+						{ID: "s-2", Verdict: "false_positive", File: "d.go", Severity: SeverityMedium, Description: "Security FP"},
 					},
 				}, nil
 			})
@@ -1338,7 +1351,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
 				return &Result{
 					AgentName: agentCfg.Name,
-					Issues:    []Issue{{ID: "q-1"}},
+					Issues:    []Issue{{ID: "q-1", Verdict: "valid"}},
 				}, nil
 			})
 			return mock
@@ -1366,5 +1379,74 @@ func TestRunner_ValidateIssues(t *testing.T) {
 		require.Equal(t, "s-1", validated[1].Issues[0].ID)
 		require.Len(t, validated[2].Issues, 1)
 		require.Equal(t, "s-2", validated[2].Issues[0].ID)
+	})
+
+	t.Run("issues without verdict from validator are kept", func(t *testing.T) {
+		cfg := Config{MaxIterations: 3}
+		runner := NewRunner(cfg, nil)
+		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
+			mock := NewMockAgent(agentCfg.Name)
+			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
+				return &Result{
+					AgentName: agentCfg.Name,
+					Issues: []Issue{
+						{ID: "id-1", Verdict: "valid", File: "a.go", Severity: SeverityHigh, Description: "Confirmed"},
+						{ID: "id-2", Verdict: "false_positive", File: "b.go", Severity: SeverityLow, Description: "FP"},
+						{ID: "id-3", File: "c.go", Severity: SeverityMedium, Description: "No verdict"},
+					},
+				}, nil
+			})
+			return mock
+		})
+
+		input := []*Result{
+			{
+				AgentName: "quality",
+				Issues: []Issue{
+					{ID: "id-1", File: "a.go", Severity: SeverityHigh, Category: "bugs", Description: "Confirmed"},
+					{ID: "id-2", File: "b.go", Severity: SeverityLow, Category: "style", Description: "FP"},
+					{ID: "id-3", File: "c.go", Severity: SeverityMedium, Category: "logic", Description: "No verdict"},
+				},
+			},
+		}
+
+		validated, err := runner.ValidateIssues(context.Background(), "/tmp", input)
+		require.NoError(t, err)
+		// id-1 (valid) → kept, id-2 (false_positive) → dropped, id-3 (no verdict) → kept
+		require.Len(t, validated[0].Issues, 2)
+		require.Equal(t, "id-1", validated[0].Issues[0].ID)
+		require.Equal(t, "id-3", validated[0].Issues[1].ID)
+	})
+
+	t.Run("issues not in validator output are kept as safe default", func(t *testing.T) {
+		cfg := Config{MaxIterations: 3}
+		runner := NewRunner(cfg, nil)
+		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
+			mock := NewMockAgent(agentCfg.Name)
+			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
+				return &Result{
+					AgentName: agentCfg.Name,
+					Issues: []Issue{
+						{ID: "id-1", Verdict: "valid", File: "a.go", Severity: SeverityHigh, Description: "Confirmed"},
+					},
+				}, nil
+			})
+			return mock
+		})
+
+		input := []*Result{
+			{
+				AgentName: "quality",
+				Issues: []Issue{
+					{ID: "id-1", File: "a.go", Severity: SeverityHigh, Category: "bugs", Description: "Confirmed"},
+					{ID: "id-2", File: "b.go", Severity: SeverityMedium, Category: "style", Description: "Not in validator output"},
+				},
+			},
+		}
+
+		validated, err := runner.ValidateIssues(context.Background(), "/tmp", input)
+		require.NoError(t, err)
+		// id-1 (valid) → kept, id-2 (not in output) → kept (safe default)
+		require.Len(t, validated[0].Issues, 2)
 	})
 }

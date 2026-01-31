@@ -379,24 +379,25 @@ func (r *Runner) ValidateIssues(ctx context.Context, workingDir string, results 
 		return results, nil
 	}
 
-	// Build set of confirmed issue IDs from validator output
-	confirmedIDs := make(map[string]struct{})
+	// Build verdict map from validator output (id → verdict string).
+	verdicts := make(map[string]string)
 	for _, issue := range validatorResult.Issues {
 		if issue.ID != "" {
-			confirmedIDs[issue.ID] = struct{}{}
+			verdicts[issue.ID] = strings.ToLower(strings.TrimSpace(issue.Verdict))
 		}
 	}
 
 	// If validator returned issues but none had IDs, assume it didn't understand
 	// the ID protocol and fall back to originals (safe default: keep all).
-	// This differs from the empty-issues case above where confirmedIDs is also empty
-	// but the validator explicitly found zero confirmed issues (safe default: filter all).
-	if len(validatorResult.Issues) > 0 && len(confirmedIDs) == 0 {
+	if len(validatorResult.Issues) > 0 && len(verdicts) == 0 {
 		r.log("Issue validator returned issues without IDs, using original results")
 		return results, nil
 	}
 
-	// Filter original results by confirmed IDs
+	// Filter original results by verdict.
+	// - "false_positive" → drop
+	// - "valid" → keep
+	// - no verdict / unknown verdict / ID not in validator output → keep (safe default)
 	totalBefore := 0
 	totalAfter := 0
 	filtered := make([]*Result, len(results))
@@ -409,13 +410,11 @@ func (r *Runner) ValidateIssues(ctx context.Context, workingDir string, results 
 		totalBefore += len(res.Issues)
 		kept := make([]Issue, 0, len(res.Issues))
 		for _, issue := range res.Issues {
-			if issue.ID == "" {
-				r.log(fmt.Sprintf("Warning: issue without ID skipped during validation filtering (agent=%s, file=%s, line=%d)", res.AgentName, issue.File, issue.Line))
+			verdict, hasVerdict := verdicts[issue.ID]
+			if hasVerdict && verdict == "false_positive" {
 				continue
 			}
-			if _, ok := confirmedIDs[issue.ID]; ok {
-				kept = append(kept, issue)
-			}
+			kept = append(kept, issue)
 		}
 		totalAfter += len(kept)
 
@@ -448,7 +447,11 @@ func assignIssueIDs(results []*Result) {
 func issueFingerprint(agent string, issue Issue) string {
 	desc := strings.ToLower(strings.TrimSpace(issue.Description))
 	cat := strings.ToLower(issue.Category)
-	data := fmt.Sprintf("%s|%s|%d|%s|%s", agent, issue.File, issue.Line, cat, desc)
+	linePart := ""
+	if issue.Line > 0 {
+		linePart = fmt.Sprintf("%d", issue.Line)
+	}
+	data := fmt.Sprintf("%s|%s|%s|%s|%s", agent, issue.File, linePart, cat, desc)
 	hash := sha256.Sum256([]byte(data))
 	return fmt.Sprintf("%x", hash[:8])
 }
@@ -497,16 +500,18 @@ func (r *Runner) RunPhase(ctx context.Context, workingDir string, filesChanged [
 	}
 
 	// Post-process: validate all issues (excluding simplification)
-	totalNonSimp := 0
-	for _, res := range passResults {
-		if res.AgentName != "simplification" {
-			totalNonSimp += len(res.Issues)
+	if phase.Validate {
+		totalNonSimp := 0
+		for _, res := range passResults {
+			if res.AgentName != "simplification" {
+				totalNonSimp += len(res.Issues)
+			}
 		}
-	}
-	if totalNonSimp > 0 {
-		validated, validateErr := r.ValidateIssues(ctx, workingDir, passResults)
-		if validateErr == nil {
-			passResults = validated
+		if totalNonSimp > 0 {
+			validated, validateErr := r.ValidateIssues(ctx, workingDir, passResults)
+			if validateErr == nil {
+				passResults = validated
+			}
 		}
 	}
 

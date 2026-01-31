@@ -31,6 +31,7 @@ type Issue struct {
 	Category    string   `yaml:"category"`
 	Description string   `yaml:"description"`
 	Suggestion  string   `yaml:"suggestion,omitempty"`
+	Verdict     string   `yaml:"verdict,omitempty" json:"verdict,omitempty"`
 }
 
 // UnmarshalYAML handles line values that are either integers (42) or ranges ("82-94").
@@ -45,6 +46,7 @@ func (issue *Issue) UnmarshalYAML(value *yaml.Node) error {
 		Category    string    `yaml:"category"`
 		Description string    `yaml:"description"`
 		Suggestion  string    `yaml:"suggestion,omitempty"`
+		Verdict     string    `yaml:"verdict,omitempty"`
 	}
 	if err := value.Decode(&raw); err != nil {
 		return err
@@ -56,6 +58,7 @@ func (issue *Issue) UnmarshalYAML(value *yaml.Node) error {
 	issue.Category = raw.Category
 	issue.Description = raw.Description
 	issue.Suggestion = raw.Suggestion
+	issue.Verdict = raw.Verdict
 
 	if raw.Line.Tag != "" {
 		lineStr := raw.Line.Value

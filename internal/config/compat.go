@@ -53,6 +53,7 @@ func convertReviewPhases(phases []ReviewPhase) []review.Phase {
 			SeverityFilter: severities,
 			Agents:         agents,
 			Parallel:       p.Parallel,
+			Validate:       p.Validate,
 		}
 	}
 	return result
