@@ -22,3 +22,5 @@ You will receive a list of simplification suggestions from a prior review agent.
 ## Output
 
 Return the filtered list using the same REVIEW_RESULT format and **only** that block (no extra text). Include only the issues that pass validation. If none pass, return an empty issues list.
+
+IMPORTANT: Always single-quote all string values. Do NOT use double-quoted strings — they cause parse errors with backslashes like \d, \w, \s. For multiline values, use `|` block scalars. If a value contains a single quote, escape it by doubling: `''`.

@@ -189,6 +189,80 @@ REVIEW_RESULT:
 			wantErr:     false,
 		},
 		{
+			name: "unquoted with backslash",
+			input: `
+REVIEW_RESULT:
+  issues:
+    - file: main.go
+      line: 10
+      severity: medium
+      category: quality
+      description: Use \d+ regex for validation
+  summary: Found 1 issue
+`,
+			wantIssues: []Issue{
+				{
+					File:        "main.go",
+					Line:        10,
+					Severity:    SeverityMedium,
+					Category:    "quality",
+					Description: `Use \d+ regex for validation`,
+				},
+			},
+			wantSummary: "Found 1 issue",
+			wantErr:     false,
+		},
+		{
+			name: "single-quoted with backslash",
+			input: `
+REVIEW_RESULT:
+  issues:
+    - file: main.go
+      line: 10
+      severity: medium
+      category: quality
+      description: 'Use \d+ regex for validation'
+  summary: Found 1 issue
+`,
+			wantIssues: []Issue{
+				{
+					File:        "main.go",
+					Line:        10,
+					Severity:    SeverityMedium,
+					Category:    "quality",
+					Description: `Use \d+ regex for validation`,
+				},
+			},
+			wantSummary: "Found 1 issue",
+			wantErr:     false,
+		},
+		{
+			name: "block scalar multiline",
+			input: `
+REVIEW_RESULT:
+  issues:
+    - file: main.go
+      line: 10
+      severity: high
+      category: security
+      description: |
+        This function uses \d+ regex
+        which may cause issues
+  summary: Found 1 issue
+`,
+			wantIssues: []Issue{
+				{
+					File:        "main.go",
+					Line:        10,
+					Severity:    SeverityHigh,
+					Category:    "security",
+					Description: "This function uses \\d+ regex\nwhich may cause issues\n",
+				},
+			},
+			wantSummary: "Found 1 issue",
+			wantErr:     false,
+		},
+		{
 			name:        "no REVIEW_RESULT block",
 			input:       "Just some random output without the block",
 			wantIssues:  []Issue{},
