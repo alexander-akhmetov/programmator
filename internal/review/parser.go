@@ -1,6 +1,7 @@
 package review
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -13,6 +14,8 @@ import (
 // reviewResultRegex matches REVIEW_RESULT: blocks in Claude output.
 var reviewResultRegex = regexp.MustCompile(`(?s)` + protocol.ReviewResultBlockKey + `:\s*\n(.*?)(?:\n\s*\x60{3}|$)`)
 
+const noStructuredReviewOutputSummary = "No structured review output found"
+
 // ParsedReviewResult is the structured review output.
 type ParsedReviewResult struct {
 	Issues  []Issue `yaml:"issues"`
@@ -24,7 +27,7 @@ func parseReviewOutput(output string) ([]Issue, string, error) {
 	match := reviewResultRegex.FindStringSubmatch(output)
 	if match == nil {
 		// No REVIEW_RESULT block found - treat as no issues
-		return []Issue{}, "No structured review output found", nil
+		return []Issue{}, noStructuredReviewOutputSummary, nil
 	}
 
 	yamlContent := protocol.ReviewResultBlockKey + ":\n" + match[1]
@@ -95,6 +98,49 @@ func FormatIssuesMarkdown(results []*Result) string {
 	}
 
 	return b.String()
+}
+
+// FormatIssuesYAML formats issues as structured YAML with IDs for validator input.
+func FormatIssuesYAML(results []*Result) string {
+	type yamlIssue struct {
+		ID          string `yaml:"id"`
+		File        string `yaml:"file"`
+		Line        int    `yaml:"line,omitempty"`
+		LineEnd     int    `yaml:"line_end,omitempty"`
+		Severity    string `yaml:"severity"`
+		Category    string `yaml:"category"`
+		Description string `yaml:"description"`
+		Suggestion  string `yaml:"suggestion,omitempty"`
+		Agent       string `yaml:"agent"`
+	}
+
+	totalCount := 0
+	for _, res := range results {
+		totalCount += len(res.Issues)
+	}
+
+	issues := make([]yamlIssue, 0, totalCount)
+	for _, res := range results {
+		for _, issue := range res.Issues {
+			issues = append(issues, yamlIssue{
+				ID:          issue.ID,
+				File:        issue.File,
+				Line:        issue.Line,
+				LineEnd:     issue.LineEnd,
+				Severity:    string(issue.Severity),
+				Category:    issue.Category,
+				Description: issue.Description,
+				Suggestion:  issue.Suggestion,
+				Agent:       res.AgentName,
+			})
+		}
+	}
+
+	data, err := yaml.Marshal(map[string]any{"issues": issues})
+	if err != nil {
+		return fmt.Sprintf("issues: [] # marshal error: %v", err)
+	}
+	return string(data)
 }
 
 func pluralize(n int, singular, plural string) string { //nolint:unparam // generic helper

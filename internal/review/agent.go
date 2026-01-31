@@ -23,6 +23,7 @@ type Result struct {
 
 // Issue represents a single review issue found by an agent.
 type Issue struct {
+	ID          string   `yaml:"id,omitempty"`
 	File        string   `yaml:"file"`
 	Line        int      `yaml:"line,omitempty"`
 	LineEnd     int      `yaml:"line_end,omitempty"`
@@ -36,6 +37,7 @@ type Issue struct {
 func (issue *Issue) UnmarshalYAML(value *yaml.Node) error {
 	// Decode into a raw struct to handle the line field specially.
 	var raw struct {
+		ID          string    `yaml:"id"`
 		File        string    `yaml:"file"`
 		Line        yaml.Node `yaml:"line"`
 		LineEnd     int       `yaml:"line_end,omitempty"`
@@ -48,6 +50,7 @@ func (issue *Issue) UnmarshalYAML(value *yaml.Node) error {
 		return err
 	}
 
+	issue.ID = raw.ID
 	issue.File = raw.File
 	issue.Severity = raw.Severity
 	issue.Category = raw.Category
