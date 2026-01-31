@@ -74,7 +74,7 @@ func (c *CLIClient) Get(id string) (*Ticket, error) {
 	if err := ValidateID(id); err != nil {
 		return nil, err
 	}
-	out, err := exec.Command(c.command, "show", "--", id).CombinedOutput()
+	out, err := exec.Command(c.command, "show", id).CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s: %s", ErrTicketNotFound, id, strings.TrimSpace(string(out)))
 	}
@@ -222,7 +222,7 @@ func (c *CLIClient) AddNote(id string, note string) error {
 	if err := ValidateID(id); err != nil {
 		return err
 	}
-	out, err := exec.Command(c.command, "add-note", "--", id, note).CombinedOutput()
+	out, err := exec.Command(c.command, "add-note", id, note).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("add note to ticket %s: %s: %w", id, strings.TrimSpace(string(out)), err)
 	}
@@ -239,7 +239,7 @@ func (c *CLIClient) SetStatus(id string, status string) error {
 	default:
 		return fmt.Errorf("invalid status: %s", status)
 	}
-	out, err := exec.Command(c.command, "set-status", "--", id, status).CombinedOutput()
+	out, err := exec.Command(c.command, "set-status", id, status).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("set status for ticket %s: %s: %w", id, strings.TrimSpace(string(out)), err)
 	}
