@@ -3,6 +3,7 @@ package loop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/aymanbagabas/go-udiff"
 
+	"github.com/worksonmyai/programmator/internal/codex"
+	"github.com/worksonmyai/programmator/internal/config"
 	"github.com/worksonmyai/programmator/internal/domain"
 	"github.com/worksonmyai/programmator/internal/engine"
 	"github.com/worksonmyai/programmator/internal/event"
@@ -42,13 +45,12 @@ type OutputCallback func(text string)
 type StateCallback func(state *safety.State, workItem *domain.WorkItem, filesChanged []string)
 type ProcessStatsCallback func(pid int, memoryKB int64)
 
+// ClaudeInvoker is a function that invokes Claude with a prompt and returns the output.
+type ClaudeInvoker func(ctx context.Context, promptText string) (string, error)
+
 // EventCallback receives typed events from the loop and review runner.
 // When set, the loop emits structured events instead of marker-prefixed strings.
 type EventCallback func(event.Event)
-
-// ClaudeInvoker is the legacy function-based invoker type, kept for test
-// compatibility. Prefer using llm.Invoker for new code.
-type ClaudeInvoker func(ctx context.Context, promptText string) (string, error)
 
 // GitWorkflowConfig holds configuration for automatic git operations.
 type GitWorkflowConfig struct {
@@ -69,8 +71,8 @@ type Loop struct {
 	streaming            bool
 	cancelFunc           context.CancelFunc
 	source               source.Source
-	claudeInvoker        ClaudeInvoker // legacy function invoker (tests)
-	invoker              llm.Invoker   // preferred interface-based invoker
+	claudeInvoker        ClaudeInvoker
+	invoker              llm.Invoker
 	permissionSocketPath string
 	guardMode            bool
 
@@ -103,6 +105,15 @@ type Loop struct {
 	// Git workflow configuration
 	gitConfig GitWorkflowConfig
 	gitRepo   *gitutil.Repo
+
+	// Codex review configuration
+	codexConfig   config.CodexConfig
+	codexEnabled  bool
+	codexDone     bool
+	codexExecutor *codex.Executor
+
+	// Track consecutive invocation failures to exit early on persistent errors
+	consecutiveInvokeErrors int
 }
 
 // SetSource sets the source for the loop (for testing).
@@ -166,6 +177,255 @@ func (l *Loop) SetTicketCommand(cmd string) {
 
 func (l *Loop) SetGitWorkflowConfig(cfg GitWorkflowConfig) {
 	l.gitConfig = cfg
+}
+
+// SetCodexConfig sets the codex review configuration and initializes the executor.
+// If the codex binary is not found, codex is disabled with a warning.
+func (l *Loop) SetCodexConfig(cfg config.CodexConfig) {
+	l.codexConfig = cfg
+	if !cfg.Enabled {
+		l.codexEnabled = false
+		return
+	}
+	cmd := cfg.Command
+	if cmd == "" {
+		cmd = "codex"
+	}
+	if _, found := codex.DetectBinary(cmd); !found {
+		l.log(fmt.Sprintf("Codex binary %q not found in PATH — codex review disabled", cmd))
+		l.logProgressf("Codex binary %q not found — disabled", cmd)
+		l.codexEnabled = false
+		return
+	}
+	l.codexEnabled = true
+	l.codexExecutor = &codex.Executor{
+		Command:         cfg.Command,
+		Model:           cfg.Model,
+		ReasoningEffort: cfg.ReasoningEffort,
+		TimeoutMs:       cfg.TimeoutMs,
+		Sandbox:         cfg.Sandbox,
+		ProjectDoc:      cfg.ProjectDoc,
+		ErrorPatterns:   cfg.ErrorPatterns,
+	}
+}
+
+// codexMaxIterations returns the iteration budget for the codex loop.
+// Uses max(3, review.MaxIterations/5).
+func (l *Loop) codexMaxIterations() int {
+	base := l.reviewConfig.MaxIterations / 5
+	if base < 3 {
+		return 3
+	}
+	return base
+}
+
+// runCodexLoop runs the codex→Claude eval→repeat loop.
+// It advances the codex review phase as far as possible within the iteration budget,
+// updating internal loop state and logging progress.
+func (l *Loop) runCodexLoop(ctx context.Context, baseBranch string, filesChanged []string, workItem *domain.WorkItem) {
+	if !l.codexEnabled || l.codexDone {
+		return
+	}
+	if l.codexExecutor == nil {
+		l.log("Warning: codex enabled but executor is nil — skipping codex loop")
+		return
+	}
+	// Fail-once semantics: mark done before any work so codex runs at most once
+	// per loop invocation, even if it fails or returns early due to errors.
+	// This is intentional — codex is advisory and should not block the main loop.
+	l.codexDone = true
+
+	// Sanitize baseBranch to prevent prompt injection
+	if baseBranch != "" && !isValidBranchName(baseBranch) {
+		baseBranch = ""
+	}
+
+	maxIter := l.codexMaxIterations()
+	l.log(fmt.Sprintf("Starting codex review loop (max %d iterations)", maxIter))
+	l.logProgressf("Starting codex review loop (max %d iterations)", maxIter)
+
+	// Build the codex review prompt (what to review)
+	var codexPrompt string
+	if baseBranch != "" {
+		codexPrompt = fmt.Sprintf("Review the code changes in `git diff %s...HEAD`. Report all bugs, security issues, race conditions, missing error handling, and resource leaks. Be specific with file paths and line numbers.", baseBranch)
+	} else {
+		codexPrompt = "Review the code changes in `git diff` and `git diff --cached`. Report all bugs, security issues, race conditions, missing error handling, and resource leaks. Be specific with file paths and line numbers."
+	}
+
+	// Wire stderr output to event handler
+	l.codexExecutor.OutputHandler = func(text string) {
+		l.emit(event.Review(text))
+		if l.onOutput != nil && l.onEvent == nil {
+			l.onOutput(text)
+		}
+	}
+
+	for iter := 1; iter <= maxIter; iter++ {
+		select {
+		case <-ctx.Done():
+			l.log("Codex loop canceled")
+			return
+		default:
+		}
+
+		l.log(fmt.Sprintf("Codex iteration %d/%d", iter, maxIter))
+		l.logProgressf("Codex iteration %d/%d", iter, maxIter)
+
+		// Run codex
+		result := l.codexExecutor.Run(ctx, codexPrompt)
+		if result.Error != nil {
+			var patternErr *codex.PatternMatchError
+			if errors.As(result.Error, &patternErr) {
+				l.log(fmt.Sprintf("Codex error pattern detected: %s — skipping codex phase", patternErr.Pattern))
+				l.logProgressf("Codex error pattern: %s — skipping", patternErr.Pattern)
+			} else {
+				l.log(fmt.Sprintf("Codex execution failed: %v — skipping codex phase", result.Error))
+				l.logProgressf("Codex execution failed: %v — skipping", result.Error)
+			}
+			return
+		}
+
+		if strings.TrimSpace(result.Output) == "" {
+			l.log("Codex returned empty output — skipping evaluation")
+			return
+		}
+
+		// Check if codex found the done signal (shouldn't happen normally, but handle it)
+		if result.Signal == "<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>" {
+			l.log("Codex review done (signal in codex output)")
+			return
+		}
+
+		// Trim codex output for evaluation (cap at ~32KB to avoid prompt bloat)
+		codexOutput := result.Output
+		if len(codexOutput) > 32*1024 {
+			codexOutput = codexOutput[:32*1024] + "\n... (output truncated)"
+		}
+
+		// Build Claude evaluation prompt
+		var evalPrompt string
+		if l.promptBuilder != nil {
+			data := prompt.CodexEvalData{
+				CodexOutput: codexOutput,
+				BaseBranch:  baseBranch,
+				FilesList:   formatCodexFilesList(filesChanged),
+				AutoCommit:  l.gitConfig.AutoCommit,
+			}
+			if workItem != nil {
+				data.WorkItemID = workItem.ID
+				data.Title = workItem.Title
+				data.RawContent = workItem.RawContent
+			}
+			var err error
+			evalPrompt, err = l.promptBuilder.BuildCodexEval(data)
+			if err != nil {
+				l.log(fmt.Sprintf("Failed to build codex eval prompt: %v — using inline fallback", err))
+				evalPrompt = defaultCodexEvalPrompt(codexOutput, baseBranch, filesChanged)
+			}
+		} else {
+			evalPrompt = defaultCodexEvalPrompt(codexOutput, baseBranch, filesChanged)
+		}
+
+		// Invoke Claude to evaluate and fix
+		l.log("Invoking Claude to evaluate codex findings...")
+		output, err := l.invokeClaudePrint(ctx, evalPrompt)
+		if err != nil {
+			l.log(fmt.Sprintf("Claude invocation failed during codex eval: %v", err))
+			l.logErrorf("Claude invocation failed during codex eval: %v", err)
+			return
+		}
+
+		// Check for done signal in Claude's response
+		if strings.Contains(output, "<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>") {
+			l.log("Codex review complete — Claude confirmed all findings addressed")
+			l.logProgressf("Codex review complete")
+			return
+		}
+
+		// For subsequent iterations, include previous Claude response in the codex prompt
+		var diffCmd string
+		if baseBranch != "" {
+			diffCmd = fmt.Sprintf("git diff %s...HEAD", baseBranch)
+		} else {
+			diffCmd = "git diff and git diff --cached"
+		}
+		codexPrompt = fmt.Sprintf("The previous review findings were partially addressed. Review the code again for remaining issues. Previous review context:\n\n%s\n\nRun `%s` and report any remaining bugs, security issues, race conditions, missing error handling, and resource leaks.",
+			truncateForContext(output, 8*1024), diffCmd)
+	}
+
+	l.log(fmt.Sprintf("Codex review loop reached max iterations (%d) — moving on", maxIter))
+	l.logProgressf("Codex review loop reached max iterations (%d)", maxIter)
+}
+
+// isValidBranchName checks that a branch name contains only expected characters.
+func isValidBranchName(name string) bool {
+	if len(name) == 0 {
+		return false
+	}
+	for _, c := range name {
+		switch {
+		case c >= 'a' && c <= 'z':
+		case c >= 'A' && c <= 'Z':
+		case c >= '0' && c <= '9':
+		case c == '-', c == '_', c == '/', c == '.':
+		default:
+			return false
+		}
+	}
+	// Reject path traversal patterns
+	if strings.Contains(name, "..") {
+		return false
+	}
+	return true
+}
+
+// formatCodexFilesList formats a file list for codex eval prompts.
+func formatCodexFilesList(files []string) string {
+	if len(files) == 0 {
+		return "(no files)"
+	}
+	return "  - " + strings.Join(files, "\n  - ")
+}
+
+// defaultCodexEvalPrompt builds an inline fallback prompt when the template builder is unavailable.
+func defaultCodexEvalPrompt(codexOutput, baseBranch string, filesChanged []string) string {
+	filesList := formatCodexFilesList(filesChanged)
+	return fmt.Sprintf(`You are evaluating findings from a Codex code review.
+
+## Context
+Base branch: %s
+Changed files:
+%s
+
+## Codex Review Output
+
+<codex-review-output>
+%s
+</codex-review-output>
+
+## Instructions
+
+1. Evaluate each finding: Determine if the issue is real and actionable, or a false positive.
+2. Fix confirmed issues: Apply code changes to resolve real issues.
+3. Skip false positives: Do not change code for stylistic preferences or non-issues.
+4. Verify fixes: After making changes, run relevant tests to confirm fixes don't break anything.
+
+## Completion Signal
+
+When ALL actionable findings have been addressed (or if there are no actionable findings), output exactly:
+
+<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>
+
+If there are still issues that need another Codex review pass, do NOT output the signal.
+`, baseBranch, filesList, codexOutput)
+}
+
+// truncateForContext truncates text to maxLen, appending a truncation notice.
+func truncateForContext(text string, maxLen int) string {
+	if len(text) <= maxLen {
+		return text
+	}
+	return text[:maxLen] + "\n... (truncated)"
 }
 
 // setupGitWorkflow initializes the git repo and optionally creates a branch.
@@ -449,6 +709,15 @@ func (l *Loop) handleMultiPhaseReview(rc *runContext) loopAction {
 		l.log(fmt.Sprintf("Review phase %s passed - no issues found", currentPhase.Name))
 		l.addNote(rc, fmt.Sprintf("progress: Review phase %s passed", currentPhase.Name))
 		rc.state.ExitReviewPhase()
+
+		// Run codex loop after the first (comprehensive) phase passes.
+		// DecideReview increments CurrentPhaseIdx to 1 after phase 0 passes,
+		// so checking == 1 means "just finished comprehensive phase".
+		// baseBranch is empty here because the main loop doesn't track a base
+		// branch — codex falls back to `git diff` + `git diff --cached`.
+		if l.codexEnabled && !l.codexDone && l.engine.CurrentPhaseIdx == 1 {
+			l.runCodexLoop(rc.ctx, "", rc.result.TotalFilesChanged, rc.workItem)
+		}
 
 		if decision.AllPhasesDone {
 			l.log("All review phases passed!")
@@ -739,13 +1008,7 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 
 		l.log("Invoking Claude...")
 
-		// Legacy function invoker (set by tests via SetClaudeInvoker) takes
-		// precedence over the llm.Invoker interface used in production.
-		invoker := l.claudeInvoker
-		if invoker == nil {
-			invoker = l.invokeClaudePrint
-		}
-		output, err := invoker(ctx, promptText)
+		output, err := l.invokeClaudePrint(ctx, promptText)
 		if err != nil {
 			l.log(fmt.Sprintf("Claude invocation failed: %v", err))
 			l.logErrorf("Claude invocation failed: %v", err)
@@ -754,8 +1017,18 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 				l.onStateChange(rc.state, rc.workItem, rc.result.TotalFilesChanged)
 			}
 			rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[iter %d] Claude invocation failed: %v", rc.state.Iteration, err))
+			l.consecutiveInvokeErrors++
+			if l.consecutiveInvokeErrors >= 3 {
+				l.log("3 consecutive invocation failures — exiting")
+				l.logErrorf("3 consecutive invocation failures — exiting")
+				rc.result.ExitReason = safety.ExitReasonError
+				rc.result.ExitMessage = fmt.Sprintf("3 consecutive invocation failures, last: %v", err)
+				rc.result.Iterations = rc.state.Iteration
+				return rc.result, nil
+			}
 			continue
 		}
+		l.consecutiveInvokeErrors = 0
 
 		status, err := parser.Parse(output)
 		if err != nil {
@@ -839,16 +1112,23 @@ func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string
 
 	if l.onProcessStats != nil {
 		var stopStats chan struct{}
+		var stopOnce sync.Once
+		closeStats := func() {
+			stopOnce.Do(func() {
+				if stopStats != nil {
+					close(stopStats)
+				}
+			})
+		}
 		opts.OnProcessStart = func(pid int) {
 			stopStats = make(chan struct{})
 			go l.pollProcessStats(pid, stopStats)
 		}
 		opts.OnProcessEnd = func() {
-			if stopStats != nil {
-				close(stopStats)
-			}
+			closeStats()
 			l.onProcessStats(0, 0) // Signal process ended
 		}
+		defer closeStats() // ensure goroutine stops even if Invoke errors before OnProcessEnd
 	}
 
 	res, err := inv.Invoke(ctx, promptText, opts)
@@ -1218,6 +1498,7 @@ func getProcessMemory(pid int) int64 {
 	return rss
 }
 
+// SetClaudeInvoker sets a legacy function-based invoker (used by tests).
 func (l *Loop) SetClaudeInvoker(invoker ClaudeInvoker) {
 	l.claudeInvoker = invoker
 }
@@ -1365,6 +1646,13 @@ func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewO
 		if !passed {
 			return result, nil
 		}
+
+		// Run codex loop after the first (comprehensive) phase passes.
+		// This mirrors handleMultiPhaseReview which checks engine.CurrentPhaseIdx == 1;
+		// here we use phaseIdx == 0 directly since we control the loop variable.
+		if phaseIdx == 0 && l.codexEnabled && !l.codexDone {
+			l.runCodexLoop(ctx, roc.baseBranch, roc.filesChanged, nil)
+		}
 	}
 
 	// All phases passed
@@ -1488,11 +1776,7 @@ func (l *Loop) invokeFixAndProcess(roc *reviewOnlyContext, reviewResult *review.
 	}
 
 	l.log("Invoking Claude to fix review issues...")
-	invoker := l.claudeInvoker
-	if invoker == nil {
-		invoker = l.invokeClaudePrint
-	}
-	output, err := invoker(roc.ctx, promptText)
+	output, err := l.invokeClaudePrint(roc.ctx, promptText)
 	if err != nil {
 		l.log(fmt.Sprintf("Claude invocation failed: %v", err))
 		l.logErrorf("Claude invocation failed: %v", err)

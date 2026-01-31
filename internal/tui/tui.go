@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/worksonmyai/programmator/internal/config"
 	"github.com/worksonmyai/programmator/internal/debug"
 	"github.com/worksonmyai/programmator/internal/domain"
 	"github.com/worksonmyai/programmator/internal/event"
@@ -32,6 +33,7 @@ type TUI struct {
 	progressLogger         *progress.Logger
 	promptBuilder          *prompt.Builder
 	gitWorkflowConfig      *loop.GitWorkflowConfig
+	codexConfig            *config.CodexConfig
 	ticketCommand          string
 }
 
@@ -77,6 +79,10 @@ func (t *TUI) SetGitWorkflowConfig(cfg loop.GitWorkflowConfig) {
 
 func (t *TUI) SetPromptBuilder(b *prompt.Builder) {
 	t.promptBuilder = b
+}
+
+func (t *TUI) SetCodexConfig(cfg config.CodexConfig) {
+	t.codexConfig = &cfg
 }
 
 func (t *TUI) SetTicketCommand(cmd string) {
@@ -180,6 +186,9 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 	}
 	if t.promptBuilder != nil {
 		l.SetPromptBuilder(t.promptBuilder)
+	}
+	if t.codexConfig != nil {
+		l.SetCodexConfig(*t.codexConfig)
 	}
 	if t.ticketCommand != "" {
 		l.SetTicketCommand(t.ticketCommand)

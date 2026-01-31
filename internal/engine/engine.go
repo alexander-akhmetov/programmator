@@ -165,7 +165,9 @@ func (e *Engine) DecideReview(passed bool) ReviewDecision {
 	e.CurrentPhaseIter++
 	e.PendingReviewFix = true
 
-	// Check iteration limit
+	// Check iteration limit.
+	// When PhaseMaxIterFunc is nil, phaseMax stays 0 meaning no retries:
+	// the first failure immediately advances to the next phase.
 	phaseMax := 0
 	if e.PhaseMaxIterFunc != nil {
 		phaseMax = e.PhaseMaxIterFunc(e.CurrentPhaseIdx)

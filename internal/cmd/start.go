@@ -154,6 +154,9 @@ func runStart(_ *cobra.Command, args []string) error {
 		t.SetGitWorkflowConfig(gitConfig)
 	}
 
+	// Wire codex config
+	t.SetCodexConfig(cfg.Codex)
+
 	timing.Log("TUI created, calling Run")
 	_, err = t.Run(ticketID, wd)
 	timing.Log("runStart: TUI.Run returned")

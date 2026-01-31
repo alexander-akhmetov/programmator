@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +23,7 @@ type Prompts struct {
 	ReviewFirst  string // Template for comprehensive review phase
 	ReviewSecond string // Template for critical/major issues review phase
 	PlanCreate   string // Template for interactive plan creation
+	CodexEval    string // Template for evaluating Codex review findings
 }
 
 // promptLoader handles loading prompts with fallback chain.
@@ -71,6 +73,14 @@ func (p *promptLoader) Load(globalDir, localDir string) (*Prompts, error) {
 		return nil, fmt.Errorf("load plan_create prompt: %w", err)
 	}
 
+	// CodexEval is optional — codex is a secondary feature with an inline fallback
+	// prompt in loop.go. A missing template should not block startup, but read
+	// errors (e.g., permission denied, syntax errors) are logged for debugging.
+	prompts.CodexEval, err = p.loadPromptWithLocalFallback(localDir, globalDir, "codex_eval.md")
+	if err != nil {
+		log.Printf("warning: failed to load codex_eval prompt (using inline fallback): %v", err)
+	}
+
 	return &prompts, nil
 }
 
@@ -81,9 +91,9 @@ func (p *promptLoader) loadPromptWithLocalFallback(localDir, globalDir, filename
 	if localDir != "" {
 		content, err := p.loadPromptFile(filepath.Join(localDir, "prompts", filename))
 		if err != nil {
-			return "", err
-		}
-		if content != "" {
+			// Log non-fatal local prompt errors and fall through to global/embedded
+			log.Printf("warning: failed to load local prompt %s: %v (falling back to global/embedded)", filename, err)
+		} else if content != "" {
 			return content, nil
 		}
 	}

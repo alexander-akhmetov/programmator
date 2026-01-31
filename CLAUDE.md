@@ -128,6 +128,7 @@ Prompts use Go `text/template` syntax. Override by placing files in `~/.config/p
 ## Testing
 
 Tests use `stretchr/testify` for assertions. The ticket package has a mock client (`client_mock.go`) for testing without the external CLI. CI runs `go test -race` and `golangci-lint`.
+Tests should use test cases pattern as much as possible to reuse setup and verifying code.
 
 ## Releasing
 

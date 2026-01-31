@@ -6,15 +6,21 @@ package config
 import (
 	"embed"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
 //go:embed defaults/config.yaml
 var defaultsFS embed.FS
+
+// validModelName matches expected model name patterns (alphanumeric, dots, dashes, colons).
+var validModelName = regexp.MustCompile(`^[a-zA-Z0-9._:-]+$`)
 
 // ReviewAgentConfig defines a single review agent configuration.
 type ReviewAgentConfig struct {
@@ -32,6 +38,22 @@ type ReviewPhase struct {
 	SeverityFilter []string            `yaml:"severity_filter,omitempty"` // empty = all severities
 	Agents         []ReviewAgentConfig `yaml:"agents"`
 	Parallel       bool                `yaml:"parallel"`
+}
+
+// CodexConfig holds codex review configuration.
+type CodexConfig struct {
+	Enabled         bool     `yaml:"enabled"`
+	Command         string   `yaml:"command"`
+	Model           string   `yaml:"model"`
+	ReasoningEffort string   `yaml:"reasoning_effort"`
+	TimeoutMs       int      `yaml:"timeout_ms"`
+	Sandbox         string   `yaml:"sandbox"`
+	ProjectDoc      string   `yaml:"project_doc"`
+	ErrorPatterns   []string `yaml:"error_patterns"`
+
+	// Set tracking for merge
+	EnabledSet   bool `yaml:"-"`
+	TimeoutMsSet bool `yaml:"-"`
 }
 
 // ReviewConfig holds review-specific configuration.
@@ -81,6 +103,9 @@ type Config struct {
 
 	// Review settings (nested)
 	Review ReviewConfig `yaml:"review"`
+
+	// Codex review settings (nested)
+	Codex CodexConfig `yaml:"codex"`
 
 	// Prompts (loaded separately, not from YAML)
 	Prompts *Prompts `yaml:"-"`
@@ -248,6 +273,16 @@ func parseConfigWithTracking(data []byte) (*Config, error) {
 		}
 	}
 
+	// Track codex fields
+	if codex, ok := raw["codex"].(map[string]any); ok {
+		if _, ok := codex["enabled"]; ok {
+			cfg.Codex.EnabledSet = true
+		}
+		if _, ok := codex["timeout_ms"]; ok {
+			cfg.Codex.TimeoutMsSet = true
+		}
+	}
+
 	// Track git fields
 	if git, ok := raw["git"].(map[string]any); ok {
 		if _, ok := git["auto_commit"]; ok {
@@ -269,6 +304,8 @@ func (c *Config) applyEnv() {
 			c.MaxIterations = n
 			c.MaxIterationsSet = true
 			c.sources = append(c.sources, "env:PROGRAMMATOR_MAX_ITERATIONS")
+		} else {
+			log.Printf("warning: ignoring invalid PROGRAMMATOR_MAX_ITERATIONS=%q: %v", v, err)
 		}
 	}
 
@@ -277,6 +314,8 @@ func (c *Config) applyEnv() {
 			c.StagnationLimit = n
 			c.StagnationLimitSet = true
 			c.sources = append(c.sources, "env:PROGRAMMATOR_STAGNATION_LIMIT")
+		} else {
+			log.Printf("warning: ignoring invalid PROGRAMMATOR_STAGNATION_LIMIT=%q: %v", v, err)
 		}
 	}
 
@@ -285,6 +324,8 @@ func (c *Config) applyEnv() {
 			c.Timeout = n
 			c.TimeoutSet = true
 			c.sources = append(c.sources, "env:PROGRAMMATOR_TIMEOUT")
+		} else {
+			log.Printf("warning: ignoring invalid PROGRAMMATOR_TIMEOUT=%q: %v", v, err)
 		}
 	}
 
@@ -308,13 +349,129 @@ func (c *Config) applyEnv() {
 		c.sources = append(c.sources, "env:PROGRAMMATOR_TICKET_COMMAND")
 	}
 
+	// Codex env vars
+	if v := os.Getenv("PROGRAMMATOR_CODEX_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			c.Codex.Enabled = b
+			c.Codex.EnabledSet = true
+			c.sources = append(c.sources, "env:PROGRAMMATOR_CODEX_ENABLED")
+		} else {
+			log.Printf("warning: ignoring invalid PROGRAMMATOR_CODEX_ENABLED=%q: %v", v, err)
+		}
+	}
+
+	if v := os.Getenv("PROGRAMMATOR_CODEX_COMMAND"); v != "" {
+		if isValidCommandName(v) {
+			c.Codex.Command = v
+			c.sources = append(c.sources, "env:PROGRAMMATOR_CODEX_COMMAND")
+		} else {
+			log.Printf("warning: ignoring invalid PROGRAMMATOR_CODEX_COMMAND=%q: must be a simple binary name", v)
+		}
+	}
+
+	if v := os.Getenv("PROGRAMMATOR_CODEX_MODEL"); v != "" {
+		if validModelName.MatchString(v) {
+			c.Codex.Model = v
+			c.sources = append(c.sources, "env:PROGRAMMATOR_CODEX_MODEL")
+		} else {
+			log.Printf("warning: ignoring invalid PROGRAMMATOR_CODEX_MODEL=%q: must match [a-zA-Z0-9._:-]+", v)
+		}
+	}
+
+	if v := os.Getenv("PROGRAMMATOR_CODEX_REASONING_EFFORT"); v != "" {
+		if isValidReasoningEffort(v) {
+			c.Codex.ReasoningEffort = v
+			c.sources = append(c.sources, "env:PROGRAMMATOR_CODEX_REASONING_EFFORT")
+		} else {
+			log.Printf("warning: ignoring invalid PROGRAMMATOR_CODEX_REASONING_EFFORT=%q: must be one of low, medium, high, xhigh", v)
+		}
+	}
+
+	if v := os.Getenv("PROGRAMMATOR_CODEX_TIMEOUT_MS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.Codex.TimeoutMs = n
+			c.Codex.TimeoutMsSet = true
+			c.sources = append(c.sources, "env:PROGRAMMATOR_CODEX_TIMEOUT_MS")
+		} else {
+			log.Printf("warning: ignoring invalid PROGRAMMATOR_CODEX_TIMEOUT_MS=%q: %v", v, err)
+		}
+	}
+
+	if v := os.Getenv("PROGRAMMATOR_CODEX_SANDBOX"); v != "" {
+		if isValidSandboxMode(v) {
+			c.Codex.Sandbox = v
+			c.sources = append(c.sources, "env:PROGRAMMATOR_CODEX_SANDBOX")
+		} else {
+			log.Printf("warning: ignoring invalid PROGRAMMATOR_CODEX_SANDBOX=%q: must be one of read-only, network, off", v)
+		}
+	}
+
+	if v := os.Getenv("PROGRAMMATOR_CODEX_PROJECT_DOC"); v != "" {
+		c.Codex.ProjectDoc = v
+		c.sources = append(c.sources, "env:PROGRAMMATOR_CODEX_PROJECT_DOC")
+	}
+
+	if v := os.Getenv("PROGRAMMATOR_CODEX_ERROR_PATTERNS"); v != "" {
+		parts := strings.Split(v, ",")
+		var cleaned []string
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				cleaned = append(cleaned, p)
+			}
+		}
+		c.Codex.ErrorPatterns = cleaned
+		c.sources = append(c.sources, "env:PROGRAMMATOR_CODEX_ERROR_PATTERNS")
+	}
+
 	if v := os.Getenv("PROGRAMMATOR_MAX_REVIEW_ITERATIONS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			c.Review.MaxIterations = n
 			c.Review.MaxIterationsSet = true
 			c.sources = append(c.sources, "env:PROGRAMMATOR_MAX_REVIEW_ITERATIONS")
+		} else {
+			log.Printf("warning: ignoring invalid PROGRAMMATOR_MAX_REVIEW_ITERATIONS=%q: %v", v, err)
 		}
 	}
+}
+
+// validReasoningEfforts are the accepted reasoning effort levels for codex.
+var validReasoningEfforts = map[string]bool{
+	"low": true, "medium": true, "high": true, "xhigh": true,
+}
+
+// isValidReasoningEffort checks that the value is a known reasoning effort level.
+func isValidReasoningEffort(v string) bool {
+	return validReasoningEfforts[v]
+}
+
+// validSandboxModes are the accepted sandbox modes for codex.
+var validSandboxModes = map[string]bool{
+	"read-only": true, "network": true, "off": true,
+}
+
+// isValidSandboxMode checks that the value is a known sandbox mode.
+func isValidSandboxMode(v string) bool {
+	return validSandboxModes[v]
+}
+
+// isValidCommandName checks that a command name contains only safe characters.
+// Rejects names with path separators, shell metacharacters, or whitespace.
+func isValidCommandName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, c := range name {
+		switch {
+		case c >= 'a' && c <= 'z':
+		case c >= 'A' && c <= 'Z':
+		case c >= '0' && c <= '9':
+		case c == '-', c == '_', c == '.':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // mergeFrom merges non-empty/set values from src into c.
@@ -338,6 +495,7 @@ func (c *Config) mergeFrom(src *Config) {
 		c.ClaudeConfigDir = src.ClaudeConfigDir
 	}
 	if src.AnthropicAPIKey != "" {
+		log.Printf("warning: anthropic_api_key loaded from config file — ensure this is a trusted source")
 		c.AnthropicAPIKey = src.AnthropicAPIKey
 	}
 	if src.LogsDir != "" {
@@ -354,6 +512,50 @@ func (c *Config) mergeFrom(src *Config) {
 	}
 	if len(src.Review.Phases) > 0 {
 		c.Review.Phases = src.Review.Phases
+	}
+
+	// Codex config merge
+	if src.Codex.EnabledSet {
+		c.Codex.Enabled = src.Codex.Enabled
+		c.Codex.EnabledSet = true
+	}
+	if src.Codex.Command != "" {
+		if isValidCommandName(src.Codex.Command) {
+			c.Codex.Command = src.Codex.Command
+		} else {
+			log.Printf("warning: ignoring invalid codex.command=%q from config: must be a simple binary name", src.Codex.Command)
+		}
+	}
+	if src.Codex.Model != "" {
+		if validModelName.MatchString(src.Codex.Model) {
+			c.Codex.Model = src.Codex.Model
+		} else {
+			log.Printf("warning: ignoring invalid codex.model=%q from config: must match [a-zA-Z0-9._:-]+", src.Codex.Model)
+		}
+	}
+	if src.Codex.ReasoningEffort != "" {
+		if isValidReasoningEffort(src.Codex.ReasoningEffort) {
+			c.Codex.ReasoningEffort = src.Codex.ReasoningEffort
+		} else {
+			log.Printf("warning: ignoring invalid codex.reasoning_effort=%q from config: must be one of low, medium, high, xhigh", src.Codex.ReasoningEffort)
+		}
+	}
+	if src.Codex.TimeoutMsSet {
+		c.Codex.TimeoutMs = src.Codex.TimeoutMs
+		c.Codex.TimeoutMsSet = true
+	}
+	if src.Codex.Sandbox != "" {
+		if isValidSandboxMode(src.Codex.Sandbox) {
+			c.Codex.Sandbox = src.Codex.Sandbox
+		} else {
+			log.Printf("warning: ignoring invalid codex.sandbox=%q from config: must be one of read-only, network, off", src.Codex.Sandbox)
+		}
+	}
+	if src.Codex.ProjectDoc != "" {
+		c.Codex.ProjectDoc = src.Codex.ProjectDoc
+	}
+	if len(src.Codex.ErrorPatterns) > 0 {
+		c.Codex.ErrorPatterns = src.Codex.ErrorPatterns
 	}
 
 	// Git config merge

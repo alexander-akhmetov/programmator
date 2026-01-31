@@ -78,6 +78,27 @@ func runConfigShow(_ *cobra.Command, _ []string) error {
 	} else {
 		fmt.Printf("  claude_config_dir: (default)\n")
 	}
+	if cfg.AnthropicAPIKey != "" {
+		if len(cfg.AnthropicAPIKey) > 20 {
+			fmt.Printf("  anthropic_api_key: %s...%s\n", cfg.AnthropicAPIKey[:4], cfg.AnthropicAPIKey[len(cfg.AnthropicAPIKey)-4:])
+		} else {
+			fmt.Printf("  anthropic_api_key: ****\n")
+		}
+	} else {
+		fmt.Printf("  anthropic_api_key: (not set)\n")
+	}
+	fmt.Println()
+
+	fmt.Println("## Codex Settings")
+	fmt.Printf("  enabled:          %t\n", cfg.Codex.Enabled)
+	fmt.Printf("  command:          %s\n", cfg.Codex.Command)
+	fmt.Printf("  model:            %s\n", cfg.Codex.Model)
+	fmt.Printf("  reasoning_effort: %s\n", cfg.Codex.ReasoningEffort)
+	fmt.Printf("  timeout_ms:       %d\n", cfg.Codex.TimeoutMs)
+	fmt.Printf("  sandbox:          %s\n", cfg.Codex.Sandbox)
+	if len(cfg.Codex.ErrorPatterns) > 0 {
+		fmt.Printf("  error_patterns:   %s\n", strings.Join(cfg.Codex.ErrorPatterns, ", "))
+	}
 	fmt.Println()
 
 	fmt.Println("## Review Settings")

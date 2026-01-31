@@ -122,6 +122,7 @@ func runReview(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to create prompt builder: %w", err)
 	}
 	reviewLoop.SetPromptBuilder(promptBuilder)
+	reviewLoop.SetCodexConfig(cfg.Codex)
 
 	// Run review-only loop
 	result, err := reviewLoop.RunReviewOnly(reviewBaseBranch, filesChanged)

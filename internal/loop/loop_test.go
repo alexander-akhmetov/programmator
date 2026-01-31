@@ -10,8 +10,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/worksonmyai/programmator/internal/codex"
+	"github.com/worksonmyai/programmator/internal/config"
 	"github.com/worksonmyai/programmator/internal/domain"
 	"github.com/worksonmyai/programmator/internal/event"
+	"github.com/worksonmyai/programmator/internal/llm"
 	"github.com/worksonmyai/programmator/internal/parser"
 	"github.com/worksonmyai/programmator/internal/prompt"
 	"github.com/worksonmyai/programmator/internal/protocol"
@@ -19,6 +22,18 @@ import (
 	"github.com/worksonmyai/programmator/internal/safety"
 	"github.com/worksonmyai/programmator/internal/source"
 )
+
+type fakeInvoker struct {
+	fn func(ctx context.Context, prompt string) (string, error)
+}
+
+func (f *fakeInvoker) Invoke(ctx context.Context, prompt string, _ llm.InvokeOptions) (*llm.InvokeResult, error) {
+	text, err := f.fn(ctx, prompt)
+	if err != nil {
+		return nil, err
+	}
+	return &llm.InvokeResult{Text: text}, nil
+}
 
 func TestNewLoop(t *testing.T) {
 	config := safety.Config{
@@ -424,7 +439,7 @@ func TestRunWithMockInvokerDone(t *testing.T) {
 	l.SetReviewConfig(singleAgentReviewConfig())
 	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return `Some output
 PROGRAMMATOR_STATUS:
   phase_completed: "Phase 1"
@@ -432,7 +447,7 @@ PROGRAMMATOR_STATUS:
   files_changed: ["main.go"]
   summary: "Completed the task"
 `, nil
-	})
+	}})
 
 	result, err := l.Run("test-123")
 
@@ -458,7 +473,7 @@ func TestRunWithMockInvokerBlocked(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
 	l := NewWithSource(config, "", nil, nil, false, mock)
 
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
   phase_completed: null
   status: BLOCKED
@@ -466,7 +481,7 @@ func TestRunWithMockInvokerBlocked(t *testing.T) {
   summary: "Stuck on something"
   error: "Cannot proceed"
 `, nil
-	})
+	}})
 
 	result, err := l.Run("test-123")
 
@@ -503,10 +518,10 @@ func TestRunWithMockInvokerNoStatus(t *testing.T) {
 	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
 	invokeCount := 0
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		invokeCount++
 		return "Some output without status block", nil
-	})
+	}})
 
 	result, err := l.Run("test-123")
 
@@ -529,15 +544,18 @@ func TestRunWithMockInvokerError(t *testing.T) {
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
 	l := NewWithSource(config, "", nil, nil, false, mock)
+	l.SetReviewConfig(singleAgentReviewConfig())
 
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return "", fmt.Errorf("claude error")
-	})
+	}})
 
 	result, err := l.Run("test-123")
 
 	require.NoError(t, err)
-	require.Equal(t, safety.ExitReasonStagnation, result.ExitReason)
+	// 3 consecutive invocation failures triggers early exit
+	require.Equal(t, safety.ExitReasonError, result.ExitReason)
+	require.Contains(t, result.ExitMessage, "3 consecutive invocation failures")
 }
 
 func TestRunMaxIterations(t *testing.T) {
@@ -555,14 +573,14 @@ func TestRunMaxIterations(t *testing.T) {
 	config := safety.Config{MaxIterations: 3, StagnationLimit: 10, Timeout: 60}
 	l := NewWithSource(config, "", nil, nil, false, mock)
 
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
   phase_completed: null
   status: CONTINUE
   files_changed: ["file.go"]
   summary: "Working on it"
 `, nil
-	})
+	}})
 
 	result, err := l.Run("test-123")
 
@@ -586,14 +604,14 @@ func TestRunStagnation(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 2, Timeout: 60}
 	l := NewWithSource(config, "", nil, nil, false, mock)
 
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
   phase_completed: null
   status: CONTINUE
   files_changed: []
   summary: "Thinking..."
 `, nil
-	})
+	}})
 
 	result, err := l.Run("test-123")
 
@@ -617,7 +635,7 @@ func TestRunFilesChanged(t *testing.T) {
 	config := safety.Config{MaxIterations: 3, StagnationLimit: 10, Timeout: 60}
 	l := NewWithSource(config, "", nil, nil, false, mock)
 
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		invocation++
 		files := fmt.Sprintf(`["file%d.go"]`, invocation)
 		if invocation == 2 {
@@ -629,7 +647,7 @@ func TestRunFilesChanged(t *testing.T) {
   files_changed: %s
   summary: "Working"
 `, files), nil
-	})
+	}})
 
 	result, err := l.Run("test-123")
 
@@ -691,11 +709,11 @@ func TestRunParseError(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
 	l := NewWithSource(config, "", nil, nil, false, mock)
 
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
   this is invalid yaml: [
 `, nil
-	})
+	}})
 
 	result, err := l.Run("test-123")
 
@@ -719,7 +737,7 @@ func TestRunContextCancellation(t *testing.T) {
 	l := NewWithSource(config, "", nil, nil, false, mock)
 
 	invocations := 0
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		invocations++
 		if invocations == 1 {
 			l.Stop()
@@ -730,7 +748,7 @@ func TestRunContextCancellation(t *testing.T) {
   files_changed: ["a.go"]
   summary: "Working"
 `, nil
-	})
+	}})
 
 	result, err := l.Run("test-123")
 
@@ -774,7 +792,7 @@ func TestRunReviewOnlyFailsMaxIterations(t *testing.T) {
 	l.SetReviewRunner(mockRunner)
 
 	// Mock Claude invoker to return CONTINUE
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
   phase_completed: null
   status: CONTINUE
@@ -782,7 +800,7 @@ func TestRunReviewOnlyFailsMaxIterations(t *testing.T) {
   summary: "Fixed one issue"
   commit_made: true
 `, nil
-	})
+	}})
 
 	result, err := l.RunReviewOnly("main", []string{"file.go"})
 
@@ -802,7 +820,7 @@ func TestRunReviewOnlyBlocked(t *testing.T) {
 	l.SetReviewRunner(mockRunner)
 
 	// Mock Claude invoker to return BLOCKED
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
   phase_completed: null
   status: BLOCKED
@@ -810,7 +828,7 @@ func TestRunReviewOnlyBlocked(t *testing.T) {
   summary: "Cannot fix this issue"
   error: "Requires human intervention"
 `, nil
-	})
+	}})
 
 	result, err := l.RunReviewOnly("main", []string{"file.go"})
 
@@ -837,7 +855,7 @@ func TestRunReviewOnlyFixAndPass(t *testing.T) {
 	l.SetReviewRunner(mockRunner)
 
 	// Mock Claude invoker to return CONTINUE with files fixed
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
   phase_completed: null
   status: CONTINUE
@@ -845,7 +863,7 @@ func TestRunReviewOnlyFixAndPass(t *testing.T) {
   summary: "Fixed the issue"
   commit_made: true
 `, nil
-	})
+	}})
 
 	result, err := l.RunReviewOnly("main", []string{"file.go"})
 
@@ -886,9 +904,9 @@ func TestRunReviewOnlyInvokerError(t *testing.T) {
 	l.SetReviewRunner(mockRunner)
 
 	// Mock Claude invoker to return error
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return "", fmt.Errorf("claude error")
-	})
+	}})
 
 	result, err := l.RunReviewOnly("main", []string{"file.go"})
 
@@ -915,7 +933,7 @@ func TestRunReviewOnlyTracksFilesFixed(t *testing.T) {
 
 	// Mock Claude invoker to return different files each time
 	claudeCall := 0
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		claudeCall++
 		files := fmt.Sprintf(`["file%d.go"]`, claudeCall)
 		return fmt.Sprintf(`PROGRAMMATOR_STATUS:
@@ -925,7 +943,7 @@ func TestRunReviewOnlyTracksFilesFixed(t *testing.T) {
   summary: "Fixed issue %d"
   commit_made: true
 `, files, claudeCall), nil
-	})
+	}})
 
 	result, err := l.RunReviewOnly("main", []string{"file.go"})
 
@@ -952,14 +970,14 @@ func TestRunReviewOnlyAutoCommit(t *testing.T) {
 
 	// Mock Claude invoker to return CONTINUE with files fixed but NO commit_made
 	// (auto-commit will fail since we're in /tmp, but that's OK for this test)
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
   phase_completed: null
   status: CONTINUE
   files_changed: ["file.go"]
   summary: "Fixed the issue"
 `, nil
-	})
+	}})
 
 	result, err := l.RunReviewOnly("main", []string{"file.go"})
 
@@ -1117,7 +1135,7 @@ func TestRunReviewOnlyNoStatusBlock(t *testing.T) {
 
 	// Mock Claude invoker to return output without PROGRAMMATOR_STATUS block
 	claudeCall := 0
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		claudeCall++
 		if claudeCall <= 2 {
 			// No status block - should be handled gracefully
@@ -1130,7 +1148,7 @@ func TestRunReviewOnlyNoStatusBlock(t *testing.T) {
   files_changed: ["file.go"]
   summary: "Fixed the issue"
 `, nil
-	})
+	}})
 
 	result, err := l.RunReviewOnly("main", []string{"file.go"})
 
@@ -1194,14 +1212,14 @@ func TestRunReviewOnlyStagnation(t *testing.T) {
 	l.SetReviewRunner(mockRunner)
 
 	// Mock Claude invoker that never changes any files (should trigger stagnation)
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
   phase_completed: null
   status: CONTINUE
   files_changed: []
   summary: "Thinking about how to fix this"
 `, nil
-	})
+	}})
 
 	result, err := l.RunReviewOnly("main", []string{"file.go"})
 
@@ -1259,7 +1277,7 @@ func TestRunReviewOnlyStateCallback(t *testing.T) {
 	l.SetReviewRunner(mockRunner)
 
 	// Mock Claude invoker so we go through the fix loop
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
   phase_completed: null
   status: CONTINUE
@@ -1267,7 +1285,7 @@ func TestRunReviewOnlyStateCallback(t *testing.T) {
   summary: "Fixed the issue"
   commit_made: true
 `, nil
-	})
+	}})
 
 	result, err := l.RunReviewOnly("main", []string{"file.go"})
 
@@ -1311,7 +1329,7 @@ func TestRunReviewOnlyDeduplicatesFilesFixed(t *testing.T) {
 	l.SetReviewRunner(mockRunner)
 
 	// Mock Claude invoker that returns the same file multiple times
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
   phase_completed: null
   status: CONTINUE
@@ -1319,7 +1337,7 @@ func TestRunReviewOnlyDeduplicatesFilesFixed(t *testing.T) {
   summary: "Fixed the issue"
   commit_made: true
 `, nil
-	})
+	}})
 
 	result, err := l.RunReviewOnly("main", []string{"file.go"})
 
@@ -1371,7 +1389,7 @@ func TestRunWithPlanSource_UpdatesCheckboxes(t *testing.T) {
 
 	// Mock Claude to complete first task, then second task
 	invocation := 0
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		invocation++
 		if invocation == 1 {
 			return `PROGRAMMATOR_STATUS:
@@ -1387,7 +1405,7 @@ func TestRunWithPlanSource_UpdatesCheckboxes(t *testing.T) {
   files_changed: ["file2.go"]
   summary: "Completed second task"
 `, nil
-	})
+	}})
 
 	result, err := l.Run(planPath)
 	require.NoError(t, err)
@@ -1426,14 +1444,14 @@ func TestRunPhaselessTicket_CompletesOnDone(t *testing.T) {
 	}))
 
 	// Mock Claude to report DONE on first invocation
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
   phase_completed: null
   status: DONE
   files_changed: ["main.go"]
   summary: "Completed the entire task"
 `, nil
-	})
+	}})
 
 	result, err := l.Run("phaseless-123")
 
@@ -1468,7 +1486,7 @@ func TestRunPhaselessTicket_ContinuesUntilDone(t *testing.T) {
 
 	// Mock Claude to work for 3 iterations before reporting DONE
 	invocation := 0
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		invocation++
 		if invocation < 3 {
 			return fmt.Sprintf(`PROGRAMMATOR_STATUS:
@@ -1484,7 +1502,7 @@ func TestRunPhaselessTicket_ContinuesUntilDone(t *testing.T) {
   files_changed: ["final.go"]
   summary: "Task completed"
 `, nil
-	})
+	}})
 
 	result, err := l.Run("phaseless-456")
 
@@ -1517,14 +1535,14 @@ func TestRunPhaselessTicket_SafetyLimitsStillApply(t *testing.T) {
 	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
 	// Mock Claude to never make progress (no files changed)
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
   phase_completed: null
   status: CONTINUE
   files_changed: []
   summary: "Still thinking..."
 `, nil
-	})
+	}})
 
 	result, err := l.Run("phaseless-stag")
 
@@ -1549,7 +1567,7 @@ func TestRunPhaselessTicket_BlockedHandled(t *testing.T) {
 	l.SetReviewConfig(singleAgentReviewConfig())
 	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
   phase_completed: null
   status: BLOCKED
@@ -1557,7 +1575,7 @@ func TestRunPhaselessTicket_BlockedHandled(t *testing.T) {
   summary: "Cannot proceed"
   error: "Missing required credentials"
 `, nil
-	})
+	}})
 
 	result, err := l.Run("phaseless-blocked")
 
@@ -1657,7 +1675,7 @@ func TestHandleMultiPhaseReview_IterationLimitOneAllowsFix(t *testing.T) {
 
 	// Claude is invoked to fix the issues
 	claudeInvoked := false
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		claudeInvoked = true
 		return `PROGRAMMATOR_STATUS:
   phase_completed: null
@@ -1665,7 +1683,7 @@ func TestHandleMultiPhaseReview_IterationLimitOneAllowsFix(t *testing.T) {
   files_changed: ["fix.go"]
   summary: "Fixed the issues"
 `, nil
-	})
+	}})
 
 	result, err := l.Run("test-123")
 
@@ -1742,7 +1760,7 @@ func TestMainLoopUsesReviewFixPromptWhenPendingFix(t *testing.T) {
 
 	// Capture the prompt text sent to Claude
 	var capturedPrompt string
-	l.SetClaudeInvoker(func(_ context.Context, p string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, p string) (string, error) {
 		capturedPrompt = p
 		return `PROGRAMMATOR_STATUS:
   phase_completed: null
@@ -1750,7 +1768,7 @@ func TestMainLoopUsesReviewFixPromptWhenPendingFix(t *testing.T) {
   files_changed: ["fix.go"]
   summary: "Fixed the issues"
 `, nil
-	})
+	}})
 
 	result, err := l.Run("test-123")
 
@@ -1787,7 +1805,7 @@ func TestMainLoopUsesPromptBuilderForTaskPrompt(t *testing.T) {
 
 	// Capture the prompt text sent to Claude
 	var capturedPrompt string
-	l.SetClaudeInvoker(func(_ context.Context, p string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, p string) (string, error) {
 		capturedPrompt = p
 		return `PROGRAMMATOR_STATUS:
   phase_completed: "Phase 1"
@@ -1795,7 +1813,7 @@ func TestMainLoopUsesPromptBuilderForTaskPrompt(t *testing.T) {
   files_changed: ["app.go"]
   summary: "Done"
 `, nil
-	})
+	}})
 
 	result, err := l.Run("test-456")
 
@@ -1841,7 +1859,7 @@ func TestHandleMultiPhaseReview_UsesReviewConfigMaxIterations(t *testing.T) {
 	l.SetReviewRunner(mockRunner)
 
 	claudeCallCount := 0
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		claudeCallCount++
 		return `PROGRAMMATOR_STATUS:
   phase_completed: null
@@ -1849,7 +1867,7 @@ func TestHandleMultiPhaseReview_UsesReviewConfigMaxIterations(t *testing.T) {
   files_changed: ["fix.go"]
   summary: "Attempted fix"
 `, nil
-	})
+	}})
 
 	result, err := l.Run("test-123")
 
@@ -1934,7 +1952,7 @@ func TestRunReviewOnlyPhaseProgression(t *testing.T) {
 	})
 	l.SetReviewRunner(mockRunner)
 
-	l.SetClaudeInvoker(func(_ context.Context, _ string) (string, error) {
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
   phase_completed: null
   status: CONTINUE
@@ -1942,7 +1960,7 @@ func TestRunReviewOnlyPhaseProgression(t *testing.T) {
   summary: "Fixed issues"
   commit_made: true
 `, nil
-	})
+	}})
 
 	result, err := l.RunReviewOnly("main", []string{"file.go"})
 
@@ -1953,6 +1971,595 @@ func TestRunReviewOnlyPhaseProgression(t *testing.T) {
 	// Phase 2: review(pass) = 1 iteration
 	// Total = 3
 	require.Equal(t, 3, result.Iterations)
+}
+
+// Codex integration tests
+
+func TestSetCodexConfig_DisabledByConfig(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+	l.SetCodexConfig(config.CodexConfig{Enabled: false, Command: "codex"})
+
+	require.False(t, l.codexEnabled)
+	require.Nil(t, l.codexExecutor)
+}
+
+func TestSetCodexConfig_DisabledWhenBinaryMissing(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+	// Use a command that definitely doesn't exist
+	l.SetCodexConfig(config.CodexConfig{Enabled: true, Command: "nonexistent-codex-binary-12345"})
+
+	require.False(t, l.codexEnabled)
+	require.Nil(t, l.codexExecutor)
+}
+
+func TestCodexMaxIterations(t *testing.T) {
+	tests := []struct {
+		name          string
+		maxIterations int
+		expected      int
+	}{
+		{"default min", 10, 3},     // 10/5=2, min 3
+		{"exact boundary", 15, 3},  // 15/5=3, exactly min
+		{"above boundary", 50, 10}, // 50/5=10
+		{"zero", 0, 3},             // 0/5=0, min 3
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			l := New(safety.Config{}, "", nil, nil, false)
+			l.SetReviewConfig(review.Config{MaxIterations: tc.maxIterations})
+
+			require.Equal(t, tc.expected, l.codexMaxIterations())
+		})
+	}
+}
+
+func TestRunCodexLoop_SkipsWhenDisabled(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+	l.codexEnabled = false
+
+	// Set up a mock executor that fails the test if called
+	runner := &mockCodexRunner{
+		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
+			t.Fatal("codex runner should not be called when disabled")
+			return codex.Streams{}, nil, nil
+		},
+	}
+	l.codexExecutor = newMockCodexExecutor(runner)
+
+	ctx := context.Background()
+	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
+
+	require.False(t, l.codexDone)
+}
+
+func TestRunCodexLoop_SkipsWhenAlreadyDone(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+	l.codexEnabled = true
+	l.codexDone = true
+
+	// Set up a mock executor that fails the test if called
+	runner := &mockCodexRunner{
+		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
+			t.Fatal("codex runner should not be called when already done")
+			return codex.Streams{}, nil, nil
+		},
+	}
+	l.codexExecutor = newMockCodexExecutor(runner)
+
+	ctx := context.Background()
+	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
+
+	require.True(t, l.codexDone)
+}
+
+func TestRunReviewOnly_SkipsCodexWhenDisabled(t *testing.T) {
+	cfg := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
+	l := New(cfg, "/tmp", nil, nil, false)
+	l.SetReviewConfig(review.Config{
+		MaxIterations: 10,
+		Phases: []review.Phase{
+			{Name: "comprehensive", Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
+			{Name: "critical_loop", Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
+		},
+	})
+	l.codexEnabled = false
+
+	mockRunner := createMockReviewRunner(t, false, 0)
+	l.SetReviewRunner(mockRunner)
+
+	result, err := l.RunReviewOnly("main", []string{"file.go"})
+
+	require.NoError(t, err)
+	require.True(t, result.Passed)
+	require.False(t, l.codexDone) // codex was never run
+}
+
+func TestMainLoop_SkipsCodexWhenDisabled(t *testing.T) {
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
+			ID:    "test-codex-1",
+			Title: "Test Codex Skip",
+			Phases: []domain.Phase{
+				{Name: "Phase 1", Completed: true},
+			},
+		}, nil
+	}
+
+	cfg := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := NewWithSource(cfg, "", nil, nil, false, mock)
+	l.SetReviewConfig(singleAgentReviewConfig())
+	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
+	l.codexEnabled = false
+
+	result, err := l.Run("test-codex-1")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	require.False(t, l.codexDone) // codex was never run
+}
+
+func TestDefaultCodexEvalPrompt(t *testing.T) {
+	prompt := defaultCodexEvalPrompt("codex output here", "main", []string{"file1.go", "file2.go"})
+
+	require.Contains(t, prompt, "codex output here")
+	require.Contains(t, prompt, "main")
+	require.Contains(t, prompt, "file1.go")
+	require.Contains(t, prompt, "file2.go")
+	require.Contains(t, prompt, "<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>")
+
+	// Signal must appear exactly once
+	signalCount := strings.Count(prompt, "<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>")
+	require.Equal(t, 1, signalCount, "done signal should appear exactly once in prompt")
+
+	// Codex output should be wrapped in delimiters
+	require.Contains(t, prompt, "<codex-review-output>")
+	require.Contains(t, prompt, "</codex-review-output>")
+}
+
+func TestDefaultCodexEvalPrompt_EmptyBaseBranch(t *testing.T) {
+	prompt := defaultCodexEvalPrompt("codex output", "", []string{"file.go"})
+
+	require.Contains(t, prompt, "codex output")
+	require.Contains(t, prompt, "file.go")
+	require.Contains(t, prompt, "<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>")
+	// Empty baseBranch should show empty string (not a branch name)
+	require.NotContains(t, prompt, "git diff main")
+}
+
+func TestTruncateForContext(t *testing.T) {
+	short := "short text"
+	require.Equal(t, short, truncateForContext(short, 100))
+
+	long := strings.Repeat("a", 200)
+	result := truncateForContext(long, 50)
+	require.Len(t, result, 50+len("\n... (truncated)"))
+	require.Contains(t, result, "... (truncated)")
+
+	// Boundary: length exactly equals maxLen — no truncation
+	exact := strings.Repeat("b", 50)
+	require.Equal(t, exact, truncateForContext(exact, 50))
+}
+
+func TestIsValidBranchName(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{"simple", "main", true},
+		{"with slash", "feature/foo", true},
+		{"with dots", "release-1.2.3", true},
+		{"with underscore", "my_branch", true},
+		{"uppercase", "Feature/FOO", true},
+		{"empty", "", false},
+		{"with space", "main branch", false},
+		{"with semicolon", "main;rm -rf /", false},
+		{"with backtick", "main`whoami`", false},
+		{"with dollar", "main$HOME", false},
+		{"with pipe", "main|cat", false},
+		{"with ampersand", "main&&echo", false},
+		{"path traversal", "feature/../../main", false},
+		{"double dots", "branch..lock", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, isValidBranchName(tc.input))
+		})
+	}
+}
+
+func TestFormatCodexFilesList(t *testing.T) {
+	require.Equal(t, "(no files)", formatCodexFilesList(nil))
+	require.Equal(t, "(no files)", formatCodexFilesList([]string{}))
+	require.Equal(t, "  - a.go\n  - b.go", formatCodexFilesList([]string{"a.go", "b.go"}))
+}
+
+// mockCodexRunner implements codex.Runner for testing.
+type mockCodexRunner struct {
+	runFunc func(ctx context.Context, name string, args ...string) (codex.Streams, func() error, error)
+}
+
+func (m *mockCodexRunner) Run(ctx context.Context, name string, args ...string) (codex.Streams, func() error, error) {
+	return m.runFunc(ctx, name, args...)
+}
+
+func newMockCodexExecutor(runner codex.Runner) *codex.Executor {
+	e := &codex.Executor{}
+	e.SetRunner(runner)
+	return e
+}
+
+func TestRunCodexLoop_ExitsEarlyOnSignalInCodexOutput(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+	l.SetReviewConfig(review.Config{MaxIterations: 15})
+	l.codexEnabled = true
+
+	callCount := 0
+	runner := &mockCodexRunner{
+		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
+			callCount++
+			stderr := "--------\nmodel: gpt-5\n--------\n"
+			stdout := "Found 1 issue: unused variable\n<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>"
+			return codex.Streams{
+				Stderr: strings.NewReader(stderr),
+				Stdout: strings.NewReader(stdout),
+			}, func() error { return nil }, nil
+		},
+	}
+	l.codexExecutor = newMockCodexExecutor(runner)
+
+	// Set up a fake invoker — should NOT be called because done signal is in codex stdout
+	invokerCalled := false
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		invokerCalled = true
+		return "<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>", nil
+	}})
+
+	ctx := context.Background()
+	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
+
+	require.True(t, l.codexDone)
+	require.Equal(t, 1, callCount)
+	require.False(t, invokerCalled, "Claude invoker should not be called when done signal is in codex output")
+}
+
+func TestRunCodexLoop_MaxIterations(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+	l.SetReviewConfig(review.Config{MaxIterations: 15}) // codexMaxIterations = 15/5 = 3
+	l.codexEnabled = true
+
+	callCount := 0
+	runner := &mockCodexRunner{
+		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
+			callCount++
+			stderr := ""
+			stdout := "Found issues but no done signal"
+			return codex.Streams{
+				Stderr: strings.NewReader(stderr),
+				Stdout: strings.NewReader(stdout),
+			}, func() error { return nil }, nil
+		},
+	}
+	l.codexExecutor = newMockCodexExecutor(runner)
+
+	// Claude eval never returns done signal, so loop should hit max iterations
+	invokerCallCount := 0
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		invokerCallCount++
+		return "some eval output without done signal", nil
+	}})
+
+	ctx := context.Background()
+	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
+
+	require.True(t, l.codexDone)
+	require.Equal(t, 3, callCount, "codex should be called once per iteration")
+	require.Equal(t, 3, invokerCallCount, "Claude invoker should be called once per iteration to evaluate codex findings")
+}
+
+func TestRunCodexLoop_PatternMatchError(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+	l.SetReviewConfig(review.Config{MaxIterations: 15})
+	l.codexEnabled = true
+
+	runner := &mockCodexRunner{
+		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
+			stderr := ""
+			stdout := "Rate limit exceeded, please wait"
+			return codex.Streams{
+				Stderr: strings.NewReader(stderr),
+				Stdout: strings.NewReader(stdout),
+			}, func() error { return nil }, nil
+		},
+	}
+	executor := newMockCodexExecutor(runner)
+	executor.ErrorPatterns = []string{"Rate limit"}
+	l.codexExecutor = executor
+
+	ctx := context.Background()
+	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
+
+	require.True(t, l.codexDone)
+}
+
+func TestRunCodexLoop_ContextCancellation(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+	l.SetReviewConfig(review.Config{MaxIterations: 50})
+	l.codexEnabled = true
+
+	executorCalled := false
+	runner := &mockCodexRunner{
+		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
+			executorCalled = true
+			return codex.Streams{
+				Stderr: strings.NewReader(""),
+				Stdout: strings.NewReader("some output"),
+			}, func() error { return nil }, nil
+		},
+	}
+	l.codexExecutor = newMockCodexExecutor(runner)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
+
+	require.True(t, l.codexDone)
+	require.False(t, executorCalled, "codex executor should not be called when context is already canceled")
+}
+
+func TestRunCodexLoop_InvalidBranchName(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+	l.SetReviewConfig(review.Config{MaxIterations: 15})
+	l.codexEnabled = true
+
+	var capturedPrompt string
+	runner := &mockCodexRunner{
+		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
+			return codex.Streams{
+				Stderr: strings.NewReader(""),
+				Stdout: strings.NewReader("review output with issues found"),
+			}, func() error { return nil }, nil
+		},
+	}
+	l.codexExecutor = newMockCodexExecutor(runner)
+
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, p string) (string, error) {
+		capturedPrompt = p
+		return "<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>", nil
+	}})
+
+	ctx := context.Background()
+	l.runCodexLoop(ctx, "main;rm -rf /", []string{"file.go"}, nil)
+
+	require.True(t, l.codexDone)
+	// Invalid branch should be sanitized to empty
+	require.NotContains(t, capturedPrompt, "main;rm -rf /")
+	// Claude eval prompt should not contain the malicious branch name
+	require.NotContains(t, capturedPrompt, "rm -rf")
+	// With empty baseBranch (sanitized), eval prompt should not reference any branch-based diff
+	require.NotContains(t, capturedPrompt, "git diff main")
+	// Base branch in eval prompt should be empty (sanitized)
+	require.Contains(t, capturedPrompt, "Base branch: \n")
+	// Verify the codex prompt uses the fallback diff command for empty baseBranch
+	// (the first codex invocation prompt is not captured here, but the eval prompt
+	// should not reference branch-based diffs)
+}
+
+func TestRunCodexLoop_GeneralError(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+	l.SetReviewConfig(review.Config{MaxIterations: 15})
+	l.codexEnabled = true
+
+	runner := &mockCodexRunner{
+		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
+			return codex.Streams{
+				Stderr: strings.NewReader(""),
+				Stdout: strings.NewReader(""),
+			}, func() error { return fmt.Errorf("connection refused") }, nil
+		},
+	}
+	l.codexExecutor = newMockCodexExecutor(runner)
+
+	invokerCalled := false
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		invokerCalled = true
+		return "", nil
+	}})
+
+	ctx := context.Background()
+	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
+
+	require.True(t, l.codexDone)
+	require.False(t, invokerCalled, "Claude should not be invoked when codex returns an error")
+}
+
+func TestRunCodexLoop_RunnerStartError(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+	l.SetReviewConfig(review.Config{MaxIterations: 15})
+	l.codexEnabled = true
+
+	runner := &mockCodexRunner{
+		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
+			return codex.Streams{}, nil, fmt.Errorf("binary not found")
+		},
+	}
+	l.codexExecutor = newMockCodexExecutor(runner)
+
+	// Claude should not be invoked if codex fails to start
+	invokerCalled := false
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		invokerCalled = true
+		return "", nil
+	}})
+
+	ctx := context.Background()
+	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
+
+	require.True(t, l.codexDone)
+	require.False(t, invokerCalled, "Claude should not be invoked when codex runner fails to start")
+}
+
+func TestRunCodexLoop_EmptyOutput(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+	l.SetReviewConfig(review.Config{MaxIterations: 15})
+	l.codexEnabled = true
+
+	runner := &mockCodexRunner{
+		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
+			return codex.Streams{
+				Stderr: strings.NewReader(""),
+				Stdout: strings.NewReader("   \n  \n"),
+			}, func() error { return nil }, nil
+		},
+	}
+	l.codexExecutor = newMockCodexExecutor(runner)
+
+	// Should not reach Claude invocation
+	invokerCalled := false
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		invokerCalled = true
+		return "", nil
+	}})
+
+	ctx := context.Background()
+	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
+
+	require.True(t, l.codexDone)
+	require.False(t, invokerCalled, "Claude should not be invoked for empty codex output")
+}
+
+func TestRunCodexLoop_SignalInCodexOutput(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+	l.SetReviewConfig(review.Config{MaxIterations: 15})
+	l.codexEnabled = true
+
+	runner := &mockCodexRunner{
+		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
+			stdout := "No issues found\n<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>"
+			return codex.Streams{
+				Stderr: strings.NewReader(""),
+				Stdout: strings.NewReader(stdout),
+			}, func() error { return nil }, nil
+		},
+	}
+	l.codexExecutor = newMockCodexExecutor(runner)
+
+	// When the done signal appears in codex stdout, the loop detects it and
+	// returns early, marking codex as done without invoking Claude.
+	invokerCalled := false
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		invokerCalled = true
+		return "", nil
+	}})
+
+	ctx := context.Background()
+	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
+
+	require.True(t, l.codexDone)
+	require.False(t, invokerCalled, "Claude should not be invoked when codex output contains done signal")
+}
+
+func TestRunCodexLoop_ClaudeInvocationFailure(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+	l.SetReviewConfig(review.Config{MaxIterations: 15})
+	l.codexEnabled = true
+
+	runner := &mockCodexRunner{
+		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
+			return codex.Streams{
+				Stderr: strings.NewReader(""),
+				Stdout: strings.NewReader("Found issues in main.go"),
+			}, func() error { return nil }, nil
+		},
+	}
+	l.codexExecutor = newMockCodexExecutor(runner)
+
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		return "", fmt.Errorf("claude invocation timed out")
+	}})
+
+	ctx := context.Background()
+	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
+
+	require.True(t, l.codexDone)
+}
+
+func TestRunCodexLoop_BuildCodexEvalFallback(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+	l.SetReviewConfig(review.Config{MaxIterations: 15})
+	l.codexEnabled = true
+
+	runner := &mockCodexRunner{
+		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
+			return codex.Streams{
+				Stderr: strings.NewReader(""),
+				Stdout: strings.NewReader("Found issue in main.go:10"),
+			}, func() error { return nil }, nil
+		},
+	}
+	l.codexExecutor = newMockCodexExecutor(runner)
+
+	// promptBuilder is nil by default in New(), so defaultCodexEvalPrompt is used
+	var capturedPrompt string
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, p string) (string, error) {
+		capturedPrompt = p
+		return "<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>", nil
+	}})
+
+	ctx := context.Background()
+	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
+
+	require.True(t, l.codexDone)
+	// Should use the inline fallback template
+	require.Contains(t, capturedPrompt, "You are evaluating findings from a Codex code review")
+	require.Contains(t, capturedPrompt, "Found issue in main.go:10")
+	require.Contains(t, capturedPrompt, "file.go")
+}
+
+func TestRunCodexLoop_BuildCodexEvalError(t *testing.T) {
+	l := New(safety.Config{}, "", nil, nil, false)
+	l.SetReviewConfig(review.Config{MaxIterations: 15})
+	l.codexEnabled = true
+
+	runner := &mockCodexRunner{
+		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
+			return codex.Streams{
+				Stderr: strings.NewReader(""),
+				Stdout: strings.NewReader("Found issue in main.go:10"),
+			}, func() error { return nil }, nil
+		},
+	}
+	l.codexExecutor = newMockCodexExecutor(runner)
+
+	// Create a Builder without CodexEval template loaded (empty CodexEval triggers error)
+	builder, err := prompt.NewBuilder(&config.Prompts{
+		Phased:       "{{.ID}}",
+		Phaseless:    "{{.ID}}",
+		ReviewFirst:  "{{.BaseBranch}}",
+		ReviewSecond: "{{.BaseBranch}}",
+		PlanCreate:   "{{.Description}}",
+		CodexEval:    "", // empty → codexEvalTmpl is nil → BuildCodexEval returns error
+	})
+	require.NoError(t, err)
+	l.SetPromptBuilder(builder)
+
+	var capturedPrompt string
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, p string) (string, error) {
+		capturedPrompt = p
+		return "<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>", nil
+	}})
+
+	ctx := context.Background()
+	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
+
+	require.True(t, l.codexDone)
+	// Should fall back to inline default prompt when BuildCodexEval fails
+	require.Contains(t, capturedPrompt, "You are evaluating findings from a Codex code review")
+	require.Contains(t, capturedPrompt, "Found issue in main.go:10")
 }
 
 func TestWorkItemHelpers_Phaseless(t *testing.T) {
@@ -2012,4 +2619,37 @@ func TestWorkItemHelpers_Phaseless(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestConsecutiveInvocationFailures(t *testing.T) {
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
+			ID:    "test-consec-1",
+			Title: "Test Consecutive Failures",
+			Phases: []domain.Phase{
+				{Name: "Phase 1", Completed: false},
+			},
+		}, nil
+	}
+
+	cfg := safety.Config{MaxIterations: 20, StagnationLimit: 20, Timeout: 60}
+	l := NewWithSource(cfg, "", nil, nil, false, mock)
+	l.SetReviewConfig(review.Config{
+		MaxIterations: 10,
+		Phases:        []review.Phase{{Name: "comprehensive", Agents: []review.AgentConfig{{Name: "test"}}}},
+	})
+
+	invokeCount := 0
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		invokeCount++
+		return "", fmt.Errorf("connection refused")
+	}})
+
+	result, err := l.Run("test-consec-1")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonError, result.ExitReason)
+	require.Contains(t, result.ExitMessage, "3 consecutive invocation failures")
+	require.Equal(t, 3, invokeCount)
 }
