@@ -18,7 +18,7 @@ func TestLoadEmbedded(t *testing.T) {
 	assert.Equal(t, 3, cfg.StagnationLimit)
 	assert.Equal(t, 900, cfg.Timeout)
 	assert.Equal(t, "", cfg.ClaudeFlags)
-	assert.Equal(t, 10, cfg.Review.MaxIterations)
+	assert.Equal(t, 3, cfg.Review.MaxIterations)
 	assert.True(t, cfg.Review.Parallel)
 	assert.Len(t, cfg.Review.Agents, 9)
 }
