@@ -393,10 +393,22 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 		return loopReturn
 	}
 
-	l.log(fmt.Sprintf("Review iteration %d/%d",
-		l.engine.ReviewIterations+1, l.engine.MaxReviewIter))
+	// Check iteration limit before running the review to avoid a wasted
+	// cycle whose results would never be acted on.
+	l.engine.ReviewIterations++
+	if l.engine.MaxReviewIter > 0 && l.engine.ReviewIterations >= l.engine.MaxReviewIter {
+		l.log(fmt.Sprintf("Review iteration limit reached (%d/%d) - completing",
+			l.engine.ReviewIterations, l.engine.MaxReviewIter))
+		l.addNote(rc, fmt.Sprintf("warning: Review iteration limit reached (%d)",
+			l.engine.MaxReviewIter))
+		rc.state.ExitReviewPhase()
+		return l.completeAllPhases(rc)
+	}
 
-	l.logReviewStart(l.engine.ReviewIterations+1, l.engine.MaxReviewIter)
+	l.log(fmt.Sprintf("Review iteration %d/%d",
+		l.engine.ReviewIterations, l.engine.MaxReviewIter))
+
+	l.logReviewStart(l.engine.ReviewIterations, l.engine.MaxReviewIter)
 	rc.state.EnterReviewPhase()
 	if l.reviewRunner == nil {
 		l.applySettingsToReviewConfig()
@@ -430,16 +442,6 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 	if errorCount > 0 {
 		l.log(fmt.Sprintf("Review agent errors (%d) - retrying review without invoking Claude", errorCount))
 		l.addNote(rc, fmt.Sprintf("warning: Review agent errors (%d) - retrying review", errorCount))
-
-		l.engine.ReviewIterations++
-		if l.engine.MaxReviewIter > 0 && l.engine.ReviewIterations >= l.engine.MaxReviewIter {
-			l.log(fmt.Sprintf("Review exceeded max iterations (%d) with agent errors",
-				l.engine.MaxReviewIter))
-			l.addNote(rc, fmt.Sprintf("warning: Review exceeded max iterations with agent errors (%d)",
-				errorCount))
-			rc.state.ExitReviewPhase()
-			return l.completeAllPhases(rc)
-		}
 
 		l.engine.PendingReviewFix = false
 		l.engine.ReviewPassed = false
