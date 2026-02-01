@@ -1970,9 +1970,9 @@ func TestRunReviewOnly_SingleMaxIterationsLimit(t *testing.T) {
 
 	require.NoError(t, err)
 	require.False(t, result.Passed, "should not pass when always finding issues")
-	// With MaxIterations=2, first iteration finds issues and triggers fix,
-	// second iteration finds issues again and hits the limit
-	require.LessOrEqual(t, claudeCallCount, 2)
+	// With MaxIterations=2: review 1 finds issues → fix (1 Claude call),
+	// review 2 hits limit before running → complete without fix
+	require.Equal(t, 1, claudeCallCount)
 }
 
 func TestWorkItemHelpers_Phaseless(t *testing.T) {
