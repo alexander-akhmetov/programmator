@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	DefaultMaxIterations = 10
+	DefaultMaxIterations = 3
 )
 
 // Config holds the review configuration.

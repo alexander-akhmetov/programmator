@@ -40,7 +40,7 @@ codex:
 
 # Review settings
 review:
-  max_iterations: 10        # Maximum review fix iterations
+  max_iterations: 3         # Maximum review fix iterations
   parallel: true             # Run agents in parallel
 
   agents:
