@@ -19,8 +19,8 @@ func TestDefaultConfig(t *testing.T) {
 	for i, a := range cfg.Agents {
 		names[i] = a.Name
 	}
-	require.Contains(t, names, "quality")
-	require.Contains(t, names, "quality-2")
+	require.Contains(t, names, "error-handling")
+	require.Contains(t, names, "logic")
 	require.Contains(t, names, "security")
 	require.Contains(t, names, "implementation")
 	require.Contains(t, names, "testing")
