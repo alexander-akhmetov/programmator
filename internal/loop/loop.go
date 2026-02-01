@@ -3,7 +3,6 @@ package loop
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -14,8 +13,6 @@ import (
 
 	"github.com/aymanbagabas/go-udiff"
 
-	"github.com/worksonmyai/programmator/internal/codex"
-	"github.com/worksonmyai/programmator/internal/config"
 	"github.com/worksonmyai/programmator/internal/domain"
 	"github.com/worksonmyai/programmator/internal/event"
 	gitutil "github.com/worksonmyai/programmator/internal/git"
@@ -101,12 +98,6 @@ type Loop struct {
 	gitConfig GitWorkflowConfig
 	gitRepo   *gitutil.Repo
 
-	// Codex review configuration
-	codexConfig   config.CodexConfig
-	codexEnabled  bool
-	codexDone     bool
-	codexExecutor *codex.Executor
-
 	// Track consecutive invocation failures to exit early on persistent errors
 	consecutiveInvokeErrors int
 }
@@ -140,13 +131,7 @@ func NewWithSource(config safety.Config, workingDir string, onOutput OutputCallb
 // SetReviewConfig sets the review configuration.
 func (l *Loop) SetReviewConfig(cfg review.Config) {
 	l.reviewConfig = cfg
-	l.engine.ReviewPhaseCount = len(cfg.Phases)
-	l.engine.PhaseMaxIterFunc = func(phaseIdx int) int {
-		if phaseIdx < len(cfg.Phases) {
-			return cfg.Phases[phaseIdx].MaxIterations(cfg.MaxIterations)
-		}
-		return 0
-	}
+	l.engine.MaxReviewIter = cfg.MaxIterations
 }
 
 // SetReviewOnly enables review-only mode (skips task phases).
@@ -165,263 +150,19 @@ func (l *Loop) SetProgressLogger(logger *progress.Logger) {
 	l.progressLogger = logger
 }
 
-// SetGitWorkflowConfig sets the git workflow configuration.
+// SetTicketCommand sets the ticket CLI command name.
 func (l *Loop) SetTicketCommand(cmd string) {
 	l.ticketCommand = cmd
 }
 
+// SetGitWorkflowConfig sets the git workflow configuration.
 func (l *Loop) SetGitWorkflowConfig(cfg GitWorkflowConfig) {
 	l.gitConfig = cfg
 }
 
-// SetCodexConfig sets the codex review configuration and initializes the executor.
-// If the codex binary is not found, codex is disabled with a warning.
-func (l *Loop) SetCodexConfig(cfg config.CodexConfig) {
-	l.codexConfig = cfg
-	if !cfg.Enabled {
-		l.codexEnabled = false
-		return
-	}
-	cmd := cfg.Command
-	if cmd == "" {
-		cmd = "codex"
-	}
-	if _, found := codex.DetectBinary(cmd); !found {
-		l.log(fmt.Sprintf("Codex binary %q not found in PATH — codex review disabled", cmd))
-		l.logProgressf("Codex binary %q not found — disabled", cmd)
-		l.codexEnabled = false
-		return
-	}
-	l.codexEnabled = true
-	l.codexExecutor = &codex.Executor{
-		Command:         cfg.Command,
-		Model:           cfg.Model,
-		ReasoningEffort: cfg.ReasoningEffort,
-		TimeoutMs:       cfg.TimeoutMs,
-		Sandbox:         cfg.Sandbox,
-		ProjectDoc:      cfg.ProjectDoc,
-		ErrorPatterns:   cfg.ErrorPatterns,
-	}
-}
-
-// codexMaxIterations returns the iteration budget for the codex loop.
-// Uses max(3, review.MaxIterations/5).
-func (l *Loop) codexMaxIterations() int {
-	base := l.reviewConfig.MaxIterations / 5
-	if base < 3 {
-		return 3
-	}
-	return base
-}
-
-// runCodexLoop runs the codex→Claude eval→repeat loop.
-// It advances the codex review phase as far as possible within the iteration budget,
-// updating internal loop state and logging progress.
-func (l *Loop) runCodexLoop(ctx context.Context, baseBranch string, filesChanged []string, workItem *domain.WorkItem) {
-	if !l.codexEnabled || l.codexDone {
-		return
-	}
-	if l.codexExecutor == nil {
-		l.log("Warning: codex enabled but executor is nil — skipping codex loop")
-		return
-	}
-	// Fail-once semantics: mark done before any work so codex runs at most once
-	// per loop invocation, even if it fails or returns early due to errors.
-	// This is intentional — codex is advisory and should not block the main loop.
-	l.codexDone = true
-
-	// Sanitize baseBranch to prevent prompt injection
-	if baseBranch != "" && !isValidBranchName(baseBranch) {
-		baseBranch = ""
-	}
-
-	maxIter := l.codexMaxIterations()
-	l.log(fmt.Sprintf("Starting codex review loop (max %d iterations)", maxIter))
-	l.logProgressf("Starting codex review loop (max %d iterations)", maxIter)
-
-	// Build the codex review prompt (what to review)
-	var codexPrompt string
-	if baseBranch != "" {
-		codexPrompt = fmt.Sprintf("Review the code changes in `git diff %s...HEAD`. Report all bugs, security issues, race conditions, missing error handling, and resource leaks. Be specific with file paths and line numbers.", baseBranch)
-	} else {
-		codexPrompt = "Review the code changes in `git diff` and `git diff --cached`. Report all bugs, security issues, race conditions, missing error handling, and resource leaks. Be specific with file paths and line numbers."
-	}
-
-	// Wire stderr output to event handler
-	l.codexExecutor.OutputHandler = func(text string) {
-		l.emit(event.Review(text))
-		if l.onOutput != nil && l.onEvent == nil {
-			l.onOutput(text)
-		}
-	}
-
-	for iter := 1; iter <= maxIter; iter++ {
-		select {
-		case <-ctx.Done():
-			l.log("Codex loop canceled")
-			return
-		default:
-		}
-
-		l.log(fmt.Sprintf("Codex iteration %d/%d", iter, maxIter))
-		l.logProgressf("Codex iteration %d/%d", iter, maxIter)
-
-		// Run codex
-		result := l.codexExecutor.Run(ctx, codexPrompt)
-		if result.Error != nil {
-			var patternErr *codex.PatternMatchError
-			if errors.As(result.Error, &patternErr) {
-				l.log(fmt.Sprintf("Codex error pattern detected: %s — skipping codex phase", patternErr.Pattern))
-				l.logProgressf("Codex error pattern: %s — skipping", patternErr.Pattern)
-			} else {
-				l.log(fmt.Sprintf("Codex execution failed: %v — skipping codex phase", result.Error))
-				l.logProgressf("Codex execution failed: %v — skipping", result.Error)
-			}
-			return
-		}
-
-		if strings.TrimSpace(result.Output) == "" {
-			l.log("Codex returned empty output — skipping evaluation")
-			return
-		}
-
-		// Check if codex found the done signal (shouldn't happen normally, but handle it)
-		if result.Signal == "<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>" {
-			l.log("Codex review done (signal in codex output)")
-			return
-		}
-
-		// Trim codex output for evaluation (cap at ~32KB to avoid prompt bloat)
-		codexOutput := result.Output
-		if len(codexOutput) > 32*1024 {
-			codexOutput = codexOutput[:32*1024] + "\n... (output truncated)"
-		}
-
-		// Build Claude evaluation prompt
-		var evalPrompt string
-		if l.promptBuilder != nil {
-			data := prompt.CodexEvalData{
-				CodexOutput: codexOutput,
-				BaseBranch:  baseBranch,
-				FilesList:   formatCodexFilesList(filesChanged),
-				AutoCommit:  l.gitConfig.AutoCommit,
-			}
-			if workItem != nil {
-				data.WorkItemID = workItem.ID
-				data.Title = workItem.Title
-				data.RawContent = workItem.RawContent
-			}
-			var err error
-			evalPrompt, err = l.promptBuilder.BuildCodexEval(data)
-			if err != nil {
-				l.log(fmt.Sprintf("Failed to build codex eval prompt: %v — using inline fallback", err))
-				evalPrompt = defaultCodexEvalPrompt(codexOutput, baseBranch, filesChanged)
-			}
-		} else {
-			evalPrompt = defaultCodexEvalPrompt(codexOutput, baseBranch, filesChanged)
-		}
-
-		// Invoke Claude to evaluate and fix
-		l.log("Invoking Claude to evaluate codex findings...")
-		output, err := l.invokeClaudePrint(ctx, evalPrompt)
-		if err != nil {
-			l.log(fmt.Sprintf("Claude invocation failed during codex eval: %v", err))
-			l.logErrorf("Claude invocation failed during codex eval: %v", err)
-			return
-		}
-
-		// Check for done signal in Claude's response
-		if strings.Contains(output, "<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>") {
-			l.log("Codex review complete — Claude confirmed all findings addressed")
-			l.logProgressf("Codex review complete")
-			return
-		}
-
-		// For subsequent iterations, include previous Claude response in the codex prompt
-		var diffCmd string
-		if baseBranch != "" {
-			diffCmd = fmt.Sprintf("git diff %s...HEAD", baseBranch)
-		} else {
-			diffCmd = "git diff and git diff --cached"
-		}
-		codexPrompt = fmt.Sprintf("The previous review findings were partially addressed. Review the code again for remaining issues. Previous review context:\n\n%s\n\nRun `%s` and report any remaining bugs, security issues, race conditions, missing error handling, and resource leaks.",
-			truncateForContext(output, 8*1024), diffCmd)
-	}
-
-	l.log(fmt.Sprintf("Codex review loop reached max iterations (%d) — moving on", maxIter))
-	l.logProgressf("Codex review loop reached max iterations (%d)", maxIter)
-}
-
-// isValidBranchName checks that a branch name contains only expected characters.
-func isValidBranchName(name string) bool {
-	if len(name) == 0 {
-		return false
-	}
-	for _, c := range name {
-		switch {
-		case c >= 'a' && c <= 'z':
-		case c >= 'A' && c <= 'Z':
-		case c >= '0' && c <= '9':
-		case c == '-', c == '_', c == '/', c == '.':
-		default:
-			return false
-		}
-	}
-	// Reject path traversal patterns
-	if strings.Contains(name, "..") {
-		return false
-	}
-	return true
-}
-
-// formatCodexFilesList formats a file list for codex eval prompts.
-func formatCodexFilesList(files []string) string {
-	if len(files) == 0 {
-		return "(no files)"
-	}
-	return "  - " + strings.Join(files, "\n  - ")
-}
-
-// defaultCodexEvalPrompt builds an inline fallback prompt when the template builder is unavailable.
-func defaultCodexEvalPrompt(codexOutput, baseBranch string, filesChanged []string) string {
-	filesList := formatCodexFilesList(filesChanged)
-	return fmt.Sprintf(`You are evaluating findings from a Codex code review.
-
-## Context
-Base branch: %s
-Changed files:
-%s
-
-## Codex Review Output
-
-<codex-review-output>
-%s
-</codex-review-output>
-
-## Instructions
-
-1. Evaluate each finding: Determine if the issue is real and actionable, or a false positive.
-2. Fix confirmed issues: Apply code changes to resolve real issues.
-3. Skip false positives: Do not change code for stylistic preferences or non-issues.
-4. Verify fixes: After making changes, run relevant tests to confirm fixes don't break anything.
-
-## Completion Signal
-
-When ALL actionable findings have been addressed (or if there are no actionable findings), output exactly:
-
-<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>
-
-If there are still issues that need another Codex review pass, do NOT output the signal.
-`, baseBranch, filesList, codexOutput)
-}
-
-// truncateForContext truncates text to maxLen, appending a truncation notice.
-func truncateForContext(text string, maxLen int) string {
-	if len(text) <= maxLen {
-		return text
-	}
-	return text[:maxLen] + "\n... (truncated)"
-}
+// SetCodexConfig is a no-op kept for backward compatibility.
+// Codex is now configured as a review agent in review.agents.
+func (l *Loop) SetCodexConfig(_ any) {}
 
 // setupGitWorkflow initializes the git repo and optionally creates a branch.
 func (l *Loop) setupGitWorkflow(sourceID string, isPlan bool) error {
@@ -558,6 +299,7 @@ const (
 	loopContinue loopAction = iota
 	loopReturn
 	loopBreakToClaudeInvocation
+	loopRetryReview
 )
 
 // runContext holds mutable state for a single Run invocation.
@@ -611,7 +353,7 @@ func (l *Loop) checkContextCanceled(rc *runContext) loopAction {
 
 // handleAllPhasesComplete handles the logic when the task is complete.
 // Returns loopReturn if we should exit, loopBreakToClaudeInvocation if we should invoke Claude,
-// or loopContinue to proceed normally.
+// loopRetryReview to re-run review without invoking Claude, or loopContinue to proceed normally.
 func (l *Loop) handleAllPhasesComplete(rc *runContext) loopAction {
 	taskComplete := rc.taskCompleted || rc.workItem.AllPhasesComplete()
 	if !taskComplete && !l.reviewOnly {
@@ -626,20 +368,27 @@ func (l *Loop) handleAllPhasesComplete(rc *runContext) loopAction {
 
 	// Check if we should run review
 	if !l.engine.ReviewPassed {
-		return l.handleMultiPhaseReview(rc)
+		return l.handleReview(rc)
 	}
 
 	// No review needed or already passed
 	return l.completeAllPhases(rc)
 }
 
-// handleMultiPhaseReview handles the multi-phase review system.
-// It runs the review, then uses the engine to decide next steps.
-func (l *Loop) handleMultiPhaseReview(rc *runContext) loopAction {
-	phases := l.reviewConfig.Phases
+func countReviewErrors(results []*review.Result) int {
+	errorCount := 0
+	for _, res := range results {
+		if res.Error != nil {
+			errorCount++
+		}
+	}
+	return errorCount
+}
 
-	if len(phases) == 0 {
-		err := fmt.Errorf("review enabled but no review phases configured (review.phases)")
+// handleReview runs a single review iteration and decides next steps.
+func (l *Loop) handleReview(rc *runContext) loopAction {
+	if len(l.reviewConfig.Agents) == 0 {
+		err := fmt.Errorf("review enabled but no review agents configured (review.agents)")
 		l.log(err.Error())
 		l.addNote(rc, fmt.Sprintf("error: %s", err.Error()))
 		rc.result.ExitReason = safety.ExitReasonError
@@ -647,118 +396,89 @@ func (l *Loop) handleMultiPhaseReview(rc *runContext) loopAction {
 		return loopReturn
 	}
 
-	for {
-		// Check if all phases are done
-		if l.engine.CurrentPhaseIdx >= len(phases) {
-			l.engine.ReviewPassed = true
-			l.log("All review phases passed!")
-			l.addNote(rc, "progress: All review phases passed")
+	l.log(fmt.Sprintf("Review iteration %d/%d",
+		l.engine.ReviewIterations+1, l.engine.MaxReviewIter))
+
+	l.logReviewStart(l.engine.ReviewIterations+1, l.engine.MaxReviewIter)
+	rc.state.EnterReviewPhase()
+	if l.reviewRunner == nil {
+		l.applySettingsToReviewConfig()
+		l.applyReviewContext(rc.workItem)
+		var outputCallback review.OutputCallback
+		if l.onOutput != nil && l.onEvent == nil {
+			outputCallback = func(text string) {
+				l.onOutput(text)
+			}
+		}
+		l.reviewRunner = review.NewRunner(l.reviewConfig, outputCallback)
+		if l.onEvent != nil {
+			l.reviewRunner.SetEventCallback(event.Handler(l.onEvent))
+		}
+	}
+
+	reviewResult, err := l.reviewRunner.RunIteration(rc.ctx, l.workingDir, rc.result.TotalFilesChanged)
+	if err != nil {
+		l.log(fmt.Sprintf("Review error: %v", err))
+		l.addNote(rc, fmt.Sprintf("error: Review failed: %v", err))
+		rc.result.ExitReason = safety.ExitReasonError
+		rc.result.ExitMessage = err.Error()
+		rc.result.Iterations = rc.state.Iteration
+		return loopReturn
+	}
+
+	rc.state.RecordReviewIteration()
+	l.logReviewResult(reviewResult.Passed, reviewResult.TotalIssues)
+
+	errorCount := countReviewErrors(reviewResult.Results)
+	if errorCount > 0 {
+		l.log(fmt.Sprintf("Review agent errors (%d) - retrying review without invoking Claude", errorCount))
+		l.addNote(rc, fmt.Sprintf("warning: Review agent errors (%d) - retrying review", errorCount))
+
+		l.engine.ReviewIterations++
+		if l.engine.MaxReviewIter > 0 && l.engine.ReviewIterations >= l.engine.MaxReviewIter {
+			l.log(fmt.Sprintf("Review exceeded max iterations (%d) with agent errors",
+				l.engine.MaxReviewIter))
+			l.addNote(rc, fmt.Sprintf("warning: Review exceeded max iterations with agent errors (%d)",
+				errorCount))
+			rc.state.ExitReviewPhase()
 			return l.completeAllPhases(rc)
 		}
 
-		currentPhase := phases[l.engine.CurrentPhaseIdx]
-		phaseMaxIter := currentPhase.MaxIterations(l.reviewConfig.MaxIterations)
-
-		l.log(fmt.Sprintf("Review phase %d/%d: %s (iter %d/%d)",
-			l.engine.CurrentPhaseIdx+1, len(phases), currentPhase.Name,
-			l.engine.CurrentPhaseIter+1, phaseMaxIter+1))
-
-		// Run the current phase's agents (I/O)
-		l.logReviewStart(l.engine.CurrentPhaseIter+1, phaseMaxIter+1)
-		rc.state.EnterReviewPhase()
-		if l.reviewRunner == nil {
-			l.applySettingsToReviewConfig()
-			l.applyReviewContext(rc.workItem)
-			var outputCallback review.OutputCallback
-			if l.onOutput != nil && l.onEvent == nil {
-				outputCallback = func(text string) {
-					l.onOutput(text)
-				}
-			}
-			l.reviewRunner = review.NewRunner(l.reviewConfig, outputCallback)
-			if l.onEvent != nil {
-				l.reviewRunner.SetEventCallback(event.Handler(l.onEvent))
-			}
-		}
-
-		reviewResult, err := l.reviewRunner.RunPhase(rc.ctx, l.workingDir, rc.result.TotalFilesChanged, currentPhase)
-		if err != nil {
-			l.log(fmt.Sprintf("Review phase error: %v", err))
-			l.addNote(rc, fmt.Sprintf("error: Review phase %s failed: %v", currentPhase.Name, err))
-			rc.result.ExitReason = safety.ExitReasonError
-			rc.result.Iterations = rc.state.Iteration
-			return loopReturn
-		}
-
-		// Apply severity filter if configured
-		if len(currentPhase.SeverityFilter) > 0 {
-			reviewResult = reviewResult.FilterBySeverity(currentPhase.SeverityFilter)
-		}
-
-		rc.state.RecordReviewIteration()
-		l.logReviewResult(reviewResult.Passed, reviewResult.TotalIssues)
-
-		// Use engine to decide what to do next
-		decision := l.engine.DecideReview(reviewResult.Passed)
-
-		if decision.ExitError != "" {
-			l.log(decision.ExitError)
-			l.addNote(rc, fmt.Sprintf("error: %s", decision.ExitError))
-			rc.result.ExitReason = safety.ExitReasonError
-			rc.result.ExitMessage = decision.ExitError
-			return loopReturn
-		}
-
-		if decision.PhasePassed {
-			l.log(fmt.Sprintf("Review phase %s passed - no issues found", currentPhase.Name))
-			l.addNote(rc, fmt.Sprintf("progress: Review phase %s passed", currentPhase.Name))
-			rc.state.ExitReviewPhase()
-
-			// Run codex loop after the first (comprehensive) phase passes.
-			// DecideReview increments CurrentPhaseIdx to 1 after phase 0 passes,
-			// so checking == 1 means "just finished comprehensive phase".
-			// baseBranch is empty here because the main loop doesn't track a base
-			// branch — codex falls back to `git diff` + `git diff --cached`.
-			if l.codexEnabled && !l.codexDone && l.engine.CurrentPhaseIdx == 1 {
-				l.runCodexLoop(rc.ctx, "", rc.result.TotalFilesChanged, rc.workItem)
-			}
-
-			if decision.AllPhasesDone {
-				l.log("All review phases passed!")
-				l.addNote(rc, "progress: All review phases passed")
-				return l.completeAllPhases(rc)
-			}
-			// Continue to next phase
-			continue
-		}
-
-		// Phase found issues
-		l.log(fmt.Sprintf("Review phase %s found %d issues", currentPhase.Name, reviewResult.TotalIssues))
-		issueNote := review.FormatIssuesMarkdown(reviewResult.Results)
-		l.addNote(rc, fmt.Sprintf("review: [phase %s, iter %d] Found %d issues:\n%s",
-			currentPhase.Name, l.engine.CurrentPhaseIter, reviewResult.TotalIssues, issueNote))
-
-		l.lastReviewIssues = issueNote
-
-		if decision.ExceededLimit {
-			l.log(fmt.Sprintf("Review phase %s exceeded max iterations (%d) - moving to next phase", currentPhase.Name, phaseMaxIter))
-			l.addNote(rc, fmt.Sprintf("warning: Review phase %s exceeded max iterations with %d issues remaining - moving on",
-				currentPhase.Name, reviewResult.TotalIssues))
-			rc.state.ExitReviewPhase()
-
-			if decision.AllPhasesDone {
-				return l.completeAllPhases(rc)
-			}
-			// Continue to next phase
-			continue
-		}
-
-		// NeedsFix: invoke Claude to fix issues
-		rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[phase %s, iter %d] Review found %d issues - please fix them:\n%s",
-			currentPhase.Name, l.engine.CurrentPhaseIter, reviewResult.TotalIssues, issueNote))
-
-		return loopBreakToClaudeInvocation
+		l.engine.PendingReviewFix = false
+		l.engine.ReviewPassed = false
+		return loopRetryReview
 	}
+
+	decision := l.engine.DecideReview(reviewResult.Passed)
+
+	if decision.Passed {
+		l.log("Review passed - no issues found")
+		l.addNote(rc, "progress: Review passed")
+		rc.state.ExitReviewPhase()
+		return l.completeAllPhases(rc)
+	}
+
+	issueNote := review.FormatIssuesMarkdown(reviewResult.Results)
+	l.lastReviewIssues = issueNote
+
+	if decision.ExceededLimit {
+		l.log(fmt.Sprintf("Review exceeded max iterations (%d) with %d issues remaining",
+			l.engine.MaxReviewIter, reviewResult.TotalIssues))
+		l.addNote(rc, fmt.Sprintf("warning: Review exceeded max iterations with %d issues remaining",
+			reviewResult.TotalIssues))
+		rc.state.ExitReviewPhase()
+		return l.completeAllPhases(rc)
+	}
+
+	// NeedsFix: invoke Claude to fix issues
+	l.log(fmt.Sprintf("Review found %d issues", reviewResult.TotalIssues))
+	l.addNote(rc, fmt.Sprintf("review: [iter %d] Found %d issues:\n%s",
+		l.engine.ReviewIterations, reviewResult.TotalIssues, issueNote))
+
+	rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[iter %d] Review found %d issues - please fix them:\n%s",
+		l.engine.ReviewIterations, reviewResult.TotalIssues, issueNote))
+
+	return loopBreakToClaudeInvocation
 }
 
 // completeAllPhases marks the work item as complete and returns.
@@ -908,8 +628,8 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 	l.logProgressf("Starting on %s %s: %s", src.Type(), workItemID, workItem.Title)
 
 	// Validate review config before changing ticket state
-	if len(l.reviewConfig.Phases) == 0 {
-		err := fmt.Errorf("review enabled but no review phases configured (review.phases)")
+	if len(l.reviewConfig.Agents) == 0 {
+		err := fmt.Errorf("review enabled but no review agents configured (review.agents)")
 		l.log(err.Error())
 		result.ExitReason = safety.ExitReasonError
 		result.ExitMessage = err.Error()
@@ -960,6 +680,9 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 		if action == loopReturn {
 			return rc.result, nil
 		}
+		if action == loopRetryReview {
+			continue
+		}
 		// If action == loopBreakToClaudeInvocation, we fall through to invoke Claude
 
 		rc.state.Iteration++
@@ -989,7 +712,7 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 		if l.engine.PendingReviewFix {
 			// Use review fix prompt with the stored issues so review templates apply
 			var promptErr error
-			promptText, promptErr = l.buildReviewFixPrompt("", rc.result.TotalFilesChanged, l.lastReviewIssues, l.engine.CurrentPhaseIter)
+			promptText, promptErr = l.buildReviewFixPrompt("", rc.result.TotalFilesChanged, l.lastReviewIssues, l.engine.ReviewIterations)
 			if promptErr != nil {
 				l.log(fmt.Sprintf("Failed to build review fix prompt: %v, falling back to task prompt", promptErr))
 				promptText = prompt.Build(rc.workItem, rc.progressNotes)
@@ -1594,8 +1317,8 @@ func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewO
 	}
 	defer func() { result.Duration = time.Since(startTime) }()
 
-	if len(l.reviewConfig.Phases) == 0 {
-		err := fmt.Errorf("review enabled but no review phases configured (review.phases)")
+	if len(l.reviewConfig.Agents) == 0 {
+		err := fmt.Errorf("review enabled but no review agents configured (review.agents)")
 		result.ExitReason = safety.ExitReasonError
 		result.LastReviewErr = err
 		l.log(err.Error())
@@ -1627,38 +1350,78 @@ func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewO
 		filesFixedSet: make(map[string]struct{}),
 	}
 
-	// Iterate through all review phases
-	for phaseIdx := 0; phaseIdx < len(l.reviewConfig.Phases); phaseIdx++ {
-		phase := l.reviewConfig.Phases[phaseIdx]
-		phaseMaxIter := phase.MaxIterations(l.reviewConfig.MaxIterations)
-		l.engine.CurrentPhaseIdx = phaseIdx // for buildReviewFixPrompt template selection
+	maxIter := l.reviewConfig.MaxIterations
+	if maxIter <= 0 {
+		maxIter = review.DefaultMaxIterations
+	}
 
-		l.log(fmt.Sprintf("Review phase %d/%d: %s", phaseIdx+1, len(l.reviewConfig.Phases), phase.Name))
+	// Single review loop: review → fix → re-review
+	for iter := 0; ; iter++ {
+		if l.checkReviewOnlyStop(roc) {
+			return result, nil
+		}
 
-		passed, earlyReturn, err := l.runReviewOnlyPhase(roc, phase, phaseMaxIter)
+		roc.state.Iteration++
+		roc.result.Iterations = roc.state.Iteration
+
+		checkResult := safety.Check(l.config, roc.state)
+		if checkResult.ShouldExit {
+			l.log(fmt.Sprintf("Safety exit: %s", checkResult.Reason))
+			roc.result.ExitReason = checkResult.Reason
+			return result, nil
+		}
+
+		l.logIterationSeparator(roc.state.Iteration, maxIter)
+		l.log(fmt.Sprintf("Review iteration %d/%d", iter+1, maxIter))
+		l.logReviewStart(iter+1, maxIter)
+
+		// Run review
+		l.log("Running code review...")
+		reviewResult, err := l.reviewRunner.RunIteration(roc.ctx, l.workingDir, roc.filesChanged)
+		roc.state.RecordReviewIteration()
+		if err != nil {
+			l.log(fmt.Sprintf("Review error: %v", err))
+			roc.result.LastReviewErr = err
+			roc.result.ExitReason = safety.ExitReasonError
+			return result, err
+		}
+
+		roc.result.FinalReview = reviewResult
+		roc.result.TotalIssues = reviewResult.TotalIssues
+		l.logReviewResult(reviewResult.Passed, reviewResult.TotalIssues)
+
+		errorCount := countReviewErrors(reviewResult.Results)
+		if errorCount > 0 {
+			l.log(fmt.Sprintf("Review agent errors (%d) - retrying review without invoking Claude", errorCount))
+			if iter+1 >= maxIter {
+				l.log(fmt.Sprintf("Review exceeded max iterations (%d) with agent errors - stopping", maxIter))
+				return result, nil
+			}
+			continue
+		}
+
+		if reviewResult.Passed {
+			l.log("Review passed - no issues found!")
+			result.Passed = true
+			result.ExitReason = safety.ExitReasonComplete
+			return result, nil
+		}
+
+		l.log(fmt.Sprintf("Review found %d issues - invoking Claude to fix", reviewResult.TotalIssues))
+
+		if iter+1 >= maxIter {
+			l.log(fmt.Sprintf("Review exceeded max iterations (%d) - stopping", maxIter))
+			return result, nil
+		}
+
+		earlyReturn, err := l.invokeFixAndProcess(roc, reviewResult)
 		if err != nil {
 			return result, err
 		}
 		if earlyReturn {
 			return result, nil
 		}
-		if !passed {
-			return result, nil
-		}
-
-		// Run codex loop after the first (comprehensive) phase passes.
-		// This mirrors handleMultiPhaseReview which checks engine.CurrentPhaseIdx == 1;
-		// here we use phaseIdx == 0 directly since we control the loop variable.
-		if phaseIdx == 0 && l.codexEnabled && !l.codexDone {
-			l.runCodexLoop(ctx, roc.baseBranch, roc.filesChanged, nil)
-		}
 	}
-
-	// All phases passed
-	l.log("All review phases passed!")
-	result.Passed = true
-	result.ExitReason = safety.ExitReasonComplete
-	return result, nil
 }
 
 // reviewOnlyContext holds mutable state for RunReviewOnly.
@@ -1669,69 +1432,6 @@ type reviewOnlyContext struct {
 	baseBranch    string
 	filesChanged  []string
 	filesFixedSet map[string]struct{}
-}
-
-// runReviewOnlyPhase runs a single review phase in review-only mode.
-// Returns (phasePassed, earlyReturn, error).
-func (l *Loop) runReviewOnlyPhase(roc *reviewOnlyContext, phase review.Phase, phaseMaxIter int) (bool, bool, error) {
-	for phaseIter := 0; ; phaseIter++ {
-		if l.checkReviewOnlyStop(roc) {
-			return false, true, nil
-		}
-
-		roc.state.Iteration++
-		roc.result.Iterations = roc.state.Iteration
-
-		checkResult := safety.Check(l.config, roc.state)
-		if checkResult.ShouldExit {
-			l.log(fmt.Sprintf("Safety exit: %s", checkResult.Reason))
-			roc.result.ExitReason = checkResult.Reason
-			return false, true, nil
-		}
-
-		l.logIterationSeparator(roc.state.Iteration, l.config.MaxReviewIterations)
-		l.log(fmt.Sprintf("Review phase %s, iter %d/%d", phase.Name, phaseIter+1, phaseMaxIter+1))
-		l.logReviewStart(phaseIter+1, phaseMaxIter+1)
-
-		// Run review
-		l.log("Running code review...")
-		reviewResult, err := l.reviewRunner.RunPhase(roc.ctx, l.workingDir, roc.filesChanged, phase)
-		roc.state.RecordReviewIteration()
-		if err != nil {
-			l.log(fmt.Sprintf("Review error: %v", err))
-			roc.result.LastReviewErr = err
-			roc.result.ExitReason = safety.ExitReasonError
-			return false, false, err
-		}
-
-		if len(phase.SeverityFilter) > 0 {
-			reviewResult = reviewResult.FilterBySeverity(phase.SeverityFilter)
-		}
-
-		roc.result.FinalReview = reviewResult
-		roc.result.TotalIssues = reviewResult.TotalIssues
-		l.logReviewResult(reviewResult.Passed, reviewResult.TotalIssues)
-
-		if reviewResult.Passed {
-			l.log(fmt.Sprintf("Review phase %s passed - no issues found", phase.Name))
-			return true, false, nil
-		}
-
-		l.log(fmt.Sprintf("Review found %d issues - invoking Claude to fix", reviewResult.TotalIssues))
-
-		if phaseIter >= phaseMaxIter {
-			l.log(fmt.Sprintf("Review phase %s exceeded max iterations (%d) - moving to next phase", phase.Name, phaseMaxIter))
-			return true, false, nil
-		}
-
-		earlyReturn, err := l.invokeFixAndProcess(roc, reviewResult)
-		if err != nil {
-			return false, false, err
-		}
-		if earlyReturn {
-			return false, true, nil
-		}
-	}
 }
 
 // checkReviewOnlyStop checks if the loop should stop.
@@ -1870,15 +1570,8 @@ func (l *Loop) autoCommitChanges(files []string, summary string) error {
 }
 
 // buildReviewFixPrompt creates a prompt for Claude to fix review issues using the template.
-// Selects the appropriate template based on the current phase.
 func (l *Loop) buildReviewFixPrompt(baseBranch string, filesChanged []string, issuesMarkdown string, iteration int) (string, error) {
-	if l.promptBuilder != nil && l.engine.CurrentPhaseIdx < len(l.reviewConfig.Phases) {
-		phase := l.reviewConfig.Phases[l.engine.CurrentPhaseIdx]
-		// Use ReviewFirst for comprehensive phase (typically first phase)
-		// Use ReviewSecond for critical/filtered phases (typically have severity filters)
-		if len(phase.SeverityFilter) > 0 {
-			return l.promptBuilder.BuildReviewSecond(baseBranch, filesChanged, issuesMarkdown, iteration, l.gitConfig.AutoCommit)
-		}
+	if l.promptBuilder != nil {
 		return l.promptBuilder.BuildReviewFirst(baseBranch, filesChanged, issuesMarkdown, iteration, l.gitConfig.AutoCommit)
 	}
 	return defaultReviewFixPrompt(baseBranch, filesChanged, issuesMarkdown, iteration), nil

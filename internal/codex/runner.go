@@ -21,7 +21,9 @@ type Runner interface {
 
 // execRunner is the default command runner using os/exec for codex.
 // Codex outputs streaming progress to stderr, final response to stdout.
-type execRunner struct{}
+type execRunner struct {
+	dir string // working directory; empty uses process cwd
+}
 
 func (r *execRunner) Run(ctx context.Context, name string, args ...string) (Streams, func() error, error) {
 	if err := ctx.Err(); err != nil {
@@ -31,6 +33,7 @@ func (r *execRunner) Run(ctx context.Context, name string, args ...string) (Stre
 	// use exec.Command (not CommandContext) because we handle cancellation ourselves
 	// to ensure the entire process group is killed, not just the direct child
 	cmd := exec.Command(name, args...) //nolint:gosec // command and args are controlled by config
+	cmd.Dir = r.dir
 
 	setupProcessGroup(cmd)
 

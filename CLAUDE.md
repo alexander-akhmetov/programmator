@@ -123,7 +123,7 @@ Unified YAML config with multi-level merge: embedded defaults → `~/.config/pro
 
 ### Prompt Templates
 
-Prompts use Go `text/template` syntax. Override by placing files in `~/.config/programmator/prompts/` (global) or `.programmator/prompts/` (local). Templates: `phased.md`, `phaseless.md`, `review_first.md`, `review_second.md`, `plan_create.md`.
+Prompts use Go `text/template` syntax. Override by placing files in `~/.config/programmator/prompts/` (global) or `.programmator/prompts/` (local). Templates: `phased.md`, `phaseless.md`, `review_first.md`, `plan_create.md`.
 
 ## Testing
 

@@ -10,8 +10,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/worksonmyai/programmator/internal/codex"
-	"github.com/worksonmyai/programmator/internal/config"
 	"github.com/worksonmyai/programmator/internal/domain"
 	"github.com/worksonmyai/programmator/internal/event"
 	"github.com/worksonmyai/programmator/internal/llm"
@@ -776,14 +774,11 @@ func TestRunReviewOnlyPassesWithNoIssues(t *testing.T) {
 }
 
 func TestRunReviewOnlyFailsMaxIterations(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 20}
+	config := safety.Config{MaxIterations: 20, StagnationLimit: 20, Timeout: 60, MaxReviewIterations: 20}
 	l := New(config, "/tmp", nil, nil, false)
-	// Single phase with iteration_limit: 2 — soft limit advances to next phase
 	l.SetReviewConfig(review.Config{
-		MaxIterations: 10,
-		Phases: []review.Phase{
-			{Name: "test_phase", IterationLimit: 2, Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
-		},
+		MaxIterations: 2,
+		Agents:        []review.AgentConfig{{Name: "test_agent"}},
 	})
 
 	// Mock review runner to always return issues
@@ -804,8 +799,8 @@ func TestRunReviewOnlyFailsMaxIterations(t *testing.T) {
 	result, err := l.RunReviewOnly("main", []string{"file.go"})
 
 	require.NoError(t, err)
-	// Soft limit: phase advances instead of aborting, so with a single phase all phases "complete"
-	require.True(t, result.Passed)
+	// Max iterations exceeded, review stops
+	require.False(t, result.Passed)
 	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
 }
 
@@ -890,12 +885,9 @@ func TestRunReviewOnlyStopRequested(t *testing.T) {
 func TestRunReviewOnlyInvokerError(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
-	// Use high iteration limit so stagnation is hit before phase exhaustion
 	l.SetReviewConfig(review.Config{
 		MaxIterations: 10,
-		Phases: []review.Phase{
-			{Name: "test_phase", IterationLimit: 10, Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
-		},
+		Agents:        []review.AgentConfig{{Name: "test_agent"}},
 	})
 
 	// Mock review runner to return issues
@@ -1016,13 +1008,13 @@ func TestDefaultReviewFixPromptFormatting(t *testing.T) {
 	require.Contains(t, prompt, "## Session End Protocol")
 }
 
-// singleAgentReviewConfig returns a review config with one phase and one agent,
+// singleAgentReviewConfig returns a review config with one agent,
 // suitable for tests that use mock review runners.
 func singleAgentReviewConfig() review.Config {
 	return review.Config{
 		MaxIterations: 10,
-		Phases: []review.Phase{
-			{Name: "test_phase", Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
+		Agents: []review.AgentConfig{
+			{Name: "test_agent"},
 		},
 	}
 }
@@ -1034,20 +1026,22 @@ func createMockReviewRunner(t *testing.T, hasIssues bool, issueCount int) *revie
 
 	cfg := review.Config{
 		MaxIterations: 3,
-		Phases: []review.Phase{
-			{
-				Name:     "test_phase",
-				Parallel: true,
-				Agents: []review.AgentConfig{
-					{Name: "test_agent"},
-				},
-			},
+		Parallel:      true,
+		Agents: []review.AgentConfig{
+			{Name: "test_agent"},
 		},
 	}
 
 	runner := review.NewRunner(cfg, nil)
 	runner.SetAgentFactory(func(agentCfg review.AgentConfig, _ string) review.Agent {
 		mock := review.NewMockAgent(agentCfg.Name)
+		// Validators should return empty results
+		if agentCfg.Name == "simplification-validator" || agentCfg.Name == "issue-validator" {
+			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*review.Result, error) {
+				return &review.Result{AgentName: agentCfg.Name, Summary: "No issues"}, nil
+			})
+			return mock
+		}
 		mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*review.Result, error) {
 			var issues []review.Issue
 			if hasIssues {
@@ -1076,20 +1070,21 @@ func createMockReviewRunnerFunc(t *testing.T, resultFunc func() (hasIssues bool,
 
 	cfg := review.Config{
 		MaxIterations: 3,
-		Phases: []review.Phase{
-			{
-				Name:     "test_phase",
-				Parallel: false,
-				Agents: []review.AgentConfig{
-					{Name: "test_agent"},
-				},
-			},
+		Agents: []review.AgentConfig{
+			{Name: "test_agent"},
 		},
 	}
 
 	runner := review.NewRunner(cfg, nil)
 	runner.SetAgentFactory(func(agentCfg review.AgentConfig, _ string) review.Agent {
 		mock := review.NewMockAgent(agentCfg.Name)
+		// Validators should return empty results
+		if agentCfg.Name == "simplification-validator" || agentCfg.Name == "issue-validator" {
+			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*review.Result, error) {
+				return &review.Result{AgentName: agentCfg.Name, Summary: "No issues"}, nil
+			})
+			return mock
+		}
 		mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*review.Result, error) {
 			hasIssues, issueCount := resultFunc()
 			var issues []review.Issue
@@ -1159,23 +1154,16 @@ func TestRunReviewOnlyNoStatusBlock(t *testing.T) {
 func TestRunReviewOnlyReviewError(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
-	l.SetReviewConfig(singleAgentReviewConfig())
 
 	// Mock review runner that returns an error from sequential execution.
-	// Note: runAgentsSequential wraps agent errors into Result.Error
-	// (doesn't propagate), so the review "passes" (0 issues).
+	// Use a single iteration to avoid invoking Claude for an unfixable agent error.
 	cfg := review.Config{
-		MaxIterations: 3,
-		Phases: []review.Phase{
-			{
-				Name:     "test_phase",
-				Parallel: false,
-				Agents: []review.AgentConfig{
-					{Name: "test_agent"},
-				},
-			},
+		MaxIterations: 1,
+		Agents: []review.AgentConfig{
+			{Name: "test_agent"},
 		},
 	}
+	l.SetReviewConfig(cfg)
 	runner := review.NewRunner(cfg, nil)
 	runner.SetAgentFactory(func(agentCfg review.AgentConfig, _ string) review.Agent {
 		mock := review.NewMockAgent(agentCfg.Name)
@@ -1188,22 +1176,18 @@ func TestRunReviewOnlyReviewError(t *testing.T) {
 
 	result, err := l.RunReviewOnly("main", []string{"file.go"})
 
-	// Agent errors are caught by runAgentsSequential and wrapped into results.
-	// The review reports 0 issues (passes), so the review completes successfully.
+	// Agent errors are captured in results and count as issues, so the review fails.
 	require.NoError(t, err)
-	require.True(t, result.Passed)
+	require.False(t, result.Passed)
 	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
 }
 
 func TestRunReviewOnlyStagnation(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 2, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
-	// Use high iteration limit so stagnation is hit before phase exhaustion
 	l.SetReviewConfig(review.Config{
 		MaxIterations: 10,
-		Phases: []review.Phase{
-			{Name: "test_phase", IterationLimit: 10, Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
-		},
+		Agents:        []review.AgentConfig{{Name: "test_agent"}},
 	})
 
 	// Mock review runner that always returns issues
@@ -1648,17 +1632,9 @@ func TestHandleMultiPhaseReview_IterationLimitOneAllowsFix(t *testing.T) {
 	config := safety.Config{MaxIterations: 50, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 50}
 	l := NewWithSource(config, "", nil, nil, false, mock)
 
-	// Comprehensive phase with iteration_limit: 1
 	l.SetReviewConfig(review.Config{
 		MaxIterations: 50,
-		Phases: []review.Phase{
-			{
-				Name:           "comprehensive",
-				IterationLimit: 1,
-				Parallel:       false,
-				Agents:         []review.AgentConfig{{Name: "test_agent"}},
-			},
-		},
+		Agents:        []review.AgentConfig{{Name: "test_agent"}},
 	})
 
 	// Review finds issues on first call, passes on second (after fix)
@@ -1703,7 +1679,6 @@ func TestPromptBuilderWiredInReview(t *testing.T) {
 	l.SetPromptBuilder(builder)
 
 	// buildReviewFixPrompt should use the builder (not fallback)
-	l.engine.CurrentPhaseIdx = 0
 	result, err := l.buildReviewFixPrompt("main", []string{"file.go"}, "some issues", 1)
 	require.NoError(t, err)
 
@@ -1732,14 +1707,7 @@ func TestMainLoopUsesReviewFixPromptWhenPendingFix(t *testing.T) {
 
 	l.SetReviewConfig(review.Config{
 		MaxIterations: 50,
-		Phases: []review.Phase{
-			{
-				Name:           "comprehensive",
-				IterationLimit: 2,
-				Parallel:       false,
-				Agents:         []review.AgentConfig{{Name: "test_agent"}},
-			},
-		},
+		Agents:        []review.AgentConfig{{Name: "test_agent"}},
 	})
 
 	builder, err := prompt.NewBuilder(nil)
@@ -1824,8 +1792,8 @@ func TestMainLoopUsesPromptBuilderForTaskPrompt(t *testing.T) {
 	require.Contains(t, capturedPrompt, "Phase 1")
 }
 
-// Fix 3 test: reviewConfig.MaxIterations is used for phase limits
-func TestHandleMultiPhaseReview_UsesReviewConfigMaxIterations(t *testing.T) {
+// Test: reviewConfig.MaxIterations controls the review loop
+func TestReviewUsesMaxIterations(t *testing.T) {
 	mock := source.NewMockSource()
 	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
 		return &domain.WorkItem{
@@ -1840,17 +1808,10 @@ func TestHandleMultiPhaseReview_UsesReviewConfigMaxIterations(t *testing.T) {
 	config := safety.Config{MaxIterations: 100, StagnationLimit: 50, Timeout: 60, MaxReviewIterations: 100}
 	l := NewWithSource(config, "", nil, nil, false, mock)
 
-	// Set review config with low MaxIterations and a phase that uses iteration_pct
+	// Set review config with low MaxIterations
 	l.SetReviewConfig(review.Config{
-		MaxIterations: 10, // review max is 10, so 50% = 5
-		Phases: []review.Phase{
-			{
-				Name:         "test_phase",
-				IterationPct: 50, // Should use reviewConfig.MaxIterations (10), giving 5
-				Parallel:     false,
-				Agents:       []review.AgentConfig{{Name: "test_agent"}},
-			},
-		},
+		MaxIterations: 5,
+		Agents:        []review.AgentConfig{{Name: "test_agent"}},
 	})
 
 	// Review always finds issues
@@ -1871,21 +1832,19 @@ func TestHandleMultiPhaseReview_UsesReviewConfigMaxIterations(t *testing.T) {
 	result, err := l.Run("test-123")
 
 	require.NoError(t, err)
-	// Soft limit: phase advances instead of aborting, completing all phases
 	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
-	// With reviewConfig.MaxIterations=10 and iteration_pct=50, phaseMaxIter=5.
-	// If it used config.MaxIterations (100), phaseMaxIter would be 50, which would
-	// take many more calls. With 5 iterations, Claude is invoked 5 times.
-	require.Equal(t, 5, claudeCallCount)
+	// MaxIterations=5: reviews 1-4 trigger fix (4 Claude calls),
+	// review 5 exceeds limit and stops without another fix
+	require.Equal(t, 4, claudeCallCount)
 }
 
-// Fix 4 test: empty phases returns an error
-func TestRunReviewOnlyEmptyPhases(t *testing.T) {
+// Test: empty agents returns an error
+func TestRunReviewOnlyEmptyAgents(t *testing.T) {
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
 	l := New(config, "/tmp", nil, nil, false)
 	l.SetReviewConfig(review.Config{
 		MaxIterations: 3,
-		Phases:        []review.Phase{}, // empty
+		Agents:        []review.AgentConfig{}, // empty
 	})
 
 	result, err := l.RunReviewOnly("main", []string{"file.go"})
@@ -1895,59 +1854,24 @@ func TestRunReviewOnlyEmptyPhases(t *testing.T) {
 	require.Equal(t, safety.ExitReasonError, result.ExitReason)
 }
 
-// Fix 6 test: all phases run in sequence
-func TestRunReviewOnlyAllPhases(t *testing.T) {
-	config := safety.Config{MaxIterations: 50, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 50}
-	l := New(config, "/tmp", nil, nil, false)
-
-	// Three phases - all should pass immediately
-	l.SetReviewConfig(review.Config{
-		MaxIterations: 10,
-		Phases: []review.Phase{
-			{Name: "comprehensive", Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
-			{Name: "critical_loop", Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
-			{Name: "final_check", Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
-		},
-	})
-
-	// Mock review runner that passes immediately
-	mockRunner := createMockReviewRunner(t, false, 0)
-	l.SetReviewRunner(mockRunner)
-
-	result, err := l.RunReviewOnly("main", []string{"file.go"})
-
-	require.NoError(t, err)
-	require.True(t, result.Passed)
-	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
-	// 3 phases, each runs review once = 3 iterations total
-	require.Equal(t, 3, result.Iterations)
-}
-
-// Fix 6 test: phase progression with severity filter
-func TestRunReviewOnlyPhaseProgression(t *testing.T) {
+// Test: review iteration with fix and pass
+func TestRunReviewOnlyIterationWithFix(t *testing.T) {
 	config := safety.Config{MaxIterations: 50, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 50}
 	l := New(config, "/tmp", nil, nil, false)
 
 	l.SetReviewConfig(review.Config{
 		MaxIterations: 10,
-		Phases: []review.Phase{
-			{Name: "comprehensive", IterationLimit: 5, Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
-			{Name: "critical_loop", IterationLimit: 5, SeverityFilter: []review.Severity{review.SeverityCritical, review.SeverityHigh}, Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
-		},
+		Agents:        []review.AgentConfig{{Name: "test_agent"}},
 	})
 
-	// Track which phase the runner is called for
-	phaseCallCount := 0
+	// Track review calls
+	reviewCallCount := 0
 	mockRunner := createMockReviewRunnerFunc(t, func() (bool, int) {
-		phaseCallCount++
-		if phaseCallCount == 1 {
-			return true, 2 // comprehensive: has issues
+		reviewCallCount++
+		if reviewCallCount == 1 {
+			return true, 2 // has issues
 		}
-		if phaseCallCount == 2 {
-			return false, 0 // comprehensive: passes after fix
-		}
-		// critical_loop: passes immediately
-		return false, 0
+		return false, 0 // passes after fix
 	})
 	l.SetReviewRunner(mockRunner)
 
@@ -1966,599 +1890,89 @@ func TestRunReviewOnlyPhaseProgression(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, result.Passed)
 	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
-	// Phase 1: review(issues) + fix + review(pass) = 2 iterations
-	// Phase 2: review(pass) = 1 iteration
-	// Total = 3
-	require.Equal(t, 3, result.Iterations)
+	// review(issues) + fix + review(pass) = 2 iterations
+	require.Equal(t, 2, result.Iterations)
 }
 
-// Codex integration tests
-
-func TestSetCodexConfig_DisabledByConfig(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-	l.SetCodexConfig(config.CodexConfig{Enabled: false, Command: "codex"})
-
-	require.False(t, l.codexEnabled)
-	require.Nil(t, l.codexExecutor)
-}
-
-func TestSetCodexConfig_DisabledWhenBinaryMissing(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-	// Use a command that definitely doesn't exist
-	l.SetCodexConfig(config.CodexConfig{Enabled: true, Command: "nonexistent-codex-binary-12345"})
-
-	require.False(t, l.codexEnabled)
-	require.Nil(t, l.codexExecutor)
-}
-
-func TestCodexMaxIterations(t *testing.T) {
-	tests := []struct {
-		name          string
-		maxIterations int
-		expected      int
-	}{
-		{"default min", 10, 3},     // 10/5=2, min 3
-		{"exact boundary", 15, 3},  // 15/5=3, exactly min
-		{"above boundary", 50, 10}, // 50/5=10
-		{"zero", 0, 3},             // 0/5=0, min 3
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			l := New(safety.Config{}, "", nil, nil, false)
-			l.SetReviewConfig(review.Config{MaxIterations: tc.maxIterations})
-
-			require.Equal(t, tc.expected, l.codexMaxIterations())
-		})
-	}
-}
-
-func TestRunCodexLoop_SkipsWhenDisabled(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-	l.codexEnabled = false
-
-	// Set up a mock executor that fails the test if called
-	runner := &mockCodexRunner{
-		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
-			t.Fatal("codex runner should not be called when disabled")
-			return codex.Streams{}, nil, nil
-		},
-	}
-	l.codexExecutor = newMockCodexExecutor(runner)
-
-	ctx := context.Background()
-	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
-
-	require.False(t, l.codexDone)
-}
-
-func TestRunCodexLoop_SkipsWhenAlreadyDone(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-	l.codexEnabled = true
-	l.codexDone = true
-
-	// Set up a mock executor that fails the test if called
-	runner := &mockCodexRunner{
-		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
-			t.Fatal("codex runner should not be called when already done")
-			return codex.Streams{}, nil, nil
-		},
-	}
-	l.codexExecutor = newMockCodexExecutor(runner)
-
-	ctx := context.Background()
-	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
-
-	require.True(t, l.codexDone)
-}
-
-func TestRunReviewOnly_SkipsCodexWhenDisabled(t *testing.T) {
-	cfg := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
-	l := New(cfg, "/tmp", nil, nil, false)
-	l.SetReviewConfig(review.Config{
-		MaxIterations: 10,
-		Phases: []review.Phase{
-			{Name: "comprehensive", Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
-			{Name: "critical_loop", Parallel: false, Agents: []review.AgentConfig{{Name: "test_agent"}}},
-		},
-	})
-	l.codexEnabled = false
-
-	mockRunner := createMockReviewRunner(t, false, 0)
-	l.SetReviewRunner(mockRunner)
-
-	result, err := l.RunReviewOnly("main", []string{"file.go"})
-
-	require.NoError(t, err)
-	require.True(t, result.Passed)
-	require.False(t, l.codexDone) // codex was never run
-}
-
-func TestMainLoop_SkipsCodexWhenDisabled(t *testing.T) {
+// Test: single review.max_iterations controls entire review (no per-phase caps)
+func TestReviewMaxIterationsOnly_NoPhaseIterationBudgets(t *testing.T) {
 	mock := source.NewMockSource()
 	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
 		return &domain.WorkItem{
-			ID:    "test-codex-1",
-			Title: "Test Codex Skip",
+			ID:    "test-maxiter",
+			Title: "Test MaxIterations Only",
 			Phases: []domain.Phase{
 				{Name: "Phase 1", Completed: true},
 			},
 		}, nil
 	}
 
-	cfg := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithSource(cfg, "", nil, nil, false, mock)
-	l.SetReviewConfig(singleAgentReviewConfig())
-	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
-	l.codexEnabled = false
+	config := safety.Config{MaxIterations: 100, StagnationLimit: 50, Timeout: 60, MaxReviewIterations: 100}
+	l := NewWithSource(config, "", nil, nil, false, mock)
 
-	result, err := l.Run("test-codex-1")
+	// Set review config with max_iterations=3 — this single limit controls the review loop
+	l.SetReviewConfig(review.Config{
+		MaxIterations: 3,
+		Agents:        []review.AgentConfig{{Name: "test_agent"}},
+	})
+
+	// Review always finds issues — should stop after max_iterations
+	mockRunner := createMockReviewRunner(t, true, 1)
+	l.SetReviewRunner(mockRunner)
+
+	claudeCallCount := 0
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		claudeCallCount++
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: ["fix.go"]
+  summary: "Attempted fix"
+`, nil
+	}})
+
+	result, err := l.Run("test-maxiter")
 
 	require.NoError(t, err)
 	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
-	require.False(t, l.codexDone) // codex was never run
+	// MaxIterations=3: reviews 1,2 trigger fix (2 Claude calls),
+	// review 3 exceeds limit and stops
+	require.Equal(t, 2, claudeCallCount, "should have exactly max_iterations-1 fix calls")
 }
 
-func TestDefaultCodexEvalPrompt(t *testing.T) {
-	prompt := defaultCodexEvalPrompt("codex output here", "main", []string{"file1.go", "file2.go"})
-
-	require.Contains(t, prompt, "codex output here")
-	require.Contains(t, prompt, "main")
-	require.Contains(t, prompt, "file1.go")
-	require.Contains(t, prompt, "file2.go")
-	require.Contains(t, prompt, "<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>")
-
-	// Signal must appear exactly once
-	signalCount := strings.Count(prompt, "<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>")
-	require.Equal(t, 1, signalCount, "done signal should appear exactly once in prompt")
-
-	// Codex output should be wrapped in delimiters
-	require.Contains(t, prompt, "<codex-review-output>")
-	require.Contains(t, prompt, "</codex-review-output>")
-}
-
-func TestDefaultCodexEvalPrompt_EmptyBaseBranch(t *testing.T) {
-	prompt := defaultCodexEvalPrompt("codex output", "", []string{"file.go"})
-
-	require.Contains(t, prompt, "codex output")
-	require.Contains(t, prompt, "file.go")
-	require.Contains(t, prompt, "<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>")
-	// Empty baseBranch should show empty string (not a branch name)
-	require.NotContains(t, prompt, "git diff main")
-}
-
-func TestTruncateForContext(t *testing.T) {
-	short := "short text"
-	require.Equal(t, short, truncateForContext(short, 100))
-
-	long := strings.Repeat("a", 200)
-	result := truncateForContext(long, 50)
-	require.Len(t, result, 50+len("\n... (truncated)"))
-	require.Contains(t, result, "... (truncated)")
-
-	// Boundary: length exactly equals maxLen — no truncation
-	exact := strings.Repeat("b", 50)
-	require.Equal(t, exact, truncateForContext(exact, 50))
-}
-
-func TestIsValidBranchName(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  bool
-	}{
-		{"simple", "main", true},
-		{"with slash", "feature/foo", true},
-		{"with dots", "release-1.2.3", true},
-		{"with underscore", "my_branch", true},
-		{"uppercase", "Feature/FOO", true},
-		{"empty", "", false},
-		{"with space", "main branch", false},
-		{"with semicolon", "main;rm -rf /", false},
-		{"with backtick", "main`whoami`", false},
-		{"with dollar", "main$HOME", false},
-		{"with pipe", "main|cat", false},
-		{"with ampersand", "main&&echo", false},
-		{"path traversal", "feature/../../main", false},
-		{"double dots", "branch..lock", false},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, isValidBranchName(tc.input))
-		})
-	}
-}
-
-func TestFormatCodexFilesList(t *testing.T) {
-	require.Equal(t, "(no files)", formatCodexFilesList(nil))
-	require.Equal(t, "(no files)", formatCodexFilesList([]string{}))
-	require.Equal(t, "  - a.go\n  - b.go", formatCodexFilesList([]string{"a.go", "b.go"}))
-}
-
-// mockCodexRunner implements codex.Runner for testing.
-type mockCodexRunner struct {
-	runFunc func(ctx context.Context, name string, args ...string) (codex.Streams, func() error, error)
-}
-
-func (m *mockCodexRunner) Run(ctx context.Context, name string, args ...string) (codex.Streams, func() error, error) {
-	return m.runFunc(ctx, name, args...)
-}
-
-func newMockCodexExecutor(runner codex.Runner) *codex.Executor {
-	e := &codex.Executor{}
-	e.SetRunner(runner)
-	return e
-}
-
-func TestRunCodexLoop_ExitsEarlyOnSignalInCodexOutput(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-	l.SetReviewConfig(review.Config{MaxIterations: 15})
-	l.codexEnabled = true
-
-	callCount := 0
-	runner := &mockCodexRunner{
-		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
-			callCount++
-			stderr := "--------\nmodel: gpt-5\n--------\n"
-			stdout := "Found 1 issue: unused variable\n<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>"
-			return codex.Streams{
-				Stderr: strings.NewReader(stderr),
-				Stdout: strings.NewReader(stdout),
-			}, func() error { return nil }, nil
-		},
-	}
-	l.codexExecutor = newMockCodexExecutor(runner)
-
-	// Set up a fake invoker — should NOT be called because done signal is in codex stdout
-	invokerCalled := false
-	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
-		invokerCalled = true
-		return "<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>", nil
-	}})
-
-	ctx := context.Background()
-	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
-
-	require.True(t, l.codexDone)
-	require.Equal(t, 1, callCount)
-	require.False(t, invokerCalled, "Claude invoker should not be called when done signal is in codex output")
-}
-
-func TestRunCodexLoop_MaxIterations(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-	l.SetReviewConfig(review.Config{MaxIterations: 15}) // codexMaxIterations = 15/5 = 3
-	l.codexEnabled = true
-
-	callCount := 0
-	runner := &mockCodexRunner{
-		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
-			callCount++
-			stderr := ""
-			stdout := "Found issues but no done signal"
-			return codex.Streams{
-				Stderr: strings.NewReader(stderr),
-				Stdout: strings.NewReader(stdout),
-			}, func() error { return nil }, nil
-		},
-	}
-	l.codexExecutor = newMockCodexExecutor(runner)
-
-	// Claude eval never returns done signal, so loop should hit max iterations
-	invokerCallCount := 0
-	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
-		invokerCallCount++
-		return "some eval output without done signal", nil
-	}})
-
-	ctx := context.Background()
-	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
-
-	require.True(t, l.codexDone)
-	require.Equal(t, 3, callCount, "codex should be called once per iteration")
-	require.Equal(t, 3, invokerCallCount, "Claude invoker should be called once per iteration to evaluate codex findings")
-}
-
-func TestRunCodexLoop_PatternMatchError(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-	l.SetReviewConfig(review.Config{MaxIterations: 15})
-	l.codexEnabled = true
-
-	runner := &mockCodexRunner{
-		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
-			stderr := ""
-			stdout := "Rate limit exceeded, please wait"
-			return codex.Streams{
-				Stderr: strings.NewReader(stderr),
-				Stdout: strings.NewReader(stdout),
-			}, func() error { return nil }, nil
-		},
-	}
-	executor := newMockCodexExecutor(runner)
-	executor.ErrorPatterns = []string{"Rate limit"}
-	l.codexExecutor = executor
-
-	ctx := context.Background()
-	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
-
-	require.True(t, l.codexDone)
-}
-
-func TestRunCodexLoop_ContextCancellation(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-	l.SetReviewConfig(review.Config{MaxIterations: 50})
-	l.codexEnabled = true
-
-	executorCalled := false
-	runner := &mockCodexRunner{
-		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
-			executorCalled = true
-			return codex.Streams{
-				Stderr: strings.NewReader(""),
-				Stdout: strings.NewReader("some output"),
-			}, func() error { return nil }, nil
-		},
-	}
-	l.codexExecutor = newMockCodexExecutor(runner)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancel immediately
-
-	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
-
-	require.True(t, l.codexDone)
-	require.False(t, executorCalled, "codex executor should not be called when context is already canceled")
-}
-
-func TestRunCodexLoop_InvalidBranchName(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-	l.SetReviewConfig(review.Config{MaxIterations: 15})
-	l.codexEnabled = true
-
-	var capturedPrompt string
-	runner := &mockCodexRunner{
-		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
-			return codex.Streams{
-				Stderr: strings.NewReader(""),
-				Stdout: strings.NewReader("review output with issues found"),
-			}, func() error { return nil }, nil
-		},
-	}
-	l.codexExecutor = newMockCodexExecutor(runner)
-
-	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, p string) (string, error) {
-		capturedPrompt = p
-		return "<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>", nil
-	}})
-
-	ctx := context.Background()
-	l.runCodexLoop(ctx, "main;rm -rf /", []string{"file.go"}, nil)
-
-	require.True(t, l.codexDone)
-	// Invalid branch should be sanitized to empty
-	require.NotContains(t, capturedPrompt, "main;rm -rf /")
-	// Claude eval prompt should not contain the malicious branch name
-	require.NotContains(t, capturedPrompt, "rm -rf")
-	// With empty baseBranch (sanitized), eval prompt should not reference any branch-based diff
-	require.NotContains(t, capturedPrompt, "git diff main")
-	// Base branch in eval prompt should be empty (sanitized)
-	require.Contains(t, capturedPrompt, "Base branch: \n")
-	// Verify the codex prompt uses the fallback diff command for empty baseBranch
-	// (the first codex invocation prompt is not captured here, but the eval prompt
-	// should not reference branch-based diffs)
-}
-
-func TestRunCodexLoop_GeneralError(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-	l.SetReviewConfig(review.Config{MaxIterations: 15})
-	l.codexEnabled = true
-
-	runner := &mockCodexRunner{
-		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
-			return codex.Streams{
-				Stderr: strings.NewReader(""),
-				Stdout: strings.NewReader(""),
-			}, func() error { return fmt.Errorf("connection refused") }, nil
-		},
-	}
-	l.codexExecutor = newMockCodexExecutor(runner)
-
-	invokerCalled := false
-	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
-		invokerCalled = true
-		return "", nil
-	}})
-
-	ctx := context.Background()
-	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
-
-	require.True(t, l.codexDone)
-	require.False(t, invokerCalled, "Claude should not be invoked when codex returns an error")
-}
-
-func TestRunCodexLoop_RunnerStartError(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-	l.SetReviewConfig(review.Config{MaxIterations: 15})
-	l.codexEnabled = true
-
-	runner := &mockCodexRunner{
-		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
-			return codex.Streams{}, nil, fmt.Errorf("binary not found")
-		},
-	}
-	l.codexExecutor = newMockCodexExecutor(runner)
-
-	// Claude should not be invoked if codex fails to start
-	invokerCalled := false
-	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
-		invokerCalled = true
-		return "", nil
-	}})
-
-	ctx := context.Background()
-	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
-
-	require.True(t, l.codexDone)
-	require.False(t, invokerCalled, "Claude should not be invoked when codex runner fails to start")
-}
-
-func TestRunCodexLoop_EmptyOutput(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-	l.SetReviewConfig(review.Config{MaxIterations: 15})
-	l.codexEnabled = true
-
-	runner := &mockCodexRunner{
-		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
-			return codex.Streams{
-				Stderr: strings.NewReader(""),
-				Stdout: strings.NewReader("   \n  \n"),
-			}, func() error { return nil }, nil
-		},
-	}
-	l.codexExecutor = newMockCodexExecutor(runner)
-
-	// Should not reach Claude invocation
-	invokerCalled := false
-	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
-		invokerCalled = true
-		return "", nil
-	}})
-
-	ctx := context.Background()
-	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
-
-	require.True(t, l.codexDone)
-	require.False(t, invokerCalled, "Claude should not be invoked for empty codex output")
-}
-
-func TestRunCodexLoop_SignalInCodexOutput(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-	l.SetReviewConfig(review.Config{MaxIterations: 15})
-	l.codexEnabled = true
-
-	runner := &mockCodexRunner{
-		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
-			stdout := "No issues found\n<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>"
-			return codex.Streams{
-				Stderr: strings.NewReader(""),
-				Stdout: strings.NewReader(stdout),
-			}, func() error { return nil }, nil
-		},
-	}
-	l.codexExecutor = newMockCodexExecutor(runner)
-
-	// When the done signal appears in codex stdout, the loop detects it and
-	// returns early, marking codex as done without invoking Claude.
-	invokerCalled := false
-	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
-		invokerCalled = true
-		return "", nil
-	}})
-
-	ctx := context.Background()
-	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
-
-	require.True(t, l.codexDone)
-	require.False(t, invokerCalled, "Claude should not be invoked when codex output contains done signal")
-}
-
-func TestRunCodexLoop_ClaudeInvocationFailure(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-	l.SetReviewConfig(review.Config{MaxIterations: 15})
-	l.codexEnabled = true
-
-	runner := &mockCodexRunner{
-		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
-			return codex.Streams{
-				Stderr: strings.NewReader(""),
-				Stdout: strings.NewReader("Found issues in main.go"),
-			}, func() error { return nil }, nil
-		},
-	}
-	l.codexExecutor = newMockCodexExecutor(runner)
-
-	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
-		return "", fmt.Errorf("claude invocation timed out")
-	}})
-
-	ctx := context.Background()
-	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
-
-	require.True(t, l.codexDone)
-}
-
-func TestRunCodexLoop_BuildCodexEvalFallback(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-	l.SetReviewConfig(review.Config{MaxIterations: 15})
-	l.codexEnabled = true
-
-	runner := &mockCodexRunner{
-		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
-			return codex.Streams{
-				Stderr: strings.NewReader(""),
-				Stdout: strings.NewReader("Found issue in main.go:10"),
-			}, func() error { return nil }, nil
-		},
-	}
-	l.codexExecutor = newMockCodexExecutor(runner)
-
-	// promptBuilder is nil by default in New(), so defaultCodexEvalPrompt is used
-	var capturedPrompt string
-	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, p string) (string, error) {
-		capturedPrompt = p
-		return "<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>", nil
-	}})
-
-	ctx := context.Background()
-	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
-
-	require.True(t, l.codexDone)
-	// Should use the inline fallback template
-	require.Contains(t, capturedPrompt, "You are evaluating findings from a Codex code review")
-	require.Contains(t, capturedPrompt, "Found issue in main.go:10")
-	require.Contains(t, capturedPrompt, "file.go")
-}
-
-func TestRunCodexLoop_BuildCodexEvalError(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-	l.SetReviewConfig(review.Config{MaxIterations: 15})
-	l.codexEnabled = true
-
-	runner := &mockCodexRunner{
-		runFunc: func(_ context.Context, _ string, _ ...string) (codex.Streams, func() error, error) {
-			return codex.Streams{
-				Stderr: strings.NewReader(""),
-				Stdout: strings.NewReader("Found issue in main.go:10"),
-			}, func() error { return nil }, nil
-		},
-	}
-	l.codexExecutor = newMockCodexExecutor(runner)
-
-	// Create a Builder without CodexEval template loaded (empty CodexEval triggers error)
-	builder, err := prompt.NewBuilder(&config.Prompts{
-		Phased:       "{{.ID}}",
-		Phaseless:    "{{.ID}}",
-		ReviewFirst:  "{{.BaseBranch}}",
-		ReviewSecond: "{{.BaseBranch}}",
-		PlanCreate:   "{{.Description}}",
-		CodexEval:    "", // empty → codexEvalTmpl is nil → BuildCodexEval returns error
+// Test: review-only mode uses single max_iterations limit
+func TestRunReviewOnly_SingleMaxIterationsLimit(t *testing.T) {
+	config := safety.Config{MaxIterations: 100, StagnationLimit: 50, Timeout: 60, MaxReviewIterations: 100}
+	l := New(config, "/tmp", nil, nil, false)
+
+	l.SetReviewConfig(review.Config{
+		MaxIterations: 2,
+		Agents:        []review.AgentConfig{{Name: "test_agent"}},
 	})
-	require.NoError(t, err)
-	l.SetPromptBuilder(builder)
 
-	var capturedPrompt string
-	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, p string) (string, error) {
-		capturedPrompt = p
-		return "<<<PROGRAMMATOR:CODEX_REVIEW_DONE>>>", nil
+	// Review always finds issues
+	mockRunner := createMockReviewRunner(t, true, 1)
+	l.SetReviewRunner(mockRunner)
+
+	claudeCallCount := 0
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		claudeCallCount++
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: ["file.go"]
+  summary: "Fixed issue"
+  commit_made: true
+`, nil
 	}})
 
-	ctx := context.Background()
-	l.runCodexLoop(ctx, "main", []string{"file.go"}, nil)
+	result, err := l.RunReviewOnly("main", []string{"file.go"})
 
-	require.True(t, l.codexDone)
-	// Should fall back to inline default prompt when BuildCodexEval fails
-	require.Contains(t, capturedPrompt, "You are evaluating findings from a Codex code review")
-	require.Contains(t, capturedPrompt, "Found issue in main.go:10")
+	require.NoError(t, err)
+	require.False(t, result.Passed, "should not pass when always finding issues")
+	// With MaxIterations=2, first iteration finds issues and triggers fix,
+	// second iteration finds issues again and hits the limit
+	require.LessOrEqual(t, claudeCallCount, 2)
 }
 
 func TestWorkItemHelpers_Phaseless(t *testing.T) {
@@ -2636,7 +2050,7 @@ func TestConsecutiveInvocationFailures(t *testing.T) {
 	l := NewWithSource(cfg, "", nil, nil, false, mock)
 	l.SetReviewConfig(review.Config{
 		MaxIterations: 10,
-		Phases:        []review.Phase{{Name: "comprehensive", Agents: []review.AgentConfig{{Name: "test"}}}},
+		Agents:        []review.AgentConfig{{Name: "test"}},
 	})
 
 	invokeCount := 0

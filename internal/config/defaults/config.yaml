@@ -27,9 +27,8 @@ git:
   completed_plans_dir: ""    # Directory for completed plans (default: plans/completed)
   branch_prefix: ""          # Prefix for auto-created branches (default: programmator/)
 
-# Codex review settings
+# Codex review settings (used by the codex review agent)
 codex:
-  enabled: true
   command: "codex"
   model: "gpt-5.2-codex"
   reasoning_effort: "xhigh"
@@ -41,82 +40,55 @@ codex:
 
 # Review settings
 review:
-  max_iterations: 50      # Maximum review fix iterations (used as base for iteration_pct)
+  max_iterations: 10        # Maximum review fix iterations
+  parallel: true             # Run agents in parallel
 
-  phases:
-    # Phase 1: Comprehensive review - run all 6 agents once
-    - name: comprehensive
-      iteration_limit: 5    # Fix-and-verify cycles before moving to next phase
-      parallel: true
-      validate: true
-      agents:
-        - name: quality
-          focus:
-            - error handling
-            - code clarity
-            - resource management
-            - concurrency
-        - name: security
-          focus:
-            - input validation
-            - secrets
-            - injection
-        - name: implementation
-          focus:
-            - requirement coverage
-            - wiring
-            - completeness
-        - name: testing
-          focus:
-            - test coverage
-            - fake tests
-            - edge cases
-        - name: simplification
-          focus:
-            - over-engineering
-            - unnecessary abstractions
-        - name: linter
-          focus:
-            - lint errors
-            - formatting
-            - static analysis
-
-    # Phase 2: Critical loop - focus on high-severity issues
-    - name: critical_loop
-      iteration_pct: 10     # max(3, maxIter*10/100) = max(3, 5) = 5
-      severity_filter:
-        - critical
-        - high
-      parallel: true
-      validate: true
-      agents:
-        - name: quality
-          focus:
-            - bugs
-            - security
-            - race conditions
-            - error handling
-        - name: implementation
-          focus:
-            - correctness
-            - completeness
-
-    # Phase 3: Final check - last verification of critical issues
-    - name: final_check
-      iteration_pct: 10
-      severity_filter:
-        - critical
-        - high
-      parallel: true
-      validate: true
-      agents:
-        - name: quality
-          focus:
-            - bugs
-            - security
-            - race conditions
-            - error handling
-        - name: implementation
-          focus:
-            - correctness
-            - completeness
+  agents:
+    - name: quality
+      focus:
+        - error handling
+        - resource management
+        - concurrency
+        - race conditions
+    - name: quality-2
+      focus:
+        - logic errors
+        - edge cases
+        - off-by-one
+        - incorrect conditionals
+        - nil handling
+    - name: security
+      focus:
+        - input validation
+        - secrets
+        - injection
+    - name: implementation
+      focus:
+        - requirement coverage
+        - wiring
+        - completeness
+    - name: testing
+      focus:
+        - test coverage
+        - fake tests
+        - edge cases
+    - name: simplification
+      focus:
+        - over-engineering
+        - unnecessary abstractions
+    - name: linter
+      focus:
+        - lint errors
+        - formatting
+        - static analysis
+    - name: claudemd
+      focus:
+        - CLAUDE.md compliance
+        - project conventions
+    - name: codex
+      focus:
+        - bugs
+        - security
+        - race conditions
+        - missing error handling
+        - resource leaks

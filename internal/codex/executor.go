@@ -46,6 +46,7 @@ type Executor struct {
 	ProjectDoc      string            // path to project documentation file
 	OutputHandler   func(text string) // called for each filtered output line in real-time
 	ErrorPatterns   []string          // patterns to detect in output (e.g., rate limit messages)
+	WorkingDir      string            // working directory for the codex process; empty uses process cwd
 	runner          Runner            // for testing, nil uses default
 }
 
@@ -108,7 +109,7 @@ func (e *Executor) Run(ctx context.Context, prompt string) Result {
 
 	runner := e.runner
 	if runner == nil {
-		runner = &execRunner{}
+		runner = &execRunner{dir: e.WorkingDir}
 	}
 
 	streams, wait, err := runner.Run(ctx, cmd, args...)

@@ -18,12 +18,10 @@ var promptsFS embed.FS
 // Prompts holds all loaded prompt templates.
 // Each prompt is a Go text/template string with named variables.
 type Prompts struct {
-	Phased       string // Template for phased execution (has checkboxed tasks)
-	Phaseless    string // Template for phaseless execution (single task)
-	ReviewFirst  string // Template for comprehensive review phase
-	ReviewSecond string // Template for critical/major issues review phase
-	PlanCreate   string // Template for interactive plan creation
-	CodexEval    string // Template for evaluating Codex review findings
+	Phased      string // Template for phased execution (has checkboxed tasks)
+	Phaseless   string // Template for phaseless execution (single task)
+	ReviewFirst string // Template for review fix prompt
+	PlanCreate  string // Template for interactive plan creation
 }
 
 // promptLoader handles loading prompts with fallback chain.
@@ -63,22 +61,9 @@ func (p *promptLoader) Load(globalDir, localDir string) (*Prompts, error) {
 		return nil, fmt.Errorf("load review_first prompt: %w", err)
 	}
 
-	prompts.ReviewSecond, err = p.loadPromptWithLocalFallback(localDir, globalDir, "review_second.md")
-	if err != nil {
-		return nil, fmt.Errorf("load review_second prompt: %w", err)
-	}
-
 	prompts.PlanCreate, err = p.loadPromptWithLocalFallback(localDir, globalDir, "plan_create.md")
 	if err != nil {
 		return nil, fmt.Errorf("load plan_create prompt: %w", err)
-	}
-
-	// CodexEval is optional — codex is a secondary feature with an inline fallback
-	// prompt in loop.go. A missing template should not block startup, but read
-	// errors (e.g., permission denied, syntax errors) are logged for debugging.
-	prompts.CodexEval, err = p.loadPromptWithLocalFallback(localDir, globalDir, "codex_eval.md")
-	if err != nil {
-		log.Printf("warning: failed to load codex_eval prompt (using inline fallback): %v", err)
 	}
 
 	return &prompts, nil

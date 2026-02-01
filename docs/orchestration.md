@@ -57,62 +57,53 @@ Same status protocol but `phase_completed: null`.
 
 ## 2. Review Flow (after task phases)
 
-Review runs automatically after all task phases complete.
+Review runs automatically after all task phases complete. It uses a single loop with a flat list of agents.
 
-1. Phase 1: "comprehensive" (1 iteration, all agents)
-   - Run configured agents in parallel (default: 6): quality, security, implementation, testing, simplification, linter.
-   - Each agent runs `claude --print <agent prompt>` with focus areas and changed files.
-   - Agents return structured issues (severity, file, line, description, fix suggestion).
-   - If issues are found, run review_first.md to fix them, then re-run the phase.
-   - If no issues are found, move on.
-2. Phase 2: "critical_loop" (10% of max_iterations)
-   - Run configured agents in parallel (default: 2): quality, implementation.
-   - Severity filter: critical + high only.
-   - If issues are found, run review_second.md to fix them, then re-run the phase.
-   - If no issues are found, move on.
-3. Phase 3: "final_check" (10% of max_iterations)
-   - Same agents and severity filter as critical_loop.
-   - Final pass to catch anything introduced by fixes.
-   - If passed, all review phases are complete.
-   - If failed, exit with max_review_retries.
+1. Run all configured agents in parallel (default 9: quality, quality-2, security, implementation, testing, simplification, linter, claudemd, codex).
+2. Each agent runs `claude --print <agent prompt>` with focus areas and changed files.
+3. Agents return structured issues (severity, file, line, description, fix suggestion).
+4. Validators run automatically:
+   - **simplification-validator**: Filters low-value simplification suggestions.
+   - **issue-validator**: Filters false positives from all other agents.
+5. If issues remain, build a fix prompt using `review_first.md` and invoke Claude to fix them.
+6. Auto-commit fixes if enabled.
+7. Re-run the review (back to step 1) up to `review.max_iterations` times.
+8. If no issues remain, review passes.
 
 ### Prompt: `review_first.md`
 
-Used for the **comprehensive** phase (no severity filter). Claude receives the full issue list from all 6 agents and is asked to fix everything.
+Claude receives the full issue list from all agents and is asked to fix everything.
 
-**Template variables:** `{{.BaseBranch}}`, `{{.Iteration}}`, `{{.FilesList}}`, `{{.IssuesMarkdown}}`
-
-### Prompt: `review_second.md`
-
-Used for **filtered** phases (critical_loop, final_check). Claude receives only critical/high issues and focuses on correctness.
-
-**Template variables:** same as review_first.md
+**Template variables:** `{{.BaseBranch}}`, `{{.Iteration}}`, `{{.FilesList}}`, `{{.IssuesMarkdown}}`, `{{.AutoCommit}}`
 
 ### Review Agent Prompts
 
 Each agent runs with its own embedded prompt from `internal/review/prompts/` by default.
-You can override an agent prompt by setting `review.phases[].agents[].prompt` in config.
+You can override an agent prompt by setting `review.agents[].prompt` in config.
 The prompt text is used directly.
 
 | Agent | Prompt | Focus |
 |-------|--------|-------|
 | quality | `quality.md` | Bugs, logic errors, race conditions, error handling, simplicity |
+| quality-2 | `quality.md` | Second quality pass for coverage |
 | security | `security.md` | Injection, crypto, auth, data protection |
 | implementation | `implementation.md` | Requirement coverage, wiring, completeness |
 | testing | `testing.md` | Missing tests, fake tests, edge cases |
 | simplification | `simplification.md` | Over-engineering, unnecessary abstractions |
 | linter | `linter.md` | Auto-detect project type, run linters, report findings |
+| claudemd | `claudemd.md` | CLAUDE.md accuracy and completeness |
+| codex | `codex.md` | OpenAI Codex cross-check (skips if codex binary unavailable) |
 
 ---
 
 ## 3. Review-Only Mode (`programmator review`)
 
-Runs the same 3-phase review flow but without task phases. It operates on `git diff <base>...HEAD`.
+Runs the same review loop but without task phases. It operates on `git diff <base>...HEAD`.
 
 1. Get changed files from git diff <base>...HEAD (default base: main).
-2. Run all 3 review phases (same as above).
-3. For each phase with issues:
-   - Build fix prompt (review_first.md or review_second.md).
+2. Run the review loop (same as above).
+3. For each iteration with issues:
+   - Build fix prompt using `review_first.md`.
    - Invoke Claude to fix.
    - Auto-commit fixes.
    - Re-run review to verify.
@@ -170,38 +161,24 @@ PROGRAMMATOR_STATUS:
 
 ## Configuration
 
-Default review phases, iteration limits, and agents are in `internal/config/defaults/config.yaml`
+Default agents and iteration limits are in `internal/config/defaults/config.yaml`
 (mirrored in `internal/review/config.go` for env-only defaults). Override them via YAML config:
 
 ```yaml
 # ~/.config/programmator/config.yaml or .programmator/config.yaml
 review:
-  max_iterations: 50
-  phases:
-    - name: comprehensive
-      iteration_limit: 1
-      parallel: true
-      agents:
-        - name: quality
-        - name: security
-        - name: implementation
-        - name: testing
-        - name: simplification
-        - name: linter
-    - name: critical_loop
-      iteration_pct: 10
-      severity_filter: [critical, high]
-      parallel: true
-      agents:
-        - name: quality
-        - name: implementation
-    - name: final_check
-      iteration_pct: 10
-      severity_filter: [critical, high]
-      parallel: true
-      agents:
-        - name: quality
-        - name: implementation
+  max_iterations: 10
+  parallel: true
+  agents:
+    - name: quality
+    - name: quality-2
+    - name: security
+    - name: implementation
+    - name: testing
+    - name: simplification
+    - name: linter
+    - name: claudemd
+    - name: codex
 ```
 
 Prompt templates can be overridden per-project (`.programmator/prompts/`) or globally (`~/.config/programmator/prompts/`). See [prompt_templates.md](prompt_templates.md).
