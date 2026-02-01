@@ -694,6 +694,12 @@ func TestParsePhases_NumberedHeadings(t *testing.T) {
 			expected: nil,
 		},
 		{
+			name: "out of order headings return nil",
+			content: `### 2. Second
+### 1. First`,
+			expected: nil,
+		},
+		{
 			name: "partial sequential - truncates at gap",
 			content: `### 1. A
 ### 2. B
@@ -750,6 +756,16 @@ func TestParsePhases_NumberedHeadings(t *testing.T) {
 			name: "completed [x] checkbox parsed correctly",
 			content: `# Plan
 ### 1. Done [x]
+### 2. Todo`,
+			expected: []domain.Phase{
+				{Name: "1. Done", Completed: true},
+				{Name: "2. Todo", Completed: false},
+			},
+		},
+		{
+			name: "completed [x] checkbox parsed without space",
+			content: `# Plan
+### 1. Done[x]
 ### 2. Todo`,
 			expected: []domain.Phase{
 				{Name: "1. Done", Completed: true},
@@ -913,6 +929,22 @@ func TestUpdatePhase_NumberedHeadings(t *testing.T) {
 		data, err := os.ReadFile(path)
 		require.NoError(t, err)
 		assert.Equal(t, content, string(data))
+	})
+
+	t.Run("updates existing [ ] checkbox", func(t *testing.T) {
+		content := `# Plan
+### 1. Config [ ]
+### 2. Parser
+`
+		client, path := setup(t, content)
+		err := client.UpdatePhase("t-1234", "1. Config")
+		require.NoError(t, err)
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "### 1. Config [x]")
+		assert.Contains(t, string(data), "### 2. Parser")
+		assert.NotContains(t, string(data), "### 1. Config [ ] [x]")
 	})
 
 	t.Run("fuzzy matching works with normalized names", func(t *testing.T) {

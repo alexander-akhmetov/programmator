@@ -104,87 +104,139 @@ func (c *CLIClient) UpdatePhase(id string, phaseName string) error {
 		return fmt.Errorf("read ticket file: %w", err)
 	}
 
-	// Find and check the matching phase
 	lines := strings.Split(string(content), "\n")
-	found := false
-	normalizedPhase := normalizePhase(phaseName)
-
-	// First, try checkbox-style phases
-	for i, line := range lines {
-		if match := phaseRegex.FindStringSubmatch(line); match != nil {
-			existingPhase := normalizePhase(match[2])
-			if existingPhase == normalizedPhase || strings.Contains(existingPhase, normalizedPhase) || strings.Contains(normalizedPhase, existingPhase) {
-				if match[1] != " " {
-					return nil // already completed — idempotent
-				}
-				lines[i] = strings.Replace(line, "- [ ]", "- [x]", 1)
-				found = true
-				break
-			}
-		}
-	}
-
-	// If not found in checkboxes, try heading-based phases
-	if !found {
-		for i, line := range lines {
-			if match := headingPhaseRegex.FindStringSubmatch(line); match != nil {
-				checkbox := match[5]
-				prefix := match[1]
-				number := match[2]
-				separator := match[3]
-				description := match[4]
-
-				var fullName string
-				if separator != "" {
-					fullName = fmt.Sprintf("%s %s%s %s", prefix, number, separator, description)
-				} else {
-					fullName = fmt.Sprintf("%s %s %s", prefix, number, description)
-				}
-				existingPhase := normalizePhase(fullName)
-
-				if existingPhase == normalizedPhase || strings.Contains(existingPhase, normalizedPhase) || strings.Contains(normalizedPhase, existingPhase) {
-					if checkbox == "x" || checkbox == "X" {
-						return nil // already completed — idempotent
-					}
-					if checkbox == " " {
-						lines[i] = strings.Replace(line, "[ ]", "[x]", 1)
-					} else {
-						lines[i] = line + " [x]"
-					}
-					found = true
-					break
-				}
-			}
-		}
-	}
-
-	// Tier 3: numbered heading phases (e.g., "### 1. Config")
-	if !found {
-		for i, line := range lines {
-			if match := numberedHeadingRegex.FindStringSubmatch(line); match != nil {
-				headingPhase := fmt.Sprintf("%s. %s", match[2], strings.TrimSpace(match[3]))
-				existingPhase := normalizePhase(headingPhase)
-
-				if existingPhase == normalizedPhase || strings.Contains(existingPhase, normalizedPhase) || strings.Contains(normalizedPhase, existingPhase) {
-					if match[4] == "x" || match[4] == "X" {
-						return nil // already completed
-					}
-					lines[i] = line + " [x]"
-					found = true
-					break
-				}
-			}
-		}
-	}
-
-	if !found {
+	result := updatePhaseLines(lines, normalizePhase(phaseName))
+	if !result.found {
 		return fmt.Errorf("%w: %s", ErrPhaseNotFound, phaseName)
 	}
+	if result.alreadyDone {
+		return nil
+	}
 
-	// Write atomically: temp file + rename to avoid data loss on partial write.
-	// Preserve original file permissions on the temp file.
-	dir := filepath.Dir(filePath)
-	fi, err := os.Stat(filePath)
+	return writeFileAtomically(filePath, []byte(strings.Join(lines, "\n")))
+}
+
+type phaseUpdateResult struct {
+	found       bool
+	alreadyDone bool
+}
+
+func updatePhaseLines(lines []string, normalizedPhase string) phaseUpdateResult {
+	updaters := []func([]string, string) phaseUpdateResult{
+		updatePhaseInCheckboxes,
+		updatePhaseInHeadings,
+		updatePhaseInNumberedHeadings,
+	}
+
+	var result phaseUpdateResult
+	for _, updater := range updaters {
+		result = updater(lines, normalizedPhase)
+		if result.found {
+			break
+		}
+	}
+	return result
+}
+
+func updatePhaseInCheckboxes(lines []string, normalizedPhase string) phaseUpdateResult {
+	for i, line := range lines {
+		match := phaseRegex.FindStringSubmatch(line)
+		if match == nil {
+			continue
+		}
+
+		existingPhase := normalizePhase(match[2])
+		if !phaseMatches(existingPhase, normalizedPhase) {
+			continue
+		}
+
+		if match[1] != " " {
+			return phaseUpdateResult{found: true, alreadyDone: true}
+		}
+
+		lines[i] = strings.Replace(line, "- [ ]", "- [x]", 1)
+		return phaseUpdateResult{found: true}
+	}
+	return phaseUpdateResult{}
+}
+
+func updatePhaseInHeadings(lines []string, normalizedPhase string) phaseUpdateResult {
+	for i, line := range lines {
+		match := headingPhaseRegex.FindStringSubmatch(line)
+		if match == nil {
+			continue
+		}
+
+		fullName := formatHeadingPhaseName(match[1], match[2], match[3], match[4])
+		existingPhase := normalizePhase(fullName)
+		if !phaseMatches(existingPhase, normalizedPhase) {
+			continue
+		}
+
+		checkbox := match[5]
+		if checkbox == "x" || checkbox == "X" {
+			return phaseUpdateResult{found: true, alreadyDone: true}
+		}
+
+		if checkbox == " " {
+			lines[i] = strings.Replace(line, "[ ]", "[x]", 1)
+		} else {
+			lines[i] = line + " [x]"
+		}
+		return phaseUpdateResult{found: true}
+	}
+	return phaseUpdateResult{}
+}
+
+func updatePhaseInNumberedHeadings(lines []string, normalizedPhase string) phaseUpdateResult {
+	for i, line := range lines {
+		match := numberedHeadingRegex.FindStringSubmatch(line)
+		if match == nil {
+			continue
+		}
+
+		headingPhase := formatNumberedHeadingPhase(match[2], match[3])
+		existingPhase := normalizePhase(headingPhase)
+		if !phaseMatches(existingPhase, normalizedPhase) {
+			continue
+		}
+
+		if match[4] == "x" || match[4] == "X" {
+			return phaseUpdateResult{found: true, alreadyDone: true}
+		}
+
+		if match[4] == " " {
+			lines[i] = strings.Replace(line, "[ ]", "[x]", 1)
+		} else {
+			lines[i] = line + " [x]"
+		}
+		return phaseUpdateResult{found: true}
+	}
+	return phaseUpdateResult{}
+}
+
+func formatHeadingPhaseName(prefix, number, separator, description string) string {
+	if separator != "" {
+		return fmt.Sprintf("%s %s%s %s", prefix, number, separator, description)
+	}
+	return fmt.Sprintf("%s %s %s", prefix, number, description)
+}
+
+func formatNumberedHeadingPhase(number, description string) string {
+	return fmt.Sprintf("%s. %s", number, strings.TrimSpace(description))
+}
+
+func phaseMatches(existingPhase, normalizedPhase string) bool {
+	return existingPhase == normalizedPhase ||
+		strings.Contains(existingPhase, normalizedPhase) ||
+		strings.Contains(normalizedPhase, existingPhase)
+}
+
+// Write atomically: temp file + rename to avoid data loss on partial write.
+// Preserve original file permissions on the temp file.
+func writeFileAtomically(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	fi, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("stat original file: %w", err)
 	}
@@ -195,7 +247,7 @@ func (c *CLIClient) UpdatePhase(id string, phaseName string) error {
 	}
 	tmpName := tmp.Name()
 
-	if _, err := tmp.Write([]byte(strings.Join(lines, "\n"))); err != nil {
+	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
 		os.Remove(tmpName)
 		return fmt.Errorf("write temp file: %w", err)
@@ -209,7 +261,7 @@ func (c *CLIClient) UpdatePhase(id string, phaseName string) error {
 		os.Remove(tmpName)
 		return fmt.Errorf("chmod temp file: %w", err)
 	}
-	if err := os.Rename(tmpName, filePath); err != nil {
+	if err := os.Rename(tmpName, path); err != nil {
 		os.Remove(tmpName)
 		return fmt.Errorf("rename temp file: %w", err)
 	}
@@ -313,7 +365,7 @@ func parseTicket(id string, content string) (*Ticket, error) {
 var phaseRegex = regexp.MustCompile(`- \[([ xX])\] (.+)`)
 var titleRegex = regexp.MustCompile(`(?m)^# (.+)$`)
 var headingPhaseRegex = regexp.MustCompile(`(?m)^## (Step|Phase) (\d+)([:.])?\s*(.+?)(?:\s*\[([xX ])\])?$`)
-var numberedHeadingRegex = regexp.MustCompile(`(?m)^(#{1,6}) (\d+)\.\s+(.+?)(?:\s+\[([xX ])\])?$`)
+var numberedHeadingRegex = regexp.MustCompile(`(?m)^(#{1,6}) (\d+)\.\s+(.+?)(?:\s*\[([xX ])\])?$`)
 
 func parsePhases(content string) []domain.Phase {
 	var phases []domain.Phase
