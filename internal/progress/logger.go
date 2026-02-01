@@ -1,6 +1,7 @@
 // Package progress provides persistent timestamped logging for all run modes.
-// Every programmator execution writes a log file to ~/.programmator/logs/ with
-// timestamped entries for iterations, phases, status updates, and exit reasons.
+// Every programmator execution writes a log file to $XDG_STATE_HOME/programmator/logs/
+// (default: ~/.local/state/programmator/logs/) with timestamped entries for
+// iterations, phases, status updates, and exit reasons.
 package progress
 
 import (
@@ -10,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/worksonmyai/programmator/internal/dirs"
 )
 
 // timestampFormat is the format for log timestamps.
@@ -27,7 +30,7 @@ type Logger struct {
 
 // Config holds logger configuration.
 type Config struct {
-	LogsDir    string    // Directory for log files (default: ~/.programmator/logs)
+	LogsDir    string    // Directory for log files (default: $XDG_STATE_HOME/programmator/logs)
 	SourceID   string    // Source identifier (ticket ID or plan filename)
 	SourceType string    // "ticket" or "plan"
 	WorkDir    string    // Working directory
@@ -39,11 +42,7 @@ type Config struct {
 func NewLogger(cfg Config) (*Logger, error) {
 	logsDir := cfg.LogsDir
 	if logsDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("get home dir: %w", err)
-		}
-		logsDir = filepath.Join(home, ".programmator", "logs")
+		logsDir = dirs.LogsDir()
 	}
 
 	if err := os.MkdirAll(logsDir, 0o700); err != nil {

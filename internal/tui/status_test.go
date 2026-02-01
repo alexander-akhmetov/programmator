@@ -39,25 +39,39 @@ func TestIsProcessRunning(t *testing.T) {
 }
 
 func TestSessionFilePath(t *testing.T) {
-	originalStateDir := os.Getenv("PROGRAMMATOR_STATE_DIR")
-	defer os.Setenv("PROGRAMMATOR_STATE_DIR", originalStateDir)
+	tests := []struct {
+		name     string
+		envVars  map[string]string
+		expected string
+	}{
+		{
+			name:     "PROGRAMMATOR_STATE_DIR takes precedence",
+			envVars:  map[string]string{"PROGRAMMATOR_STATE_DIR": "/custom/state", "XDG_STATE_HOME": "/xdg/state"},
+			expected: "/custom/state/session.json",
+		},
+		{
+			name:     "XDG_STATE_HOME used when PROGRAMMATOR_STATE_DIR unset",
+			envVars:  map[string]string{"PROGRAMMATOR_STATE_DIR": "", "XDG_STATE_HOME": "/xdg/state"},
+			expected: filepath.Join("/xdg/state", "programmator", "session.json"),
+		},
+		{
+			name:    "falls back to default when both unset",
+			envVars: map[string]string{"PROGRAMMATOR_STATE_DIR": "", "XDG_STATE_HOME": ""},
+		},
+	}
 
-	os.Setenv("PROGRAMMATOR_STATE_DIR", "/custom/state")
-	path, err := sessionFilePath()
-	if err != nil {
-		t.Fatalf("sessionFilePath() returned unexpected error: %v", err)
-	}
-	if path != "/custom/state/session.json" {
-		t.Errorf("sessionFilePath() = %q, want %q", path, "/custom/state/session.json")
-	}
-
-	os.Unsetenv("PROGRAMMATOR_STATE_DIR")
-	path, err = sessionFilePath()
-	if err != nil {
-		t.Fatalf("sessionFilePath() returned unexpected error: %v", err)
-	}
-	if path == "" {
-		t.Error("sessionFilePath() should not be empty when PROGRAMMATOR_STATE_DIR is unset")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for k, v := range tt.envVars {
+				t.Setenv(k, v)
+			}
+			path := sessionFilePath()
+			if tt.expected != "" {
+				assert.Equal(t, tt.expected, path)
+			} else {
+				assert.NotEmpty(t, path)
+			}
+		})
 	}
 }
 
