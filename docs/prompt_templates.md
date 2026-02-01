@@ -125,8 +125,8 @@ The prompt text is used directly; it is not loaded from a file.
 
 | Agent | Prompt | Focus |
 |-------|--------|-------|
-| quality | [quality.md](../internal/review/prompts/quality.md) | Bugs, logic errors, race conditions, error handling |
-| quality-2 | [quality.md](../internal/review/prompts/quality.md) | Second quality pass for coverage |
+| error-handling | [quality.md](../internal/review/prompts/quality.md) | Bugs, logic errors, race conditions, error handling |
+| logic | [quality.md](../internal/review/prompts/quality.md) | Second quality pass for coverage |
 | security | [security.md](../internal/review/prompts/security.md) | Injection, crypto, auth, data protection |
 | implementation | [implementation.md](../internal/review/prompts/implementation.md) | Requirement coverage, wiring, completeness |
 | testing | [testing.md](../internal/review/prompts/testing.md) | Missing tests, fake tests, edge cases |

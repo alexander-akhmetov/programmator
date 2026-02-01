@@ -59,7 +59,7 @@ Same status protocol but `phase_completed: null`.
 
 Review runs automatically after all task phases complete. It uses a single loop with a flat list of agents.
 
-1. Run all configured agents in parallel (default 9: quality, quality-2, security, implementation, testing, simplification, linter, claudemd, codex).
+1. Run all configured agents in parallel (default 9: error-handling, logic, security, implementation, testing, simplification, linter, claudemd, codex).
 2. Each agent runs `claude --print <agent prompt>` with focus areas and changed files.
 3. Agents return structured issues (severity, file, line, description, fix suggestion).
 4. Validators run automatically:
@@ -84,8 +84,8 @@ The prompt text is used directly.
 
 | Agent | Prompt | Focus |
 |-------|--------|-------|
-| quality | `quality.md` | Bugs, logic errors, race conditions, error handling, simplicity |
-| quality-2 | `quality.md` | Second quality pass for coverage |
+| error-handling | `quality.md` | Bugs, logic errors, race conditions, error handling, simplicity |
+| logic | `quality.md` | Second quality pass for coverage |
 | security | `security.md` | Injection, crypto, auth, data protection |
 | implementation | `implementation.md` | Requirement coverage, wiring, completeness |
 | testing | `testing.md` | Missing tests, fake tests, edge cases |
@@ -170,8 +170,8 @@ review:
   max_iterations: 10
   parallel: true
   agents:
-    - name: quality
-    - name: quality-2
+    - name: error-handling
+    - name: logic
     - name: security
     - name: implementation
     - name: testing

@@ -52,8 +52,8 @@ func DefaultConfig() Config {
 // DefaultAgents returns the default agent list for reviews.
 func DefaultAgents() []AgentConfig {
 	return []AgentConfig{
-		{Name: "quality", Focus: []string{"error handling", "resource management", "concurrency", "race conditions"}},
-		{Name: "quality-2", Focus: []string{"logic errors", "edge cases", "off-by-one", "incorrect conditionals", "nil handling"}},
+		{Name: "error-handling", Focus: []string{"error handling", "resource management", "concurrency", "race conditions"}},
+		{Name: "logic", Focus: []string{"logic errors", "edge cases", "off-by-one", "incorrect conditionals", "nil handling"}},
 		{Name: "security", Focus: []string{"input validation", "secrets", "injection"}},
 		{Name: "implementation", Focus: []string{"requirement coverage", "wiring", "completeness"}},
 		{Name: "testing", Focus: []string{"test coverage", "fake tests", "edge cases"}},
