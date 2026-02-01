@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/worksonmyai/programmator/internal/config"
+	"github.com/worksonmyai/programmator/internal/dirs"
 	"github.com/worksonmyai/programmator/internal/loop"
 	"github.com/worksonmyai/programmator/internal/progress"
 	"github.com/worksonmyai/programmator/internal/prompt"
@@ -98,7 +99,7 @@ func runStart(_ *cobra.Command, args []string) error {
 	}
 
 	if err := writeSessionFile(ticketID, wd); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not write session file: %v\n", err)
+		fmt.Fprintf(os.Stderr, "warning: could not write session file: %v\n", err)
 	}
 	defer removeSessionFile()
 	timing.Log("runStart: session file written")
@@ -165,23 +166,12 @@ func runStart(_ *cobra.Command, args []string) error {
 	return nil
 }
 
-func sessionFilePath() (string, error) {
-	dir := os.Getenv("PROGRAMMATOR_STATE_DIR")
-	if dir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("cannot determine home directory: %w", err)
-		}
-		dir = filepath.Join(home, ".programmator")
-	}
-	return filepath.Join(dir, "session.json"), nil
+func sessionFilePath() string {
+	return filepath.Join(dirs.StateDir(), "session.json")
 }
 
 func writeSessionFile(ticketID, workingDir string) error {
-	path, err := sessionFilePath()
-	if err != nil {
-		return err
-	}
+	path := sessionFilePath()
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
@@ -200,7 +190,5 @@ func writeSessionFile(ticketID, workingDir string) error {
 }
 
 func removeSessionFile() {
-	if path, err := sessionFilePath(); err == nil {
-		os.Remove(path)
-	}
+	os.Remove(sessionFilePath())
 }

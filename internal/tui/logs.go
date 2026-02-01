@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/worksonmyai/programmator/internal/config"
+	"github.com/worksonmyai/programmator/internal/dirs"
 	"github.com/worksonmyai/programmator/internal/progress"
 	"github.com/worksonmyai/programmator/internal/source"
 	"github.com/worksonmyai/programmator/internal/ticket"
@@ -30,7 +31,7 @@ var logsCmd = &cobra.Command{
 	Long: `Show execution logs for a ticket or plan.
 
 For tickets, displays progress notes from the ticket itself.
-For plans (or any source), displays logs from ~/.programmator/logs/.
+For plans (or any source), displays logs from $XDG_STATE_HOME/programmator/logs/.
 
 Options:
   --list, -l       List recent log files
@@ -105,12 +106,7 @@ func listLogs(logsDir, filter string) error {
 	if len(logs) == 0 {
 		fmt.Println("No log files found.")
 		if logsDir == "" {
-			home, err := os.UserHomeDir()
-			if err == nil {
-				fmt.Printf("Log directory: %s/.programmator/logs/\n", home)
-			} else {
-				fmt.Println("Log directory: ~/.programmator/logs/")
-			}
+			fmt.Printf("Log directory: %s\n", dirs.LogsDir())
 		} else {
 			fmt.Printf("Log directory: %s\n", logsDir)
 		}

@@ -74,7 +74,8 @@ main.go (entry) → Loop.Run() → [for each iteration]:
 - **internal/safety/safety.go**: Exit conditions: max iterations, stagnation (no file changes), repeated errors.
 - **internal/tui/**: Bubbletea-based TUI with status panel, markdown rendering via glamour, real-time token usage display, and all CLI command definitions.
 - **internal/config/**: Unified YAML configuration with multi-level merge (embedded defaults → global → env vars → local → CLI flags). Includes prompt template loading with fallback chain.
-- **internal/progress/**: Persistent run logging. `Logger` writes timestamped entries to `~/.programmator/logs/`. Includes file locking (`flock_unix.go`) for active session detection.
+- **internal/dirs/**: XDG Base Directory Specification paths. Central source of truth for `ConfigDir()`, `StateDir()`, `LogsDir()`.
+- **internal/progress/**: Persistent run logging. `Logger` writes timestamped entries to `$XDG_STATE_HOME/programmator/logs/`. Includes file locking (`flock_unix.go`) for active session detection.
 - **internal/git/repo.go**: Git operations wrapper (`Repo` struct) for branch creation, checkout, add, commit, and file moves. Used by auto-commit workflow.
 
 ### Status Protocol
@@ -127,6 +128,9 @@ Unified YAML config with multi-level merge: embedded defaults → `~/.config/pro
 | `PROGRAMMATOR_TICKET_COMMAND` | `tk` | Binary name for the ticket CLI (`tk` or `ticket`) |
 | `PROGRAMMATOR_MAX_REVIEW_ITERATIONS` | 3 | Maximum review fix iterations |
 | `PROGRAMMATOR_ANTHROPIC_API_KEY` | - | Anthropic API key forwarded to Claude (`ANTHROPIC_API_KEY` is filtered from inherited env) |
+| `XDG_CONFIG_HOME` | `~/.config` | Base directory for config files (programmator uses `$XDG_CONFIG_HOME/programmator/`) |
+| `XDG_STATE_HOME` | `~/.local/state` | Base directory for state files (programmator uses `$XDG_STATE_HOME/programmator/` for logs and session) |
+| `PROGRAMMATOR_STATE_DIR` | - | Override state directory (takes precedence over `XDG_STATE_HOME`) |
 
 ### Prompt Templates
 
