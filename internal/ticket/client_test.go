@@ -315,6 +315,9 @@ func TestNormalizePhase(t *testing.T) {
 		{"strips Step N:", "Step 3: Testing", "testing"},
 		{"no prefix", "just a task", "just a task"},
 		{"case insensitive prefix", "phase 1: Setup", "setup"},
+		{"strips numbered prefix 1.", "1. Config", "config"},
+		{"strips numbered prefix 10.", "10. Tests", "tests"},
+		{"strips numbered prefix with space", "3.  Setup", "setup"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -651,6 +654,134 @@ More text`,
 	}
 }
 
+func TestParsePhases_NumberedHeadings(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		expected []domain.Phase
+	}{
+		{
+			name: "basic three numbered headings",
+			content: `# Plan
+### 1. Config
+### 2. Parser
+### 3. Tests`,
+			expected: []domain.Phase{
+				{Name: "1. Config", Completed: false},
+				{Name: "2. Parser", Completed: false},
+				{Name: "3. Tests", Completed: false},
+			},
+		},
+		{
+			name: "different heading level (h2)",
+			content: `# Plan
+## 1. Setup
+## 2. Implement`,
+			expected: []domain.Phase{
+				{Name: "1. Setup", Completed: false},
+				{Name: "2. Implement", Completed: false},
+			},
+		},
+		{
+			name:     "below minimum - single heading returns nil",
+			content:  `### 1. Only one`,
+			expected: nil,
+		},
+		{
+			name: "gap in numbering - no sequential run from 1",
+			content: `### 1. A
+### 3. C`,
+			expected: nil,
+		},
+		{
+			name: "partial sequential - truncates at gap",
+			content: `### 1. A
+### 2. B
+### 5. C`,
+			expected: []domain.Phase{
+				{Name: "1. A", Completed: false},
+				{Name: "2. B", Completed: false},
+			},
+		},
+		{
+			name: "checkbox phases take precedence over numbered headings",
+			content: `# Plan
+- [ ] Setup
+- [ ] Implement
+### 1. Config
+### 2. Parser`,
+			expected: []domain.Phase{
+				{Name: "Setup", Completed: false},
+				{Name: "Implement", Completed: false},
+			},
+		},
+		{
+			name: "heading phases take precedence over numbered headings",
+			content: `# Plan
+## Step 1: Investigation
+## Step 2: Implementation
+### 1. Config
+### 2. Parser`,
+			expected: []domain.Phase{
+				{Name: "Step 1: Investigation", Completed: false},
+				{Name: "Step 2: Implementation", Completed: false},
+			},
+		},
+		{
+			name: "starts at 0 returns nil",
+			content: `### 0. Intro
+### 1. Config
+### 2. Parser`,
+			expected: nil,
+		},
+		{
+			name: "headings with descriptions",
+			content: `# Plan
+### 1. Config (YAML parsing)
+### 2. Node types (AST nodes)
+### 3. Tests (unit + integration)`,
+			expected: []domain.Phase{
+				{Name: "1. Config (YAML parsing)", Completed: false},
+				{Name: "2. Node types (AST nodes)", Completed: false},
+				{Name: "3. Tests (unit + integration)", Completed: false},
+			},
+		},
+		{
+			name: "completed [x] checkbox parsed correctly",
+			content: `# Plan
+### 1. Done [x]
+### 2. Todo`,
+			expected: []domain.Phase{
+				{Name: "1. Done", Completed: true},
+				{Name: "2. Todo", Completed: false},
+			},
+		},
+		{
+			name: "mixed levels - picks lowest sequential level",
+			content: `## 1. High level A
+## 2. High level B
+### 1. Sub A
+### 2. Sub B
+### 3. Sub C`,
+			expected: []domain.Phase{
+				{Name: "1. High level A", Completed: false},
+				{Name: "2. High level B", Completed: false},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			phases := parsePhases(tt.content)
+			require.Equal(t, len(tt.expected), len(phases), "expected %d phases, got %d", len(tt.expected), len(phases))
+			for i, phase := range phases {
+				assert.Equal(t, tt.expected[i].Name, phase.Name, "phase %d name mismatch", i)
+				assert.Equal(t, tt.expected[i].Completed, phase.Completed, "phase %d completed status mismatch", i)
+			}
+		})
+	}
+}
+
 func TestUpdatePhase_HeadingBased(t *testing.T) {
 	setup := func(t *testing.T, content string) (*CLIClient, string) {
 		t.Helper()
@@ -727,6 +858,101 @@ func TestUpdatePhase_HeadingBased(t *testing.T) {
 		assert.Contains(t, string(data), "- [x] Phase 1: Investigation")
 		assert.Contains(t, string(data), "## Step 1: Add new prompts")
 		assert.NotContains(t, string(data), "## Step 1: Add new prompts [x]")
+	})
+}
+
+func TestUpdatePhase_NumberedHeadings(t *testing.T) {
+	setup := func(t *testing.T, content string) (*CLIClient, string) {
+		t.Helper()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "t-1234.md")
+		require.NoError(t, os.WriteFile(path, []byte(content), 0644))
+		return &CLIClient{ticketsDir: dir}, path
+	}
+
+	t.Run("marks numbered heading as complete by appending [x]", func(t *testing.T) {
+		content := `# Plan
+### 1. Config
+### 2. Parser
+### 3. Tests
+`
+		client, path := setup(t, content)
+		err := client.UpdatePhase("t-1234", "1. Config")
+		require.NoError(t, err)
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "### 1. Config [x]")
+		assert.Contains(t, string(data), "### 2. Parser\n")
+		assert.Contains(t, string(data), "### 3. Tests\n")
+	})
+
+	t.Run("idempotent when already marked [x]", func(t *testing.T) {
+		content := `# Plan
+### 1. Config [x]
+### 2. Parser
+`
+		client, path := setup(t, content)
+		err := client.UpdatePhase("t-1234", "1. Config")
+		assert.NoError(t, err)
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, content, string(data))
+	})
+
+	t.Run("idempotent when already marked [X]", func(t *testing.T) {
+		content := `# Plan
+### 1. Config [X]
+### 2. Parser
+`
+		client, path := setup(t, content)
+		err := client.UpdatePhase("t-1234", "1. Config")
+		assert.NoError(t, err)
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, content, string(data))
+	})
+
+	t.Run("fuzzy matching works with normalized names", func(t *testing.T) {
+		content := `# Plan
+### 1. Config setup
+### 2. Parser implementation
+`
+		client, path := setup(t, content)
+		err := client.UpdatePhase("t-1234", "Config setup")
+		require.NoError(t, err)
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "### 1. Config setup [x]")
+	})
+
+	t.Run("error when phase not found", func(t *testing.T) {
+		content := `# Plan
+### 1. Config
+### 2. Parser
+`
+		client, _ := setup(t, content)
+		err := client.UpdatePhase("t-1234", "Nonexistent Phase")
+		assert.ErrorIs(t, err, ErrPhaseNotFound)
+	})
+
+	t.Run("prefers checkbox over numbered heading", func(t *testing.T) {
+		content := `# Plan
+- [ ] Config setup
+### 1. Config setup
+### 2. Parser
+`
+		client, path := setup(t, content)
+		err := client.UpdatePhase("t-1234", "Config setup")
+		require.NoError(t, err)
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "- [x] Config setup")
+		assert.NotContains(t, string(data), "### 1. Config setup [x]")
 	})
 }
 

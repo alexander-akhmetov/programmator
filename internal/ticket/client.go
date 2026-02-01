@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -157,6 +158,25 @@ func (c *CLIClient) UpdatePhase(id string, phaseName string) error {
 		}
 	}
 
+	// Tier 3: numbered heading phases (e.g., "### 1. Config")
+	if !found {
+		for i, line := range lines {
+			if match := numberedHeadingRegex.FindStringSubmatch(line); match != nil {
+				headingPhase := fmt.Sprintf("%s. %s", match[2], strings.TrimSpace(match[3]))
+				existingPhase := normalizePhase(headingPhase)
+
+				if existingPhase == normalizedPhase || strings.Contains(existingPhase, normalizedPhase) || strings.Contains(normalizedPhase, existingPhase) {
+					if match[4] == "x" || match[4] == "X" {
+						return nil // already completed
+					}
+					lines[i] = line + " [x]"
+					found = true
+					break
+				}
+			}
+		}
+	}
+
 	if !found {
 		return fmt.Errorf("%w: %s", ErrPhaseNotFound, phaseName)
 	}
@@ -209,12 +229,15 @@ func (c *CLIClient) findTicketFile(id string) (string, error) {
 }
 
 var normalizePrefixRegex = regexp.MustCompile(`^(phase|step)\s*\d+[:.]\s*`)
+var normalizeNumberPrefixRegex = regexp.MustCompile(`^\d+\.\s*`)
 
 func normalizePhase(s string) string {
 	s = strings.ToLower(s)
 	s = strings.TrimSpace(s)
 	// Remove common prefixes like "Phase 1:", "Step 2:", etc.
 	s = normalizePrefixRegex.ReplaceAllString(s, "")
+	// Remove numbered prefixes like "1.", "10." (Tier 3 numbered headings)
+	s = normalizeNumberPrefixRegex.ReplaceAllString(s, "")
 	return s
 }
 
@@ -290,6 +313,7 @@ func parseTicket(id string, content string) (*Ticket, error) {
 var phaseRegex = regexp.MustCompile(`- \[([ xX])\] (.+)`)
 var titleRegex = regexp.MustCompile(`(?m)^# (.+)$`)
 var headingPhaseRegex = regexp.MustCompile(`(?m)^## (Step|Phase) (\d+)([:.])?\s*(.+?)(?:\s*\[([xX ])\])?$`)
+var numberedHeadingRegex = regexp.MustCompile(`(?m)^(#{1,6}) (\d+)\.\s+(.+?)(?:\s+\[([xX ])\])?$`)
 
 func parsePhases(content string) []domain.Phase {
 	var phases []domain.Phase
@@ -334,7 +358,75 @@ func parsePhases(content string) []domain.Phase {
 		})
 	}
 
-	return phases
+	if len(phases) > 0 {
+		return phases
+	}
+
+	// Tier 3: sequential numbered headings
+	return parseNumberedHeadingPhases(content)
+}
+
+func parseNumberedHeadingPhases(content string) []domain.Phase {
+	matches := numberedHeadingRegex.FindAllStringSubmatch(content, -1)
+	if len(matches) < 2 {
+		return nil
+	}
+
+	// Group matches by heading level
+	type headingMatch struct {
+		number    int
+		name      string
+		completed bool
+	}
+
+	byLevel := make(map[int][]headingMatch)
+	for _, m := range matches {
+		level := len(m[1])
+		num, _ := strconv.Atoi(m[2])
+		completed := m[4] == "x" || m[4] == "X"
+		byLevel[level] = append(byLevel[level], headingMatch{
+			number:    num,
+			name:      fmt.Sprintf("%s. %s", m[2], strings.TrimSpace(m[3])),
+			completed: completed,
+		})
+	}
+
+	// Try levels in ascending order
+	for level := 1; level <= 6; level++ {
+		group, ok := byLevel[level]
+		if !ok || len(group) < 2 {
+			continue
+		}
+
+		// Must start at 1
+		if group[0].number != 1 {
+			continue
+		}
+
+		// Find longest sequential run starting at 1
+		sequential := 1
+		for i := 1; i < len(group); i++ {
+			if group[i].number != group[i-1].number+1 {
+				break
+			}
+			sequential++
+		}
+
+		if sequential < 2 {
+			continue
+		}
+
+		var phases []domain.Phase
+		for _, h := range group[:sequential] {
+			phases = append(phases, domain.Phase{
+				Name:      h.name,
+				Completed: h.completed,
+			})
+		}
+		return phases
+	}
+
+	return nil
 }
 
 // ToWorkItem converts a Ticket to a domain.WorkItem.
