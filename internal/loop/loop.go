@@ -443,6 +443,7 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 		l.log(fmt.Sprintf("Review agent errors (%d) - retrying review without invoking Claude", errorCount))
 		l.addNote(rc, fmt.Sprintf("warning: Review agent errors (%d) - retrying review", errorCount))
 
+		l.engine.ReviewIterations--
 		l.engine.PendingReviewFix = false
 		l.engine.ReviewPassed = false
 		return loopRetryReview
