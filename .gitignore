@@ -32,4 +32,6 @@ go.work.sum
 # .idea/
 # .vscode/
 .claude
+
 programmator
+.programmator/
