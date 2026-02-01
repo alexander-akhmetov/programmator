@@ -8,7 +8,11 @@ A plain-language walkthrough of how programmator runs Claude Code.
 |---------|--------------|
 | `programmator start <ticket-or-plan>` | Run task phases, then review |
 | `programmator review` | Run review only (no task phases) |
+| `programmator run <prompt>` | Run Claude with a custom prompt (no plan/ticket) |
 | `programmator plan create <desc>` | Interactive plan creation |
+| `programmator status` | Show active sessions |
+| `programmator logs [source-id]` | View execution logs (`--follow` to tail) |
+| `programmator config show` | Show resolved configuration |
 
 ---
 
@@ -167,7 +171,7 @@ Default agents and iteration limits are in `internal/config/defaults/config.yaml
 ```yaml
 # ~/.config/programmator/config.yaml or .programmator/config.yaml
 review:
-  max_iterations: 10
+  max_iterations: 3
   parallel: true
   agents:
     - name: quality

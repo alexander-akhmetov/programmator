@@ -1,16 +1,31 @@
 # Programmator
 
 [![CI](https://github.com/worksonmyai/programmator/actions/workflows/ci.yml/badge.svg)](https://github.com/worksonmyai/programmator/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/worksonmyai/programmator)](https://goreportcard.com/report/github.com/worksonmyai/programmator)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Autonomous Claude Code loop orchestrator driven by plan files or tickets.
+Autonomous Claude Code orchestrator that executes multi-task plans without supervision.
 
-## Quickstart
+Claude Code is interactive — it requires you to watch, approve, and guide each step. For complex features spanning multiple tasks, this means hours of babysitting. As context fills up during long sessions, the model starts making mistakes and producing worse code.
 
-Build from source:
+Programmator solves this by executing each task in a fresh Claude Code session with focused context. Write a plan, start programmator, walk away. Come back to find your tasks completed, reviewed by 9 parallel agents, and optionally committed.
+
+<details>
+<summary>Screenshot</summary>
+
+<img src="docs/screenshot.png" alt="Programmator TUI" width="800">
+
+</details>
+
+## Quick Start
+
+**Requirements:**
+- Go 1.25.6+
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
+- [dcg](https://github.com/Dicklesworthstone/destructive_command_guard) (destructive command guard) — blocks dangerous shell commands during autonomous execution. Guard mode is enabled by default; without dcg installed, programmator falls back to experimental interactive permission dialogs.
 
 ```bash
-go install ./cmd/programmator
+go install github.com/worksonmyai/programmator/cmd/programmator@latest
 ```
 
 Write a plan file (`plan.md`):
@@ -31,11 +46,23 @@ Run it:
 programmator start ./plan.md
 ```
 
-Programmator picks up the first unchecked task, invokes Claude Code to complete it, marks it done, and moves to the next one. When all tasks are checked off (or safety limits are hit), it stops.
+Programmator picks up the first unchecked task, invokes Claude Code to complete it, marks it done, and moves to the next. After all tasks complete, it runs a multi-agent code review. When everything passes (or safety limits are hit), it stops.
+
+## How It Works
+
+Each iteration:
+1. Reads the plan file and finds the first uncompleted task
+2. Builds a prompt with the task context and instructions
+3. Invokes Claude Code in a fresh session
+4. Parses Claude's `PROGRAMMATOR_STATUS` output block (YAML with status, files changed, summary)
+5. Updates the task checkbox and logs progress
+6. Checks safety limits, then loops back
+
+After all tasks are done, a [multi-agent review](#review) runs automatically.
 
 ## Plan Files
 
-The simplest way to use Programmator. A plan file is a markdown file with checkbox tasks:
+A plan file is a markdown file with checkbox tasks:
 
 ```markdown
 # Plan: Feature Name
@@ -55,64 +82,60 @@ The simplest way to use Programmator. A plan file is a markdown file with checkb
 - **Validation Commands**: Run after each task completion (optional)
 - **Tasks**: Checkbox items (`- [ ]` / `- [x]`) anywhere in the file
 
-You can also create plans interactively — Claude analyzes your codebase and asks clarifying questions to build the plan for you:
+Create plans interactively — Claude analyzes your codebase and asks clarifying questions:
 
 ```bash
 programmator plan create "Add authentication to the API"
 ```
 
+## Review
+
+After all tasks complete, programmator automatically runs a multi-agent code review. 9 agents run in parallel — each focused on a specific area (quality, security, implementation, testing, simplification, linting, CLAUDE.md compliance, and a Codex cross-check). Issues found are auto-fixed by Claude and re-reviewed, up to 3 iterations.
+
+You can also run review standalone on any branch:
+
+```bash
+programmator review                       # review current branch vs main
+programmator review --base develop        # review against a different base
+```
+
+## Commands
+
+```bash
+programmator start ./plan.md              # execute a plan
+programmator start ./plan.md --auto-commit # with git workflow (branch + commits)
+programmator start pro-1a2b               # execute a ticket
+programmator review                       # review-only mode on current branch
+programmator run "explain this codebase"  # run Claude with a custom prompt
+programmator plan create "description"    # interactive plan creation
+programmator status                       # show active sessions
+programmator logs --follow                # tail the active log
+programmator config show                  # show resolved config
+```
+
+`programmator run` is a lightweight wrapper around Claude Code — pass any prompt as an argument or pipe via stdin. Useful for one-off tasks that don't need plan tracking.
+
 ## Tickets
 
-For persistent issue tracking, Programmator integrates with the external [ticket](https://github.com/wedow/ticket) CLI:
+For persistent issue tracking, Programmator integrates with the external [ticket](https://github.com/wedow/ticket) CLI. Tickets are markdown files with YAML frontmatter and checkbox phases.
 
-Tickets are markdown files with YAML frontmatter. Phases are checkboxes in a Design section:
-```markdown
-## Design
-- [ ] Phase 1: Investigation
-- [x] Phase 2: Implementation (completed)
-```
-
-Programmator auto-detects the source type from the argument:
-- File paths (contain `/`, end with `.md`, or exist on disk) → Plan file
-- Everything else → Ticket ID
-
-```bash
-programmator start ./plan.md       # plan file
-programmator start pro-1a2b        # ticket
-```
-
-## How It Works
-
-Each iteration:
-1. Reads the source (plan file or ticket) and finds the first uncompleted task
-2. Builds a prompt with the task context and instructions
-3. Invokes Claude Code in autonomous mode
-4. Parses Claude's `PROGRAMMATOR_STATUS` output block (YAML with status, files changed, summary)
-5. Updates the task checkbox and logs progress
-6. Checks safety limits, then loops back
-
-## Monitoring
-
-```bash
-# Show active sessions
-programmator status
-
-# View logs for a source (ticket or plan)
-programmator logs <source-id>
-
-# Tail the active log in real-time
-programmator logs --follow
-```
-
-Every run writes a persistent log to `~/.programmator/logs/` with timestamped entries per iteration.
+Source type is auto-detected from the argument: file paths → plan file, everything else → ticket ID.
 
 ## Safety Gates
 
+- **Guard mode**: Blocks destructive shell commands via [dcg](https://github.com/Dicklesworthstone/destructive_command_guard) (enabled by default, disable with `--guard=false`). Use `--dangerously-skip-permissions` to bypass all permission checks entirely.
 - **Max iterations**: Prevents runaway loops (default: 50)
 - **Stagnation detection**: Exits if no files change for N iterations (default: 3)
 - **Error repetition**: Exits if same error occurs 3 times
 - **Timeout**: Kills Claude if a single invocation takes too long (default: 900s)
 - **Ctrl+C**: Graceful stop after current iteration
+
+## Auto Git Workflow
+
+Opt-in via config or CLI flags:
+- `--auto-commit`: Creates a `programmator/<slug>` branch, commits after each phase
+- `--move-completed`: Moves completed plans to `plans/completed/`
+- `--branch <name>`: Custom branch name
 
 ## Configuration
 
@@ -124,13 +147,10 @@ Programmator uses a unified YAML config with multi-level merge (highest priority
 4. Local config (`.programmator/config.yaml` in project directory)
 5. CLI flags
 
-See resolved values with:
+See resolved values with `programmator config show`.
 
-```bash
-programmator config show
-```
-
-### Config Keys
+<details>
+<summary>Config keys</summary>
 
 | Key | Default | Description |
 |-----|---------|-------------|
@@ -150,7 +170,10 @@ programmator config show
 | `review.parallel` | `true` | Run review agents in parallel |
 | `review.agents` | see [defaults](internal/config/defaults/config.yaml) | Flat list of review agents with names and focus areas |
 
-### Environment Variables
+</details>
+
+<details>
+<summary>Environment variables</summary>
 
 Each config key can also be set via environment variable with a `PROGRAMMATOR_` prefix (uppercase, dots become underscores):
 
@@ -160,32 +183,30 @@ Each config key can also be set via environment variable with a `PROGRAMMATOR_` 
 | `PROGRAMMATOR_STAGNATION_LIMIT` | 3 | Exit after N iterations with no file changes |
 | `PROGRAMMATOR_TIMEOUT` | 900 | Seconds per Claude invocation |
 | `PROGRAMMATOR_CLAUDE_FLAGS` | `""` | Flags passed to Claude |
-| `PROGRAMMATOR_MAX_REVIEW_ITERATIONS` | 10 | Maximum review fix iterations |
+| `PROGRAMMATOR_MAX_REVIEW_ITERATIONS` | 3 | Maximum review fix iterations |
 | `PROGRAMMATOR_TICKET_COMMAND` | `tk` | Binary name for the ticket CLI (`tk` or `ticket`) |
 | `PROGRAMMATOR_ANTHROPIC_API_KEY` | `""` | Anthropic API key passed to Claude |
 | `TICKETS_DIR` | `~/.tickets` | Where ticket files live |
 | `CLAUDE_CONFIG_DIR` | - | Custom Claude config directory (passed to Claude subprocess) |
 
-### Prompt Templates
+</details>
+
+<details>
+<summary>Prompt templates</summary>
 
 Prompts are customizable via Go `text/template` files. Override any prompt by placing a file in:
 - `~/.config/programmator/prompts/` (global)
 - `.programmator/prompts/` (per-project)
 
-Available templates: `phased.md`, `phaseless.md`, `review_first.md`, `plan_create.md`.
+Available templates: `phased.md`, `phaseless.md`, `review_first.md`, `plan_create.md`. See [prompt template docs](docs/prompt_templates.md) for variables and examples.
 
-### Auto Git Workflow
-
-Opt-in via config or CLI flags:
-- `--auto-commit`: Creates a `programmator/<slug>` branch, commits after each phase
-- `--move-completed`: Moves completed plans to `plans/completed/`
-- `--branch <name>`: Custom branch name
+</details>
 
 ## Documentation
 
-- [How it works](docs/orchestration.md)
-- [E2E Tests](docs/e2e_tests.md) — manual integration tests, how to run and create them
-- [Prompt Templates](docs/prompt_templates.md) — override chain, template variables, customization
+- [Orchestration flow](docs/orchestration.md) — detailed walkthrough of execution, review, and plan creation
+- [Prompt templates](docs/prompt_templates.md) — override chain, template variables, customization
+- [E2E tests](docs/e2e_tests.md) — manual integration tests
 
 ## Development
 
@@ -193,9 +214,7 @@ Opt-in via config or CLI flags:
 go build ./...                # Build
 go test ./...                 # Run tests
 go test -race ./...           # Run tests with race detector
-go test ./internal/parser -v  # Single package
 golangci-lint run             # Lint
-go vet ./...                  # Static analysis
 
 # E2E test prep (creates toy projects in /tmp)
 make e2e-prep                 # Plan-based run
