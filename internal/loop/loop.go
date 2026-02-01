@@ -393,9 +393,7 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 		return loopReturn
 	}
 
-	// Check iteration limit before running the review to avoid a wasted
-	// cycle whose results would never be acted on.
-	l.engine.ReviewIterations++
+	// Check iteration limit before starting a new review+fix cycle.
 	if l.engine.MaxReviewIter > 0 && l.engine.ReviewIterations >= l.engine.MaxReviewIter {
 		l.log(fmt.Sprintf("Review iteration limit reached (%d/%d) - completing",
 			l.engine.ReviewIterations, l.engine.MaxReviewIter))
@@ -404,6 +402,7 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 		rc.state.ExitReviewPhase()
 		return l.completeAllPhases(rc)
 	}
+	l.engine.ReviewIterations++
 
 	l.log(fmt.Sprintf("Review iteration %d/%d",
 		l.engine.ReviewIterations, l.engine.MaxReviewIter))
