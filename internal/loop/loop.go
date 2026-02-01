@@ -458,15 +458,6 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 	issueNote := review.FormatIssuesMarkdown(reviewResult.Results)
 	l.lastReviewIssues = issueNote
 
-	if decision.ExceededLimit {
-		l.log(fmt.Sprintf("Review exceeded max iterations (%d) with %d issues remaining",
-			l.engine.MaxReviewIter, reviewResult.TotalIssues))
-		l.addNote(rc, fmt.Sprintf("warning: Review exceeded max iterations with %d issues remaining",
-			reviewResult.TotalIssues))
-		rc.state.ExitReviewPhase()
-		return l.completeAllPhases(rc)
-	}
-
 	// NeedsFix: invoke Claude to fix issues
 	l.log(fmt.Sprintf("Review found %d issues", reviewResult.TotalIssues))
 	l.addNote(rc, fmt.Sprintf("review: [iter %d] Found %d issues:\n%s",

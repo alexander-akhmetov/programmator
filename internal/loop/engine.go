@@ -52,17 +52,12 @@ func (e *Engine) ProcessStatus(input ProcessStatusInput) StatusProcessResult {
 }
 
 // DecideReview evaluates the review result and decides what to do next.
+// The iteration limit is now checked before running the review (in handleReview),
+// so DecideReview only distinguishes between passed and needs-fix.
 func (e *Engine) DecideReview(passed bool) ReviewDecision {
 	if passed {
 		e.ReviewPassed = true
 		return ReviewDecision{Passed: true}
-	}
-
-	e.ReviewIterations++
-	// MaxReviewIter=0 means unlimited review iterations.
-	if e.MaxReviewIter > 0 && e.ReviewIterations >= e.MaxReviewIter {
-		e.ReviewPassed = true
-		return ReviewDecision{ExceededLimit: true}
 	}
 
 	e.PendingReviewFix = true

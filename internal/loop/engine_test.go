@@ -124,13 +124,11 @@ func TestProcessStatusNilStatus(t *testing.T) {
 
 func TestDecideReview(t *testing.T) {
 	tests := []struct {
-		name              string
-		setup             func(e *Engine)
-		passed            bool
-		wantPassed        bool
-		wantNeedsFix      bool
-		wantExceededLimit bool
-		wantReviewPassed  bool
+		name             string
+		passed           bool
+		wantPassed       bool
+		wantNeedsFix     bool
+		wantReviewPassed bool
 	}{
 		{
 			name:             "passed",
@@ -139,46 +137,19 @@ func TestDecideReview(t *testing.T) {
 			wantReviewPassed: true,
 		},
 		{
-			name:         "failed within limit",
+			name:         "failed returns NeedsFix",
 			wantNeedsFix: true,
-		},
-		{
-			name: "failed at limit boundary",
-			setup: func(e *Engine) {
-				e.ReviewIterations = 8 // will be incremented to 9, which is < 10
-			},
-			wantNeedsFix: true,
-		},
-		{
-			name: "exceeded limit",
-			setup: func(e *Engine) {
-				e.ReviewIterations = 9 // will be incremented to 10, which >= 10
-			},
-			wantExceededLimit: true,
-			wantReviewPassed:  true,
-		},
-		{
-			name: "no limit set (MaxReviewIter=0)",
-			setup: func(e *Engine) {
-				e.MaxReviewIter = 0
-				e.ReviewIterations = 100
-			},
-			wantNeedsFix: true, // no limit, always needs fix
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newTestEngine()
-			if tc.setup != nil {
-				tc.setup(e)
-			}
 
 			decision := e.DecideReview(tc.passed)
 
 			require.Equal(t, tc.wantPassed, decision.Passed)
 			require.Equal(t, tc.wantNeedsFix, decision.NeedsFix)
-			require.Equal(t, tc.wantExceededLimit, decision.ExceededLimit)
 			if tc.wantReviewPassed {
 				require.True(t, e.ReviewPassed)
 			}
@@ -239,43 +210,32 @@ func TestFormatIterationSummary(t *testing.T) {
 	}
 }
 
-func TestDecideReview_SingleIterationLimit(t *testing.T) {
-	// Verify that there's no per-phase iteration budget — only a single
-	// review.max_iterations controls the entire review loop.
+func TestDecideReview_FailureAlwaysReturnsNeedsFix(t *testing.T) {
+	// DecideReview no longer tracks iterations or enforces limits;
+	// the limit check is done in handleReview before running the review.
 	e := newTestEngine()
 	e.MaxReviewIter = 3
 
-	// Simulate 3 failed iterations
-	for i := range 2 {
+	for i := range 5 {
 		decision := e.DecideReview(false)
 		require.True(t, decision.NeedsFix, "iteration %d should need fix", i+1)
-		require.False(t, decision.ExceededLimit)
 		require.False(t, decision.Passed)
-		// Reset PendingReviewFix as the loop would
 		e.PendingReviewFix = false
 	}
-
-	// Third failure should hit the limit
-	decision := e.DecideReview(false)
-	require.True(t, decision.ExceededLimit, "should exceed limit at iteration 3")
-	require.False(t, decision.NeedsFix)
-	require.True(t, e.ReviewPassed, "ReviewPassed should be set when limit exceeded")
 }
 
 func TestDecideReview_PassStopsImmediately(t *testing.T) {
 	e := newTestEngine()
-	e.MaxReviewIter = 10
 
 	// Even after several failures, passing stops immediately
-	e.DecideReview(false) // iteration 1
+	e.DecideReview(false)
 	e.PendingReviewFix = false
-	e.DecideReview(false) // iteration 2
+	e.DecideReview(false)
 	e.PendingReviewFix = false
 
 	decision := e.DecideReview(true)
 	require.True(t, decision.Passed)
 	require.True(t, e.ReviewPassed)
-	require.Equal(t, 2, e.ReviewIterations, "iterations should not increment on pass")
 }
 
 func TestResetReviewState(t *testing.T) {
