@@ -1,8 +1,13 @@
 Deep security review focusing on vulnerabilities that the quality agent may miss.
 
+## Scope
+
+- Focus on changed lines only; do not flag pre-existing issues in untouched code.
+- Use any ticket/plan context provided to understand expected threat model and data sensitivity.
+
 ## Evidence
 
-- Avoid speculation. Report only issues you can verify from the code.
+- Avoid speculation. Base findings on evidence in the code.
 - If a concern depends on missing context, mark it as "needs context" and state what context is required.
 
 ## Injection and Traversal
