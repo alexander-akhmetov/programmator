@@ -393,10 +393,21 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 		return loopReturn
 	}
 
-	l.log(fmt.Sprintf("Review iteration %d/%d",
-		l.engine.ReviewIterations+1, l.engine.MaxReviewIter))
+	// Check iteration limit before starting a new review+fix cycle.
+	if l.engine.MaxReviewIter > 0 && l.engine.ReviewIterations >= l.engine.MaxReviewIter {
+		l.log(fmt.Sprintf("Review iteration limit reached (%d/%d) - completing",
+			l.engine.ReviewIterations, l.engine.MaxReviewIter))
+		l.addNote(rc, fmt.Sprintf("warning: Review iteration limit reached (%d)",
+			l.engine.MaxReviewIter))
+		rc.state.ExitReviewPhase()
+		return l.completeAllPhases(rc)
+	}
+	l.engine.ReviewIterations++
 
-	l.logReviewStart(l.engine.ReviewIterations+1, l.engine.MaxReviewIter)
+	l.log(fmt.Sprintf("Review iteration %d/%d",
+		l.engine.ReviewIterations, l.engine.MaxReviewIter))
+
+	l.logReviewStart(l.engine.ReviewIterations, l.engine.MaxReviewIter)
 	rc.state.EnterReviewPhase()
 	if l.reviewRunner == nil {
 		l.applySettingsToReviewConfig()
@@ -431,16 +442,7 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 		l.log(fmt.Sprintf("Review agent errors (%d) - retrying review without invoking Claude", errorCount))
 		l.addNote(rc, fmt.Sprintf("warning: Review agent errors (%d) - retrying review", errorCount))
 
-		l.engine.ReviewIterations++
-		if l.engine.MaxReviewIter > 0 && l.engine.ReviewIterations >= l.engine.MaxReviewIter {
-			l.log(fmt.Sprintf("Review exceeded max iterations (%d) with agent errors",
-				l.engine.MaxReviewIter))
-			l.addNote(rc, fmt.Sprintf("warning: Review exceeded max iterations with agent errors (%d)",
-				errorCount))
-			rc.state.ExitReviewPhase()
-			return l.completeAllPhases(rc)
-		}
-
+		l.engine.ReviewIterations--
 		l.engine.PendingReviewFix = false
 		l.engine.ReviewPassed = false
 		return loopRetryReview
@@ -457,15 +459,6 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 
 	issueNote := review.FormatIssuesMarkdown(reviewResult.Results)
 	l.lastReviewIssues = issueNote
-
-	if decision.ExceededLimit {
-		l.log(fmt.Sprintf("Review exceeded max iterations (%d) with %d issues remaining",
-			l.engine.MaxReviewIter, reviewResult.TotalIssues))
-		l.addNote(rc, fmt.Sprintf("warning: Review exceeded max iterations with %d issues remaining",
-			reviewResult.TotalIssues))
-		rc.state.ExitReviewPhase()
-		return l.completeAllPhases(rc)
-	}
 
 	// NeedsFix: invoke Claude to fix issues
 	l.log(fmt.Sprintf("Review found %d issues", reviewResult.TotalIssues))

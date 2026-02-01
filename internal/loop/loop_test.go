@@ -1833,9 +1833,8 @@ func TestReviewUsesMaxIterations(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
-	// MaxIterations=5: reviews 1-4 trigger fix (4 Claude calls),
-	// review 5 exceeds limit and stops without another fix
-	require.Equal(t, 4, claudeCallCount)
+	// MaxIterations=5: 5 review+fix cycles, each review finds issues and triggers a fix
+	require.Equal(t, 5, claudeCallCount)
 }
 
 // Test: empty agents returns an error
@@ -1935,24 +1934,138 @@ func TestReviewMaxIterationsOnly_NoPhaseIterationBudgets(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
-	// MaxIterations=3: reviews 1,2 trigger fix (2 Claude calls),
-	// review 3 exceeds limit and stops
-	require.Equal(t, 2, claudeCallCount, "should have exactly max_iterations-1 fix calls")
+	// MaxIterations=3: 3 review+fix cycles, each review finds issues and triggers a fix
+	require.Equal(t, 3, claudeCallCount, "should have exactly max_iterations fix calls")
 }
 
 // Test: review-only mode uses single max_iterations limit
-func TestRunReviewOnly_SingleMaxIterationsLimit(t *testing.T) {
+// Test: MaxReviewIter=1 via handleReview (Run path) allows exactly one review.
+func TestRun_MaxReviewIterOneRunsOneReview(t *testing.T) {
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
+			ID:    "test-max-review-1",
+			Title: "Test MaxReviewIter=1",
+			Phases: []domain.Phase{
+				{Name: "Phase 1", Completed: true},
+			},
+		}, nil
+	}
+
 	config := safety.Config{MaxIterations: 100, StagnationLimit: 50, Timeout: 60, MaxReviewIterations: 100}
-	l := New(config, "/tmp", nil, nil, false)
+	l := NewWithSource(config, "", nil, nil, false, mock)
+
+	l.SetReviewConfig(review.Config{
+		MaxIterations: 1,
+		Agents:        []review.AgentConfig{{Name: "test_agent"}},
+	})
+
+	reviewCallCount := 0
+	runner := createMockReviewRunnerFunc(t, func() (hasIssues bool, issueCount int) {
+		reviewCallCount++
+		return false, 0 // pass
+	})
+	l.SetReviewRunner(runner)
+
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: ["file.go"]
+  summary: "fix"
+`, nil
+	}})
+
+	result, err := l.Run("test-max-review-1")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	require.Equal(t, 1, reviewCallCount, "MaxReviewIter=1 should allow exactly one review run")
+}
+
+// Test: agent errors during review don't consume iteration budget
+func TestRunReview_AgentErrorsDoNotConsumeIterationBudget(t *testing.T) {
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
+			ID:    "test-agent-err",
+			Title: "Test Agent Errors",
+			Phases: []domain.Phase{
+				{Name: "Phase 1", Completed: true},
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 100, StagnationLimit: 50, Timeout: 60, MaxReviewIterations: 100}
+	l := NewWithSource(config, "", nil, nil, false, mock)
 
 	l.SetReviewConfig(review.Config{
 		MaxIterations: 2,
 		Agents:        []review.AgentConfig{{Name: "test_agent"}},
 	})
 
-	// Review always finds issues
-	mockRunner := createMockReviewRunner(t, true, 1)
-	l.SetReviewRunner(mockRunner)
+	callCount := 0
+	// First call: agent error; second call: pass
+	runner := createMockReviewRunnerWithErrors(t, func() (agentError bool, hasIssues bool) {
+		callCount++
+		if callCount == 1 {
+			return true, false // agent error on first call
+		}
+		return false, false // pass on second call
+	})
+	l.SetReviewRunner(runner)
+
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: ["fix.go"]
+  summary: "fix"
+`, nil
+	}})
+
+	result, err := l.Run("test-agent-err")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	// Agent error retry should not have consumed an iteration.
+	// With MaxIterations=2: call 1 errors (doesn't count) → retry → call 2 passes.
+	// If agent errors consumed budget, the second call would hit the limit.
+	require.Equal(t, 2, callCount, "runner should be called twice (error + pass)")
+}
+
+// Test: MaxReviewIter=0 means unlimited review iterations
+func TestRunReview_UnlimitedIterations(t *testing.T) {
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
+			ID:    "test-unlimited",
+			Title: "Test Unlimited",
+			Phases: []domain.Phase{
+				{Name: "Phase 1", Completed: true},
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 100, StagnationLimit: 50, Timeout: 60, MaxReviewIterations: 100}
+	l := NewWithSource(config, "", nil, nil, false, mock)
+
+	// MaxIterations=0 means unlimited
+	l.SetReviewConfig(review.Config{
+		MaxIterations: 0,
+		Agents:        []review.AgentConfig{{Name: "test_agent"}},
+	})
+
+	reviewCallCount := 0
+	// Fail 5 times then pass — with MaxIterations=0 this should be fine
+	runner := createMockReviewRunnerFunc(t, func() (bool, int) {
+		reviewCallCount++
+		if reviewCallCount <= 5 {
+			return true, 1
+		}
+		return false, 0
+	})
+	l.SetReviewRunner(runner)
 
 	claudeCallCount := 0
 	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
@@ -1960,19 +2073,64 @@ func TestRunReviewOnly_SingleMaxIterationsLimit(t *testing.T) {
 		return `PROGRAMMATOR_STATUS:
   phase_completed: null
   status: CONTINUE
-  files_changed: ["file.go"]
-  summary: "Fixed issue"
-  commit_made: true
+  files_changed: ["fix.go"]
+  summary: "Attempted fix"
 `, nil
 	}})
 
-	result, err := l.RunReviewOnly("main", []string{"file.go"})
+	result, err := l.Run("test-unlimited")
 
 	require.NoError(t, err)
-	require.False(t, result.Passed, "should not pass when always finding issues")
-	// With MaxIterations=2, first iteration finds issues and triggers fix,
-	// second iteration finds issues again and hits the limit
-	require.LessOrEqual(t, claudeCallCount, 2)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	require.Equal(t, 6, reviewCallCount, "should run 6 reviews (5 fail + 1 pass)")
+	require.Equal(t, 5, claudeCallCount, "should have 5 fix calls")
+}
+
+func createMockReviewRunnerWithErrors(t *testing.T, resultFunc func() (agentError bool, hasIssues bool)) *review.Runner {
+	t.Helper()
+
+	cfg := review.Config{
+		MaxIterations: 3,
+		Agents: []review.AgentConfig{
+			{Name: "test_agent"},
+		},
+	}
+
+	runner := review.NewRunner(cfg, nil)
+	runner.SetAgentFactory(func(agentCfg review.AgentConfig, _ string) review.Agent {
+		mock := review.NewMockAgent(agentCfg.Name)
+		if agentCfg.Name == "simplification-validator" || agentCfg.Name == "issue-validator" {
+			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*review.Result, error) {
+				return &review.Result{AgentName: agentCfg.Name, Summary: "No issues"}, nil
+			})
+			return mock
+		}
+		mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*review.Result, error) {
+			agentError, hasIssues := resultFunc()
+			if agentError {
+				return &review.Result{
+					AgentName: agentCfg.Name,
+					Error:     fmt.Errorf("agent execution failed"),
+				}, nil
+			}
+			var issues []review.Issue
+			if hasIssues {
+				issues = append(issues, review.Issue{
+					File:        "file.go",
+					Severity:    review.SeverityHigh,
+					Description: "Issue found",
+				})
+			}
+			return &review.Result{
+				AgentName: agentCfg.Name,
+				Issues:    issues,
+				Summary:   "Review complete",
+			}, nil
+		})
+		return mock
+	})
+
+	return runner
 }
 
 func TestWorkItemHelpers_Phaseless(t *testing.T) {

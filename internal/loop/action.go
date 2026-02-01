@@ -56,8 +56,6 @@ type ReviewDecision struct {
 	Passed bool
 	// NeedsFix is true when Claude should be invoked to fix issues.
 	NeedsFix bool
-	// ExceededLimit is true when the iteration limit was hit.
-	ExceededLimit bool
 }
 
 // SafetyCheckResult wraps the safety check outcome with exit details.
