@@ -146,7 +146,7 @@ programmator config show
 | `git.move_completed_plans` | `false` | Move completed plans to a `completed/` directory |
 | `git.completed_plans_dir` | `""` | Directory for completed plans (default: `plans/completed`) |
 | `git.branch_prefix` | `""` | Prefix for auto-created branches (default: `programmator/`) |
-| `review.max_iterations` | `10` | Maximum review fix iterations |
+| `review.max_iterations` | `3` | Maximum review fix iterations |
 | `review.parallel` | `true` | Run review agents in parallel |
 | `review.agents` | see [defaults](internal/config/defaults/config.yaml) | Flat list of review agents with names and focus areas |
 
