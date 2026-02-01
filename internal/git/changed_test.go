@@ -187,6 +187,228 @@ func TestChangedFiles_UntrackedFiles(t *testing.T) {
 	assert.Contains(t, files, "untracked.txt")
 }
 
+func TestChangedFiles_GitIgnoredFilesExcluded(t *testing.T) {
+	dir, r := setupChangedTestRepo(t)
+
+	wt, err := r.Worktree()
+	require.NoError(t, err)
+
+	// Create .gitignore that ignores *.cache files
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("*.cache\n"), 0644))
+	_, err = wt.Add(".gitignore")
+	require.NoError(t, err)
+	_, err = wt.Commit("Add gitignore", &gogit.CommitOptions{
+		Author: &object.Signature{Name: "Test", Email: "test@test.com", When: time.Now()},
+	})
+	require.NoError(t, err)
+
+	// Create an ignored file and a normal untracked file
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "data.cache"), []byte("cached\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "real.txt"), []byte("real\n"), 0644))
+
+	files, err := ChangedFiles(dir, "main")
+	require.NoError(t, err)
+	assert.NotContains(t, files, "data.cache", "gitignored file should be excluded")
+	assert.Contains(t, files, "real.txt", "non-ignored file should be included")
+}
+
+func TestChangedFiles_CommittedFileMatchingGitignoreIncluded(t *testing.T) {
+	dir, r := setupChangedTestRepo(t)
+
+	wt, err := r.Worktree()
+	require.NoError(t, err)
+
+	// Create feature branch
+	err = wt.Checkout(&gogit.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("feature"),
+		Create: true,
+	})
+	require.NoError(t, err)
+
+	// Commit a .cache file (tracked by git)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "data.cache"), []byte("tracked\n"), 0644))
+	_, err = wt.Add("data.cache")
+	require.NoError(t, err)
+	_, err = wt.Commit("Add cache file", &gogit.CommitOptions{
+		Author: &object.Signature{Name: "Test", Email: "test@test.com", When: time.Now()},
+	})
+	require.NoError(t, err)
+
+	// Now add .gitignore that matches *.cache
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("*.cache\n"), 0644))
+	_, err = wt.Add(".gitignore")
+	require.NoError(t, err)
+	_, err = wt.Commit("Add gitignore", &gogit.CommitOptions{
+		Author: &object.Signature{Name: "Test", Email: "test@test.com", When: time.Now()},
+	})
+	require.NoError(t, err)
+
+	// Committed diff paths should NOT be filtered even if they match gitignore
+	files, err := ChangedFiles(dir, "main")
+	require.NoError(t, err)
+	assert.Contains(t, files, "data.cache", "committed file matching gitignore should still be included")
+	assert.Contains(t, files, ".gitignore")
+}
+
+func TestFilterGitIgnored_SpecialCharacters(t *testing.T) {
+	dir := t.TempDir()
+
+	_, err := gogit.PlainInit(dir, false)
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("*.cache\n"), 0644))
+
+	files := []string{"file with spaces.go", "normal.go", "data.cache"}
+	for _, f := range files {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, f), []byte("x"), 0644))
+	}
+
+	result, err := filterGitIgnored(dir, files)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"file with spaces.go", "normal.go"}, result)
+}
+
+func TestFilterGitIgnored_NonGitDir(t *testing.T) {
+	dir := t.TempDir()
+
+	// No git repo initialized - filterGitIgnored should return an error
+	files := []string{"main.go", "README.md"}
+	for _, f := range files {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, f), []byte("x"), 0644))
+	}
+
+	_, err := filterGitIgnored(dir, files)
+	assert.Error(t, err, "filterGitIgnored should fail in a non-git directory")
+}
+
+func TestFilterGitIgnored(t *testing.T) {
+	tests := []struct {
+		name     string
+		ignore   string
+		files    []string
+		expected []string
+	}{
+		{
+			name:     "empty list",
+			ignore:   "*.cache",
+			files:    nil,
+			expected: nil,
+		},
+		{
+			name:     "no files ignored",
+			ignore:   "*.cache",
+			files:    []string{"main.go", "README.md"},
+			expected: []string{"main.go", "README.md"},
+		},
+		{
+			name:     "some files ignored",
+			ignore:   "*.cache\n*.tmp\n",
+			files:    []string{"main.go", "data.cache", "temp.tmp", "README.md"},
+			expected: []string{"main.go", "README.md"},
+		},
+		{
+			name:     "all files ignored",
+			ignore:   "*.cache",
+			files:    []string{"a.cache", "b.cache"},
+			expected: []string{},
+		},
+		{
+			name:     "directory pattern",
+			ignore:   ".aider*\n",
+			files:    []string{".aider.chat.md", ".aider.input", "main.go"},
+			expected: []string{"main.go"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+
+			// Init a git repo
+			_, err := gogit.PlainInit(dir, false)
+			require.NoError(t, err)
+
+			// Write .gitignore
+			require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(tc.ignore), 0644))
+
+			// Create the files so git check-ignore can test them
+			for _, f := range tc.files {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, f), []byte("x"), 0644))
+			}
+
+			result, err := filterGitIgnored(dir, tc.files)
+			require.NoError(t, err)
+
+			if tc.expected == nil {
+				assert.Nil(t, result)
+			} else {
+				assert.Equal(t, tc.expected, result)
+			}
+		})
+	}
+}
+
+func TestChangedFilesFromBase_CommittedAndWorktree(t *testing.T) {
+	dir, r := setupChangedTestRepo(t)
+
+	wt, err := r.Worktree()
+	require.NoError(t, err)
+
+	// Create feature branch with a committed change
+	err = wt.Checkout(&gogit.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("feature"),
+		Create: true,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "committed.go"), []byte("package main\n"), 0644))
+	_, err = wt.Add("committed.go")
+	require.NoError(t, err)
+	_, err = wt.Commit("Add committed file", &gogit.CommitOptions{
+		Author: &object.Signature{Name: "Test", Email: "test@test.com", When: time.Now()},
+	})
+	require.NoError(t, err)
+
+	// Add an unstaged file
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "unstaged.txt"), []byte("unstaged\n"), 0644))
+
+	repo, err := NewRepo(dir)
+	require.NoError(t, err)
+
+	files, err := repo.ChangedFilesFromBase("main")
+	require.NoError(t, err)
+	assert.Contains(t, files, "committed.go")
+	assert.Contains(t, files, "unstaged.txt")
+}
+
+func TestChangedFilesFromBase_GitIgnoredExcluded(t *testing.T) {
+	dir, r := setupChangedTestRepo(t)
+
+	wt, err := r.Worktree()
+	require.NoError(t, err)
+
+	// Create .gitignore
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("*.cache\n"), 0644))
+	_, err = wt.Add(".gitignore")
+	require.NoError(t, err)
+	_, err = wt.Commit("Add gitignore", &gogit.CommitOptions{
+		Author: &object.Signature{Name: "Test", Email: "test@test.com", When: time.Now()},
+	})
+	require.NoError(t, err)
+
+	// Create an ignored file and a normal file
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "data.cache"), []byte("cached\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "real.txt"), []byte("real\n"), 0644))
+
+	repo, err := NewRepo(dir)
+	require.NoError(t, err)
+
+	files, err := repo.ChangedFilesFromBase("main")
+	require.NoError(t, err)
+	assert.NotContains(t, files, "data.cache", "gitignored file should be excluded")
+	assert.Contains(t, files, "real.txt", "non-ignored file should be included")
+}
+
 func TestChangedFiles_NotAGitRepo(t *testing.T) {
 	dir := t.TempDir()
 	_, err := ChangedFiles(dir, "main")
