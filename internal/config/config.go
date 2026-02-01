@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/worksonmyai/programmator/internal/dirs"
 	"github.com/worksonmyai/programmator/internal/review"
 	"gopkg.in/yaml.v3"
 )
@@ -94,7 +95,7 @@ type Config struct {
 	TicketCommand string `yaml:"ticket_command"` // Binary name for the ticket CLI (default: tk)
 
 	// Progress log settings
-	LogsDir string `yaml:"logs_dir"` // Directory for progress logs (default: ~/.programmator/logs)
+	LogsDir string `yaml:"logs_dir"` // Directory for progress logs (default: $XDG_STATE_HOME/programmator/logs)
 
 	// Git workflow settings
 	Git GitConfig `yaml:"git"`
@@ -204,11 +205,7 @@ func LoadWithDirs(globalDir, localDir string) (*Config, error) {
 
 // DefaultConfigDir returns the default global configuration directory path.
 func DefaultConfigDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join(".", ".config", "programmator")
-	}
-	return filepath.Join(home, ".config", "programmator")
+	return dirs.ConfigDir()
 }
 
 // loadEmbedded loads config from the embedded defaults.
