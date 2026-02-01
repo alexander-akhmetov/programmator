@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Prerequisites
 
-Requires Go 1.25.6+ (see `go.mod`).
+Requires Go 1.25.6+ (see `go.mod`). Dependencies are vendored (`vendor/`).
 
 Plan files work without any external dependencies. Ticket-based workflow requires the external `ticket` CLI.
 
@@ -29,10 +29,11 @@ go run ./cmd/programmator logs --follow           # tail active log
 go run ./cmd/programmator plan create "description"  # interactive plan creation
 go run ./cmd/programmator config show             # show resolved config
 
-# Lint (CI uses golangci-lint)
-golangci-lint run
-gofmt -l .                        # Check formatting
-go vet ./...                      # Static analysis
+# Lint (matches CI: golangci-lint + govulncheck + deadcode + go mod tidy)
+make lint
+
+# Auto-fix formatting
+make fmt
 
 # E2E test prep
 make e2e-prep                     # Create toy project for plan-based run
