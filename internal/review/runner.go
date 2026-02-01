@@ -3,7 +3,6 @@ package review
 import (
 	"context"
 	"crypto/sha256"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -15,12 +14,11 @@ import (
 
 // RunResult holds the result of a complete review run.
 type RunResult struct {
-	Passed       bool
-	Iteration    int
-	TotalIssues  int
-	Results      []*Result
-	Duration     time.Duration
-	IssuesByPass map[string][]*Result
+	Passed      bool
+	Iteration   int
+	TotalIssues int
+	Results     []*Result
+	Duration    time.Duration
 }
 
 // HasCriticalIssues checks if any critical or high severity issues were found.
@@ -46,53 +44,6 @@ func (r *RunResult) AllIssues() []Issue {
 		issues = append(issues, result.Issues...)
 	}
 	return issues
-}
-
-// FilterBySeverity returns a new RunResult containing only issues matching the given severities.
-// If severities is empty, returns a copy of the original result (all issues pass through).
-func (r *RunResult) FilterBySeverity(severities []Severity) *RunResult {
-	if len(severities) == 0 {
-		// Empty filter = passthrough
-		return r
-	}
-
-	// Build a set for fast lookup
-	severitySet := make(map[Severity]struct{}, len(severities))
-	for _, s := range severities {
-		severitySet[s] = struct{}{}
-	}
-
-	filtered := &RunResult{
-		Passed:       true,
-		Iteration:    r.Iteration,
-		TotalIssues:  0,
-		Results:      make([]*Result, 0, len(r.Results)),
-		IssuesByPass: make(map[string][]*Result),
-		Duration:     r.Duration,
-	}
-
-	for _, result := range r.Results {
-		filteredResult := &Result{
-			AgentName:  result.AgentName,
-			Issues:     make([]Issue, 0),
-			Summary:    result.Summary,
-			Error:      result.Error,
-			Duration:   result.Duration,
-			TokensUsed: result.TokensUsed,
-		}
-
-		for _, issue := range result.Issues {
-			if _, ok := severitySet[issue.Severity]; ok {
-				filteredResult.Issues = append(filteredResult.Issues, issue)
-			}
-		}
-
-		filtered.Results = append(filtered.Results, filteredResult)
-		filtered.TotalIssues += len(filteredResult.Issues)
-	}
-
-	filtered.Passed = filtered.TotalIssues == 0
-	return filtered
 }
 
 // OutputCallback is called with progress messages.
@@ -127,8 +78,12 @@ func (r *Runner) SetAgentFactory(factory AgentFactory) {
 	r.agentFactory = factory
 }
 
-// defaultAgentFactory creates ClaudeAgent instances.
+// defaultAgentFactory creates ClaudeAgent or CodexAgent instances.
 func (r *Runner) defaultAgentFactory(agentCfg AgentConfig, defaultPrompt string) Agent {
+	if agentCfg.Name == "codex" {
+		return r.createCodexAgent(agentCfg, defaultPrompt)
+	}
+
 	prompt := defaultPrompt
 	if agentCfg.Prompt != "" {
 		prompt = agentCfg.Prompt
@@ -145,6 +100,32 @@ func (r *Runner) defaultAgentFactory(agentCfg AgentConfig, defaultPrompt string)
 		opts = append(opts, WithSettingsJSON(r.config.SettingsJSON))
 	}
 	return NewClaudeAgent(agentCfg.Name, agentCfg.Focus, prompt, opts...)
+}
+
+// createCodexAgent creates a CodexAgent from config.
+func (r *Runner) createCodexAgent(agentCfg AgentConfig, defaultPrompt string) Agent {
+	prompt := defaultPrompt
+	if agentCfg.Prompt != "" {
+		prompt = agentCfg.Prompt
+	}
+
+	cfg := CodexAgentConfig{
+		Command:         r.config.Codex.Command,
+		Model:           r.config.Codex.Model,
+		ReasoningEffort: r.config.Codex.ReasoningEffort,
+		TimeoutMs:       r.config.Codex.TimeoutMs,
+		Sandbox:         r.config.Codex.Sandbox,
+		ProjectDoc:      r.config.Codex.ProjectDoc,
+		ErrorPatterns:   r.config.Codex.ErrorPatterns,
+		Prompt:          prompt,
+		Focus:           agentCfg.Focus,
+	}
+
+	if r.onOutput != nil {
+		cfg.OutputHandler = r.onOutput
+	}
+
+	return NewCodexAgent(cfg)
 }
 
 func addTicketContext(prompt, ticketContext string) string {
@@ -179,7 +160,7 @@ func (r *Runner) runAgentsParallel(ctx context.Context, agents []AgentConfig, wo
 
 			result, err := agent.Review(ctx, workingDir, filesChanged)
 			if err != nil {
-				errs[idx] = err
+				errs[idx] = fmt.Errorf("agent %s: %w", cfg.Name, err)
 				results[idx] = &Result{
 					AgentName: cfg.Name,
 					Error:     err,
@@ -194,20 +175,14 @@ func (r *Runner) runAgentsParallel(ctx context.Context, agents []AgentConfig, wo
 
 	wg.Wait()
 
-	// Check for context cancellation
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
 
-	// Check for any agent errors (aggregate all failures)
-	var agentErrs []error
 	for i, err := range errs {
 		if err != nil {
-			agentErrs = append(agentErrs, fmt.Errorf("agent %s: %w", agents[i].Name, err))
+			r.log(fmt.Sprintf("  Agent %s failed: %v", agents[i].Name, err))
 		}
-	}
-	if len(agentErrs) > 0 {
-		return nil, fmt.Errorf("agent errors: %w", errors.Join(agentErrs...))
 	}
 
 	return results, nil
@@ -289,7 +264,6 @@ func (r *Runner) ValidateSimplifications(ctx context.Context, workingDir string,
 
 	r.log("Validating simplification suggestions...")
 
-	// Format the original findings as input for the validator
 	input := FormatIssuesMarkdown([]*Result{simplificationResult})
 
 	validatorCfg := AgentConfig{
@@ -299,7 +273,6 @@ func (r *Runner) ValidateSimplifications(ctx context.Context, workingDir string,
 
 	agent := r.getOrCreateAgent(validatorCfg)
 
-	// Build a custom prompt with the simplification findings
 	result, err := agent.Review(ctx, workingDir, []string{"SIMPLIFICATION_INPUT:\n" + input})
 	if err != nil {
 		r.log(fmt.Sprintf("Simplification validation failed, using original results: %v", err))
@@ -325,7 +298,6 @@ func (r *Runner) ValidateSimplifications(ctx context.Context, workingDir string,
 		}, nil
 	}
 
-	// Return validated results, keeping the original agent name
 	result.AgentName = "simplification"
 	r.log(fmt.Sprintf("Simplification validator kept %d of %d suggestions", len(result.Issues), len(simplificationResult.Issues)))
 	return result, nil
@@ -333,9 +305,7 @@ func (r *Runner) ValidateSimplifications(ctx context.Context, workingDir string,
 
 // ValidateIssues runs a validation agent to filter false positives from all review results
 // (excluding simplification, which has its own validator).
-// It returns updated results with filtered issues, or the original results if validation fails.
 func (r *Runner) ValidateIssues(ctx context.Context, workingDir string, results []*Result) ([]*Result, error) {
-	// Collect non-simplification results that have issues
 	var toValidate []*Result
 	for _, res := range results {
 		if res.AgentName == "simplification" {
@@ -361,15 +331,12 @@ func (r *Runner) ValidateIssues(ctx context.Context, workingDir string, results 
 
 	agent := r.getOrCreateAgent(validatorCfg)
 
-	// VALIDATION_INPUT prefix signals to the validator agent that the filesChanged
-	// content is structured YAML input to validate, not actual file paths.
 	validatorResult, err := agent.Review(ctx, workingDir, []string{"VALIDATION_INPUT:\n" + input})
 	if err != nil {
 		r.log(fmt.Sprintf("Issue validation failed, using original results: %v", err))
 		return results, nil
 	}
 
-	// Nil result with no error means validator produced no usable output; keep originals.
 	if validatorResult == nil {
 		r.log("Issue validator returned no result, using original results")
 		return results, nil
@@ -379,7 +346,6 @@ func (r *Runner) ValidateIssues(ctx context.Context, workingDir string, results 
 		return results, nil
 	}
 
-	// Build verdict map from validator output (id → verdict string).
 	verdicts := make(map[string]string)
 	for _, issue := range validatorResult.Issues {
 		if issue.ID != "" {
@@ -387,17 +353,11 @@ func (r *Runner) ValidateIssues(ctx context.Context, workingDir string, results 
 		}
 	}
 
-	// If validator returned issues but none had IDs, assume it didn't understand
-	// the ID protocol and fall back to originals (safe default: keep all).
 	if len(validatorResult.Issues) > 0 && len(verdicts) == 0 {
 		r.log("Issue validator returned issues without IDs, using original results")
 		return results, nil
 	}
 
-	// Filter original results by verdict.
-	// - "false_positive" → drop
-	// - "valid" → keep
-	// - no verdict / unknown verdict / ID not in validator output → keep (safe default)
 	totalBefore := 0
 	totalAfter := 0
 	filtered := make([]*Result, len(results))
@@ -456,26 +416,25 @@ func issueFingerprint(agent string, issue Issue) string {
 	return fmt.Sprintf("%x", hash[:8])
 }
 
-// RunPhase executes a single phase and returns the result.
-func (r *Runner) RunPhase(ctx context.Context, workingDir string, filesChanged []string, phase Phase) (*RunResult, error) {
+// RunIteration runs all configured agents and validators, returning the result.
+func (r *Runner) RunIteration(ctx context.Context, workingDir string, filesChanged []string) (*RunResult, error) {
 	start := time.Now()
 
 	result := &RunResult{
-		Passed:       true,
-		Iteration:    1,
-		Results:      make([]*Result, 0),
-		IssuesByPass: make(map[string][]*Result),
+		Passed:    true,
+		Iteration: 1,
+		Results:   make([]*Result, 0),
 	}
 
-	r.log(fmt.Sprintf("Running phase: %s", phase.Name))
+	r.log("Running review iteration")
 
 	var passResults []*Result
 	var err error
 
-	if phase.Parallel {
-		passResults, err = r.runAgentsParallel(ctx, phase.Agents, workingDir, filesChanged)
+	if r.config.Parallel {
+		passResults, err = r.runAgentsParallel(ctx, r.config.Agents, workingDir, filesChanged)
 	} else {
-		passResults, err = r.runAgentsSequential(ctx, phase.Agents, workingDir, filesChanged)
+		passResults, err = r.runAgentsSequential(ctx, r.config.Agents, workingDir, filesChanged)
 	}
 
 	if err != nil {
@@ -486,44 +445,43 @@ func (r *Runner) RunPhase(ctx context.Context, workingDir string, filesChanged [
 	// Assign stable IDs to issues for tracking across iterations
 	assignIssueIDs(passResults)
 
-	// Post-process: validate simplification results
+	// Always validate simplification results
 	for i, res := range passResults {
 		if res.AgentName == "simplification" && len(res.Issues) > 0 {
 			validated, validateErr := r.ValidateSimplifications(ctx, workingDir, res)
 			if validateErr == nil {
 				passResults[i] = validated
-				// Re-assign IDs to validated simplification issues since the validator
-				// returns new Issue structs that may lack IDs.
 				assignIssueIDs([]*Result{passResults[i]})
 			}
 		}
 	}
 
-	// Post-process: validate all issues (excluding simplification)
-	if phase.Validate {
-		totalNonSimp := 0
-		for _, res := range passResults {
-			if res.AgentName != "simplification" {
-				totalNonSimp += len(res.Issues)
-			}
+	// Always validate all issues (excluding simplification)
+	totalNonSimp := 0
+	for _, res := range passResults {
+		if res.AgentName != "simplification" {
+			totalNonSimp += len(res.Issues)
 		}
-		if totalNonSimp > 0 {
-			validated, validateErr := r.ValidateIssues(ctx, workingDir, passResults)
-			if validateErr == nil {
-				passResults = validated
-			}
+	}
+	if totalNonSimp > 0 {
+		validated, validateErr := r.ValidateIssues(ctx, workingDir, passResults)
+		if validateErr == nil {
+			passResults = validated
 		}
 	}
 
 	result.Results = passResults
 
-	// Count issues
 	issueCount := 0
+	errorCount := 0
 	for _, res := range passResults {
 		issueCount += len(res.Issues)
+		if res.Error != nil {
+			errorCount++
+		}
 	}
-	result.TotalIssues = issueCount
-	result.Passed = issueCount == 0
+	result.TotalIssues = issueCount + errorCount
+	result.Passed = issueCount == 0 && errorCount == 0
 	result.Duration = time.Since(start)
 
 	return result, nil

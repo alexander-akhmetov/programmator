@@ -31,3 +31,6 @@ var SimplificationValidatorPrompt string
 
 //go:embed issue_validator.md
 var IssueValidatorPrompt string
+
+//go:embed codex.md
+var CodexPrompt string

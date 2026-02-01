@@ -1,5 +1,15 @@
 Deep security review focusing on vulnerabilities that the quality agent may miss.
 
+## Scope
+
+- Focus on changed lines only; do not flag pre-existing issues in untouched code.
+- Use any ticket/plan context provided to understand expected threat model and data sensitivity.
+
+## Evidence
+
+- Avoid speculation. Base findings on evidence in the code.
+- If a concern depends on missing context, mark it as "needs context" and state what context is required.
+
 ## Injection and Traversal
 
 1. Command injection - unsanitized input in shell commands, exec calls
@@ -35,4 +45,3 @@ Deep security review focusing on vulnerabilities that the quality agent may miss
 - Prioritize by exploitability and impact
 - Provide specific remediation steps
 - Report problems only - no positive observations.
-

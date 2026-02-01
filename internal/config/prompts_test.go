@@ -19,12 +19,11 @@ func TestLoadPrompts_Embedded(t *testing.T) {
 	assert.NotEmpty(t, prompts.Phased, "phased prompt should be loaded")
 	assert.NotEmpty(t, prompts.Phaseless, "phaseless prompt should be loaded")
 	assert.NotEmpty(t, prompts.ReviewFirst, "review_first prompt should be loaded")
-	assert.NotEmpty(t, prompts.CodexEval, "codex_eval prompt should be loaded")
+	assert.NotEmpty(t, prompts.PlanCreate, "plan_create prompt should be loaded")
 
 	// Check that comment lines are stripped
 	assert.NotContains(t, prompts.Phased, "# Phased execution prompt")
 	assert.NotContains(t, prompts.Phaseless, "# Phaseless execution prompt")
-	assert.NotContains(t, prompts.CodexEval, "# Codex Evaluation Prompt")
 
 	// Check that template variables are present
 	assert.Contains(t, prompts.Phased, "{{.ID}}")
@@ -32,8 +31,6 @@ func TestLoadPrompts_Embedded(t *testing.T) {
 	assert.Contains(t, prompts.Phased, "{{.CurrentPhase}}")
 	assert.Contains(t, prompts.Phaseless, "{{.ID}}")
 	assert.Contains(t, prompts.ReviewFirst, "{{.BaseBranch}}")
-	assert.Contains(t, prompts.CodexEval, "{{.CodexOutput}}")
-	assert.Contains(t, prompts.CodexEval, "{{.WorkItemID}}")
 }
 
 func TestLoadPrompts_GlobalOverride(t *testing.T) {
@@ -81,23 +78,15 @@ func TestLoadPrompts_LocalOverridesGlobal(t *testing.T) {
 	assert.Equal(t, localPrompt, prompts.Phased)
 }
 
-func TestLoadPrompts_MissingCodexEvalDoesNotBlock(t *testing.T) {
-	// Use a non-existent directory as global, and empty local.
-	// The embedded filesystem has codex_eval.md, so we need to test
-	// with a setup where it's missing from custom dirs but exists embedded.
-	// The key behavior: even if codex_eval fails, other prompts load fine.
+func TestLoadPrompts_NonexistentGlobalFallsToEmbedded(t *testing.T) {
 	prompts, err := LoadPrompts("/nonexistent/global/dir", "")
 	require.NoError(t, err)
 	require.NotNil(t, prompts)
 
-	// All required prompts should be loaded from embedded
 	assert.NotEmpty(t, prompts.Phased)
 	assert.NotEmpty(t, prompts.Phaseless)
 	assert.NotEmpty(t, prompts.ReviewFirst)
-	assert.NotEmpty(t, prompts.ReviewSecond)
 	assert.NotEmpty(t, prompts.PlanCreate)
-	// CodexEval should also load from embedded
-	assert.NotEmpty(t, prompts.CodexEval)
 }
 
 func TestLoadPrompts_LocalPermissionErrorFallsBack(t *testing.T) {

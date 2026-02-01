@@ -1,4 +1,14 @@
-Review code for bugs, security issues, and quality problems.
+Review code for correctness and quality problems.
+
+## Scope
+
+- Focus on changed lines only; do not flag pre-existing issues in untouched code.
+- Use any ticket/plan context provided to understand intended behavior and scope.
+
+## Evidence
+
+- Avoid speculation. Base findings on evidence in the code.
+- If a concern depends on missing context, mark it as "needs context" and state what context is required.
 
 ## Correctness Review
 
@@ -9,22 +19,6 @@ Review code for bugs, security issues, and quality problems.
 5. Concurrency issues - race conditions, deadlocks, goroutine leaks
 6. Data integrity - validation, sanitization, consistent state management
 
-## Security Analysis
-
-1. Input validation - all user inputs validated and sanitized
-2. Authentication/authorization - proper checks in place
-3. Injection vulnerabilities - SQL, command, path traversal
-4. Secret exposure - no hardcoded credentials or keys
-5. Information disclosure - error messages, logs, debug info
-
-## Simplicity Assessment
-
-1. Direct solutions first - if simple approach works, don't use complex pattern
-2. No enterprise patterns for simple problems
-3. Question every abstraction - must solve real problem
-4. No scope creep - changes solve only the stated problem
-5. No premature optimization
-
 ## What to Report
 
 For each issue:
@@ -33,6 +27,5 @@ For each issue:
 - Impact: how this affects the code
 - Fix: specific suggestion
 
-Focus on defects that would cause runtime failures, security vulnerabilities, or maintainability problems.
+Focus on defects that would cause runtime failures, incorrect behavior, or maintainability problems.
 Report problems only - no positive observations.
-
