@@ -72,7 +72,7 @@ A plan file is a markdown file with checkbox tasks:
 - `golangci-lint run`
 
 ## Tasks
-- [x] Task 1: Investigate current implementation (already completed, will be skipped)
+- [x] Task 1: Investigate current implementation and update plan.md (already completed, will be skipped)
 - [ ] Task 2: Implement the feature
 - [ ] Task 3: Add tests
 - [ ] Task 4: Cleanup
