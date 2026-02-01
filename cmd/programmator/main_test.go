@@ -64,6 +64,16 @@ func TestVersionFromSettings(t *testing.T) {
 			wantCommit: "unknown",
 			wantDate:   "unknown",
 		},
+		{
+			name: "modified before revision (real-world alphabetical order)",
+			settings: []debug.BuildSetting{
+				{Key: "vcs.modified", Value: "true"},
+				{Key: "vcs.revision", Value: "abc1234def5678"},
+				{Key: "vcs.time", Value: "2026-01-15T10:00:00Z"},
+			},
+			wantCommit: "abc1234-dirty",
+			wantDate:   "2026-01-15T10:00:00Z",
+		},
 	}
 
 	for _, tt := range tests {

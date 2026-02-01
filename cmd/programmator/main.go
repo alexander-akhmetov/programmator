@@ -35,20 +35,30 @@ func fillVersionFromBuildInfo() {
 }
 
 func versionFromSettings(settings []debug.BuildSetting) (string, string) {
-	c, d := "unknown", "unknown"
+	var revision, date string
+	dirty := false
 	for _, s := range settings {
 		switch s.Key {
 		case "vcs.revision":
-			if len(s.Value) >= 7 {
-				c = s.Value[:7]
-			}
+			revision = s.Value
 		case "vcs.time":
-			d = s.Value
+			date = s.Value
 		case "vcs.modified":
-			if s.Value == "true" && c != "unknown" {
-				c += "-dirty"
-			}
+			dirty = s.Value == "true"
 		}
+	}
+
+	c := "unknown"
+	if len(revision) >= 7 {
+		c = revision[:7]
+		if dirty {
+			c += "-dirty"
+		}
+	}
+
+	d := "unknown"
+	if date != "" {
+		d = date
 	}
 	return c, d
 }
