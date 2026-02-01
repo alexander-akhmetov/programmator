@@ -15,7 +15,7 @@ type ActionKind int
 const (
 	// ActionInvokeLLM tells the runner to build a prompt and invoke the LLM.
 	ActionInvokeLLM ActionKind = iota
-	// ActionRunReview tells the runner to execute the current review phase.
+	// ActionRunReview tells the runner to execute the review iteration.
 	ActionRunReview
 	// ActionComplete tells the runner that all work is done.
 	ActionComplete
@@ -32,9 +32,6 @@ type Action struct {
 	ExitMessage string
 	Iterations  int
 
-	// Review fields (ActionRunReview)
-	ReviewPhaseIndex int
-
 	// LLM invocation fields (ActionInvokeLLM)
 	IsReviewFix bool // true when the LLM should fix review issues
 }
@@ -42,41 +39,25 @@ type Action struct {
 // StatusProcessResult holds the engine's decisions after processing a parsed
 // Claude status block. The runner uses these to perform I/O.
 type StatusProcessResult struct {
-	// PhaseCompleted is the name of the completed phase (empty if none).
-	PhaseCompleted string
-	// FilesChanged lists files reported as changed.
-	FilesChanged []string
-	// Summary is the iteration summary.
-	Summary string
-	// TaskCompleted is true when Claude reported DONE.
-	TaskCompleted bool
-	// Blocked is true when Claude reported BLOCKED.
-	Blocked bool
-	// BlockedError is the error message when blocked.
-	BlockedError string
-	// ExitReason is set when the loop should exit (BLOCKED status).
-	ExitReason safety.ExitReason
-	// ShouldExit is true when the runner should return immediately.
-	ShouldExit bool
-	// ResetPendingReviewFix indicates the pending review fix flag should be cleared.
+	PhaseCompleted        string
+	FilesChanged          []string
+	Summary               string
+	TaskCompleted         bool
+	Blocked               bool
+	BlockedError          string
+	ExitReason            safety.ExitReason
+	ShouldExit            bool
 	ResetPendingReviewFix bool
 }
 
-// ReviewDecision describes what to do after a review phase runs.
+// ReviewDecision describes what to do after a review iteration runs.
 type ReviewDecision struct {
-	// PhasePassed is true if the review phase found no issues.
-	PhasePassed bool
-	// AdvancePhase is true when moving to the next review phase.
-	AdvancePhase bool
+	// Passed is true if the review found no issues.
+	Passed bool
 	// NeedsFix is true when Claude should be invoked to fix issues.
 	NeedsFix bool
-	// ExceededLimit is true when the phase exceeded its iteration limit
-	// and should advance regardless.
+	// ExceededLimit is true when the iteration limit was hit.
 	ExceededLimit bool
-	// AllPhasesDone is true when all review phases have passed.
-	AllPhasesDone bool
-	// ExitError is set when a fatal error occurs (e.g., no review phases configured).
-	ExitError string
 }
 
 // SafetyCheckResult wraps the safety check outcome with exit details.

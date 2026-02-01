@@ -5,7 +5,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
 	"github.com/worksonmyai/programmator/internal/review"
 )
 
@@ -32,24 +31,16 @@ func TestToSafetyConfig(t *testing.T) {
 	assert.Equal(t, 10, sc.MaxReviewIterations)
 }
 
-func TestToReviewConfig(t *testing.T) {
+func TestToReviewConfig_WithAgents(t *testing.T) {
 	cfg := &Config{
 		Timeout:     600,
 		ClaudeFlags: "--verbose",
 		Review: ReviewConfig{
 			MaxIterations: 5,
-			Phases: []ReviewPhase{
-				{
-					Name:           "test_phase",
-					IterationLimit: 2,
-					IterationPct:   25,
-					Parallel:       true,
-					Validate:       true,
-					SeverityFilter: []string{"critical", "high"},
-					Agents: []ReviewAgentConfig{
-						{Name: "quality", Focus: []string{"bugs"}, Prompt: "custom.md"},
-					},
-				},
+			Parallel:      true,
+			Agents: []review.AgentConfig{
+				{Name: "quality", Focus: []string{"bugs"}, Prompt: "custom.md"},
+				{Name: "security", Focus: []string{"injection"}},
 			},
 		},
 	}
@@ -58,55 +49,105 @@ func TestToReviewConfig(t *testing.T) {
 	assert.Equal(t, 5, rc.MaxIterations)
 	assert.Equal(t, 600, rc.Timeout)
 	assert.Equal(t, "--verbose", rc.ClaudeFlags)
-	assert.Len(t, rc.Phases, 1)
-
-	phase := rc.Phases[0]
-	assert.Equal(t, "test_phase", phase.Name)
-	assert.Equal(t, 2, phase.IterationLimit)
-	assert.Equal(t, 25, phase.IterationPct)
-	assert.True(t, phase.Parallel)
-	assert.True(t, phase.Validate)
-	assert.Len(t, phase.SeverityFilter, 2)
-	assert.Equal(t, review.Severity("critical"), phase.SeverityFilter[0])
-	assert.Equal(t, review.Severity("high"), phase.SeverityFilter[1])
-	assert.Len(t, phase.Agents, 1)
-	assert.Equal(t, "quality", phase.Agents[0].Name)
-	assert.Equal(t, "custom.md", phase.Agents[0].Prompt)
+	assert.True(t, rc.Parallel)
+	require.Len(t, rc.Agents, 2)
+	assert.Equal(t, "quality", rc.Agents[0].Name)
+	assert.Equal(t, "custom.md", rc.Agents[0].Prompt)
+	assert.Equal(t, "security", rc.Agents[1].Name)
 }
 
-func TestToReviewConfig_EmptyPhases(t *testing.T) {
+func TestToReviewConfig_MigrateFromPhases(t *testing.T) {
 	cfg := &Config{
 		Timeout:     300,
 		ClaudeFlags: "",
 		Review: ReviewConfig{
 			MaxIterations: 3,
-			Phases:        nil,
-		},
-	}
-
-	rc := cfg.ToReviewConfig()
-	assert.Equal(t, 3, rc.MaxIterations)
-	assert.Empty(t, rc.Phases)
-}
-
-func TestToReviewConfig_EmptySeverityFilter(t *testing.T) {
-	cfg := &Config{
-		Review: ReviewConfig{
-			MaxIterations: 1,
 			Phases: []ReviewPhase{
 				{
-					Name:           "test",
-					SeverityFilter: nil,
-					Agents:         nil,
+					Name: "phase1",
+					Agents: []review.AgentConfig{
+						{Name: "quality", Focus: []string{"bugs"}},
+						{Name: "security", Focus: []string{"injection"}},
+					},
+				},
+				{
+					Name: "phase2",
+					Agents: []review.AgentConfig{
+						{Name: "quality", Focus: []string{"different_focus"}}, // duplicate, should be deduped
+						{Name: "implementation", Focus: []string{"completeness"}},
+					},
 				},
 			},
 		},
 	}
 
 	rc := cfg.ToReviewConfig()
-	require.Len(t, rc.Phases, 1)
-	assert.Empty(t, rc.Phases[0].SeverityFilter)
-	assert.Empty(t, rc.Phases[0].Agents)
+	assert.Equal(t, 3, rc.MaxIterations)
+	require.Len(t, rc.Agents, 3) // quality, security, implementation (deduped)
+	assert.Equal(t, "quality", rc.Agents[0].Name)
+	assert.Equal(t, "security", rc.Agents[1].Name)
+	assert.Equal(t, "implementation", rc.Agents[2].Name)
+}
+
+func TestToReviewConfig_AgentsTakePrecedenceOverPhases(t *testing.T) {
+	cfg := &Config{
+		Review: ReviewConfig{
+			MaxIterations: 5,
+			Agents: []review.AgentConfig{
+				{Name: "quality", Focus: []string{"bugs"}},
+			},
+			Phases: []ReviewPhase{
+				{
+					Name: "phase1",
+					Agents: []review.AgentConfig{
+						{Name: "security", Focus: []string{"injection"}},
+					},
+				},
+			},
+		},
+	}
+
+	rc := cfg.ToReviewConfig()
+	require.Len(t, rc.Agents, 1)
+	assert.Equal(t, "quality", rc.Agents[0].Name) // agents wins, not phases
+}
+
+func TestToReviewConfig_NoAgentsNoPhases(t *testing.T) {
+	cfg := &Config{
+		Timeout:     300,
+		ClaudeFlags: "",
+		Review: ReviewConfig{
+			MaxIterations: 3,
+		},
+	}
+
+	rc := cfg.ToReviewConfig()
+	assert.Equal(t, 3, rc.MaxIterations)
+	assert.Empty(t, rc.Agents)
+}
+
+func TestToReviewConfig_CodexSettings(t *testing.T) {
+	cfg := &Config{
+		Codex: CodexConfig{
+			Command:         "codex",
+			Model:           "gpt-5.2-codex",
+			ReasoningEffort: "xhigh",
+			TimeoutMs:       3600000,
+			Sandbox:         "read-only",
+			ErrorPatterns:   []string{"Rate limit"},
+		},
+		Review: ReviewConfig{
+			MaxIterations: 5,
+		},
+	}
+
+	rc := cfg.ToReviewConfig()
+	assert.Equal(t, "codex", rc.Codex.Command)
+	assert.Equal(t, "gpt-5.2-codex", rc.Codex.Model)
+	assert.Equal(t, "xhigh", rc.Codex.ReasoningEffort)
+	assert.Equal(t, 3600000, rc.Codex.TimeoutMs)
+	assert.Equal(t, "read-only", rc.Codex.Sandbox)
+	assert.Equal(t, []string{"Rate limit"}, rc.Codex.ErrorPatterns)
 }
 
 func TestToSafetyConfig_ZeroValues(t *testing.T) {

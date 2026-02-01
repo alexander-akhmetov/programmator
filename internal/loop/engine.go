@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/worksonmyai/programmator/internal/domain"
 	"github.com/worksonmyai/programmator/internal/protocol"
 	"github.com/worksonmyai/programmator/internal/safety"
 )
@@ -15,94 +14,14 @@ type Engine struct {
 	SafetyConfig safety.Config
 
 	// Review state (mutable, updated by the runner after each decision).
-	ReviewPhaseCount int  // total number of review phases configured
-	CurrentPhaseIdx  int  // index into the review phases slice
-	CurrentPhaseIter int  // iterations spent on current review phase
+	ReviewIterations int  // total review iterations completed
 	PendingReviewFix bool // true when Claude should fix review issues
-	ReviewPassed     bool // true when all review phases have passed
+	ReviewPassed     bool // true when review has passed
 	ReviewOnly       bool // true for review-only mode (skips task phases)
-
-	// PhaseMaxIterFunc returns the max iterations for a given review phase
-	// index.  Injected by the runner so the engine stays decoupled from
-	// review.Config.  If nil, the phase max is treated as 0 (no retries
-	// allowed—first failure exceeds the limit immediately).
-	PhaseMaxIterFunc func(phaseIdx int) int
+	MaxReviewIter    int  // from review.max_iterations; 0 means unlimited
 }
 
-// DecideNext determines the next action at the top of the main loop iteration,
-// after the work item has been fetched and before Claude is invoked.
-//
-// Inputs:
-//   - stopped: user requested stop
-//   - ctxDone: context was cancelled
-//   - workItem: the current work item (just fetched)
-//   - taskCompleted: Claude reported DONE in a previous iteration
-//   - state: safety state for limit checks
-func (e *Engine) DecideNext(stopped, ctxDone bool, workItem *domain.WorkItem, taskCompleted bool, state *safety.State) Action {
-	// 1. User stop
-	if stopped {
-		return Action{
-			Kind:       ActionExit,
-			ExitReason: safety.ExitReasonUserInterrupt,
-			Iterations: state.Iteration,
-		}
-	}
-
-	// 2. Context cancellation
-	if ctxDone {
-		return Action{
-			Kind:       ActionExit,
-			ExitReason: safety.ExitReasonUserInterrupt,
-			Iterations: state.Iteration,
-		}
-	}
-
-	// 3. Check if all phases are complete (or review-only mode)
-	allComplete := taskCompleted || (workItem != nil && workItem.AllPhasesComplete())
-	if allComplete || e.ReviewOnly {
-		action := e.decideOnCompletion()
-		if action.Kind != ActionInvokeLLM || action.IsReviewFix {
-			return action
-		}
-		// ActionInvokeLLM with IsReviewFix=true means fall through to invoke
-		// (the runner will use the review fix prompt)
-	}
-
-	// If we're not complete and not review-only, this is a normal iteration.
-	// Safety check happens in the runner before calling DecideNext, or we
-	// return InvokeLLM and let the runner handle it.
-	return Action{Kind: ActionInvokeLLM}
-}
-
-// decideOnCompletion handles the case when all task phases are done (or
-// review-only mode). Returns the appropriate action.
-func (e *Engine) decideOnCompletion() Action {
-	// Pending review fix → invoke Claude to fix
-	if e.PendingReviewFix {
-		return Action{Kind: ActionInvokeLLM, IsReviewFix: true}
-	}
-
-	// Review not yet passed → run review
-	if !e.ReviewPassed {
-		return Action{Kind: ActionRunReview, ReviewPhaseIndex: e.CurrentPhaseIdx}
-	}
-
-	// All done
-	return Action{Kind: ActionComplete}
-}
-
-// CheckSafety evaluates safety limits and returns the result.
-func (e *Engine) CheckSafety(state *safety.State) SafetyCheckResult {
-	cr := safety.Check(e.SafetyConfig, state)
-	return SafetyCheckResult{
-		ShouldExit:  cr.ShouldExit,
-		ExitReason:  cr.Reason,
-		ExitMessage: cr.Message,
-	}
-}
-
-// ProcessStatus analyses a parsed Claude status block and returns pure
-// decisions. The runner is responsible for all I/O side effects.
+// ProcessStatus analyses a parsed Claude status block and returns pure decisions.
 func (e *Engine) ProcessStatus(input ProcessStatusInput) StatusProcessResult {
 	status := input.Status
 	if status == nil {
@@ -114,12 +33,10 @@ func (e *Engine) ProcessStatus(input ProcessStatusInput) StatusProcessResult {
 		Summary:        status.Summary,
 	}
 
-	// Clear pending review fix flag
 	if input.PendingReviewFix {
 		result.ResetPendingReviewFix = true
 	}
 
-	// Check status value
 	switch status.Status {
 	case protocol.StatusDone:
 		result.TaskCompleted = true
@@ -134,58 +51,21 @@ func (e *Engine) ProcessStatus(input ProcessStatusInput) StatusProcessResult {
 	return result
 }
 
-// DecideReview evaluates the current review phase result and decides what
-// to do next.
-//
-// Parameters:
-//   - passed: whether the review phase found no issues
+// DecideReview evaluates the review result and decides what to do next.
 func (e *Engine) DecideReview(passed bool) ReviewDecision {
-	if e.ReviewPhaseCount == 0 {
-		return ReviewDecision{ExitError: "review enabled but no review phases configured (review.phases)"}
-	}
-
-	// All phases already done?
-	if e.CurrentPhaseIdx >= e.ReviewPhaseCount {
-		return ReviewDecision{AllPhasesDone: true}
-	}
-
 	if passed {
-		// Advance to next phase
-		e.CurrentPhaseIdx++
-		e.CurrentPhaseIter = 0
-
-		if e.CurrentPhaseIdx >= e.ReviewPhaseCount {
-			e.ReviewPassed = true
-			return ReviewDecision{PhasePassed: true, AdvancePhase: true, AllPhasesDone: true}
-		}
-		return ReviewDecision{PhasePassed: true, AdvancePhase: true}
+		e.ReviewPassed = true
+		return ReviewDecision{Passed: true}
 	}
 
-	// Phase found issues
-	e.CurrentPhaseIter++
+	e.ReviewIterations++
+	// MaxReviewIter=0 means unlimited review iterations.
+	if e.MaxReviewIter > 0 && e.ReviewIterations >= e.MaxReviewIter {
+		e.ReviewPassed = true
+		return ReviewDecision{ExceededLimit: true}
+	}
+
 	e.PendingReviewFix = true
-
-	// Check iteration limit.
-	// When PhaseMaxIterFunc is nil, phaseMax stays 0 meaning no retries:
-	// the first failure immediately advances to the next phase.
-	phaseMax := 0
-	if e.PhaseMaxIterFunc != nil {
-		phaseMax = e.PhaseMaxIterFunc(e.CurrentPhaseIdx)
-	}
-
-	if e.CurrentPhaseIter > phaseMax {
-		// Exceeded limit → advance to next phase
-		e.CurrentPhaseIdx++
-		e.CurrentPhaseIter = 0
-		e.PendingReviewFix = false
-
-		if e.CurrentPhaseIdx >= e.ReviewPhaseCount {
-			e.ReviewPassed = true
-			return ReviewDecision{ExceededLimit: true, AdvancePhase: true, AllPhasesDone: true}
-		}
-		return ReviewDecision{ExceededLimit: true, AdvancePhase: true}
-	}
-
 	return ReviewDecision{NeedsFix: true}
 }
 
@@ -200,10 +80,9 @@ func FormatIterationSummary(iteration int, summary string, filesChanged []string
 	return s
 }
 
-// ResetReviewState resets review phase tracking for a fresh run.
+// ResetReviewState resets review tracking for a fresh run.
 func (e *Engine) ResetReviewState() {
-	e.CurrentPhaseIdx = 0
-	e.CurrentPhaseIter = 0
+	e.ReviewIterations = 0
 	e.PendingReviewFix = false
 	e.ReviewPassed = false
 }

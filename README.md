@@ -146,8 +146,9 @@ programmator config show
 | `git.move_completed_plans` | `false` | Move completed plans to a `completed/` directory |
 | `git.completed_plans_dir` | `""` | Directory for completed plans (default: `plans/completed`) |
 | `git.branch_prefix` | `""` | Prefix for auto-created branches (default: `programmator/`) |
-| `review.max_iterations` | `50` | Maximum review fix iterations (used as base for `iteration_pct`) |
-| `review.phases` | see [defaults](internal/config/defaults/config.yaml) | Review phase definitions with agent names, filters, and focus areas |
+| `review.max_iterations` | `10` | Maximum review fix iterations |
+| `review.parallel` | `true` | Run review agents in parallel |
+| `review.agents` | see [defaults](internal/config/defaults/config.yaml) | Flat list of review agents with names and focus areas |
 
 ### Environment Variables
 
@@ -159,7 +160,7 @@ Each config key can also be set via environment variable with a `PROGRAMMATOR_` 
 | `PROGRAMMATOR_STAGNATION_LIMIT` | 3 | Exit after N iterations with no file changes |
 | `PROGRAMMATOR_TIMEOUT` | 900 | Seconds per Claude invocation |
 | `PROGRAMMATOR_CLAUDE_FLAGS` | `""` | Flags passed to Claude |
-| `PROGRAMMATOR_MAX_REVIEW_ITERATIONS` | 50 | Maximum review fix iterations |
+| `PROGRAMMATOR_MAX_REVIEW_ITERATIONS` | 10 | Maximum review fix iterations |
 | `PROGRAMMATOR_TICKET_COMMAND` | `tk` | Binary name for the ticket CLI (`tk` or `ticket`) |
 | `PROGRAMMATOR_ANTHROPIC_API_KEY` | `""` | Anthropic API key passed to Claude |
 | `TICKETS_DIR` | `~/.tickets` | Where ticket files live |
@@ -171,7 +172,7 @@ Prompts are customizable via Go `text/template` files. Override any prompt by pl
 - `~/.config/programmator/prompts/` (global)
 - `.programmator/prompts/` (per-project)
 
-Available templates: `phased.md`, `phaseless.md`, `review_first.md`, `review_second.md`, `plan_create.md`.
+Available templates: `phased.md`, `phaseless.md`, `review_first.md`, `plan_create.md`.
 
 ### Auto Git Workflow
 

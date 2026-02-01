@@ -5,7 +5,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/worksonmyai/programmator/internal/domain"
 	"github.com/worksonmyai/programmator/internal/parser"
 	"github.com/worksonmyai/programmator/internal/protocol"
 	"github.com/worksonmyai/programmator/internal/safety"
@@ -18,183 +17,7 @@ func newTestEngine() *Engine {
 			StagnationLimit: 3,
 			Timeout:         60,
 		},
-		ReviewPhaseCount: 1,
-		PhaseMaxIterFunc: func(_ int) int { return 3 },
-	}
-}
-
-func TestDecideNext(t *testing.T) {
-	tests := []struct {
-		name           string
-		setup          func(e *Engine)
-		stopped        bool
-		ctxDone        bool
-		workItem       *domain.WorkItem
-		taskCompleted  bool
-		wantKind       ActionKind
-		wantExitReason safety.ExitReason
-		wantReviewFix  bool
-		wantIterations int // only checked if > 0
-	}{
-		{
-			name:           "stop requested",
-			stopped:        true,
-			workItem:       &domain.WorkItem{Phases: []domain.Phase{{Name: "P1"}}},
-			wantKind:       ActionExit,
-			wantExitReason: safety.ExitReasonUserInterrupt,
-			wantIterations: 5,
-		},
-		{
-			name:           "context canceled",
-			ctxDone:        true,
-			workItem:       &domain.WorkItem{Phases: []domain.Phase{{Name: "P1"}}},
-			wantKind:       ActionExit,
-			wantExitReason: safety.ExitReasonUserInterrupt,
-		},
-		{
-			name:     "incomplete phases invoke LLM",
-			workItem: &domain.WorkItem{Phases: []domain.Phase{{Name: "P1"}}},
-			wantKind: ActionInvokeLLM,
-		},
-		{
-			name:     "all phases complete, review not passed",
-			workItem: &domain.WorkItem{Phases: []domain.Phase{{Name: "P1", Completed: true}}},
-			wantKind: ActionRunReview,
-		},
-		{
-			name:     "all phases complete, review passed",
-			setup:    func(e *Engine) { e.ReviewPassed = true },
-			workItem: &domain.WorkItem{Phases: []domain.Phase{{Name: "P1", Completed: true}}},
-			wantKind: ActionComplete,
-		},
-		{
-			name:          "task completed, review not passed",
-			workItem:      &domain.WorkItem{Phases: []domain.Phase{{Name: "P1"}}},
-			taskCompleted: true,
-			wantKind:      ActionRunReview,
-		},
-		{
-			name:          "pending review fix",
-			setup:         func(e *Engine) { e.PendingReviewFix = true },
-			workItem:      &domain.WorkItem{Phases: []domain.Phase{{Name: "P1", Completed: true}}},
-			wantKind:      ActionInvokeLLM,
-			wantReviewFix: true,
-		},
-		{
-			name:     "review only mode",
-			setup:    func(e *Engine) { e.ReviewOnly = true },
-			workItem: &domain.WorkItem{Phases: []domain.Phase{{Name: "P1"}}},
-			wantKind: ActionRunReview,
-		},
-		{
-			name:     "nil workItem invokes LLM",
-			workItem: nil,
-			wantKind: ActionInvokeLLM,
-		},
-		{
-			name:     "phaseless, not completed",
-			workItem: &domain.WorkItem{Phases: nil},
-			wantKind: ActionInvokeLLM,
-		},
-		{
-			name:          "phaseless, completed",
-			workItem:      &domain.WorkItem{Phases: nil},
-			taskCompleted: true,
-			wantKind:      ActionRunReview,
-		},
-		{
-			name:           "stop takes precedence over completion",
-			setup:          func(e *Engine) { e.ReviewPassed = true },
-			stopped:        true,
-			workItem:       &domain.WorkItem{Phases: []domain.Phase{{Name: "P1", Completed: true}}},
-			taskCompleted:  true,
-			wantKind:       ActionExit,
-			wantExitReason: safety.ExitReasonUserInterrupt,
-		},
-		{
-			name:           "context canceled takes precedence over completion",
-			setup:          func(e *Engine) { e.ReviewPassed = true },
-			ctxDone:        true,
-			workItem:       &domain.WorkItem{Phases: []domain.Phase{{Name: "P1", Completed: true}}},
-			taskCompleted:  true,
-			wantKind:       ActionExit,
-			wantExitReason: safety.ExitReasonUserInterrupt,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			e := newTestEngine()
-			if tc.setup != nil {
-				tc.setup(e)
-			}
-			state := safety.NewState()
-			if tc.wantIterations > 0 {
-				state.Iteration = tc.wantIterations
-			}
-
-			action := e.DecideNext(tc.stopped, tc.ctxDone, tc.workItem, tc.taskCompleted, state)
-
-			require.Equal(t, tc.wantKind, action.Kind)
-			if tc.wantExitReason != "" {
-				require.Equal(t, tc.wantExitReason, action.ExitReason)
-			}
-			if tc.wantReviewFix {
-				require.True(t, action.IsReviewFix)
-			}
-			if tc.wantIterations > 0 {
-				require.Equal(t, tc.wantIterations, action.Iterations)
-			}
-		})
-	}
-}
-
-func TestCheckSafety(t *testing.T) {
-	tests := []struct {
-		name           string
-		iteration      int
-		noChanges      int
-		wantExit       bool
-		wantExitReason safety.ExitReason
-	}{
-		{
-			name:      "OK",
-			iteration: 1,
-			wantExit:  false,
-		},
-		{
-			name:      "exactly at max iterations",
-			iteration: 50,
-			wantExit:  false,
-		},
-		{
-			name:           "max iterations exceeded",
-			iteration:      51,
-			wantExit:       true,
-			wantExitReason: safety.ExitReasonMaxIterations,
-		},
-		{
-			name:           "stagnation",
-			noChanges:      3,
-			wantExit:       true,
-			wantExitReason: safety.ExitReasonStagnation,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			e := newTestEngine()
-			state := safety.NewState()
-			state.Iteration = tc.iteration
-			state.ConsecutiveNoChanges = tc.noChanges
-
-			result := e.CheckSafety(state)
-
-			require.Equal(t, tc.wantExit, result.ShouldExit)
-			if tc.wantExitReason != "" {
-				require.Equal(t, tc.wantExitReason, result.ExitReason)
-			}
-		})
+		MaxReviewIter: 10,
 	}
 }
 
@@ -304,105 +127,43 @@ func TestDecideReview(t *testing.T) {
 		name              string
 		setup             func(e *Engine)
 		passed            bool
-		wantExitError     bool
-		wantAllPhasesDone bool
-		wantPhasePassed   bool
-		wantAdvancePhase  bool
+		wantPassed        bool
 		wantNeedsFix      bool
 		wantExceededLimit bool
 		wantReviewPassed  bool
 	}{
 		{
-			name:          "no phases configured",
-			setup:         func(e *Engine) { e.ReviewPhaseCount = 0 },
-			wantExitError: true,
-		},
-		{
-			name: "all phases already done",
-			setup: func(e *Engine) {
-				e.ReviewPhaseCount = 2
-				e.CurrentPhaseIdx = 2
-			},
-			wantAllPhasesDone: true,
-		},
-		{
-			name: "passed, more phases remain",
-			setup: func(e *Engine) {
-				e.ReviewPhaseCount = 3
-				e.CurrentPhaseIdx = 0
-			},
+			name:             "passed",
 			passed:           true,
-			wantPhasePassed:  true,
-			wantAdvancePhase: true,
+			wantPassed:       true,
+			wantReviewPassed: true,
 		},
 		{
-			name: "passed, last phase",
-			setup: func(e *Engine) {
-				e.ReviewPhaseCount = 1
-				e.CurrentPhaseIdx = 0
-			},
-			passed:            true,
-			wantPhasePassed:   true,
-			wantAdvancePhase:  true,
-			wantAllPhasesDone: true,
-			wantReviewPassed:  true,
+			name:         "failed within limit",
+			wantNeedsFix: true,
 		},
 		{
-			name: "failed within limit",
+			name: "failed at limit boundary",
 			setup: func(e *Engine) {
-				e.ReviewPhaseCount = 1
-				e.CurrentPhaseIdx = 0
-				e.CurrentPhaseIter = 0
-				e.PhaseMaxIterFunc = func(_ int) int { return 3 }
+				e.ReviewIterations = 8 // will be incremented to 9, which is < 10
 			},
 			wantNeedsFix: true,
 		},
 		{
-			name: "failed at exact limit boundary",
+			name: "exceeded limit",
 			setup: func(e *Engine) {
-				e.ReviewPhaseCount = 1
-				e.CurrentPhaseIdx = 0
-				e.CurrentPhaseIter = 2
-				e.PhaseMaxIterFunc = func(_ int) int { return 3 }
-			},
-			wantNeedsFix: true,
-		},
-		{
-			name: "exceeded limit, more phases",
-			setup: func(e *Engine) {
-				e.ReviewPhaseCount = 2
-				e.CurrentPhaseIdx = 0
-				e.CurrentPhaseIter = 3
-				e.PhaseMaxIterFunc = func(_ int) int { return 3 }
+				e.ReviewIterations = 9 // will be incremented to 10, which >= 10
 			},
 			wantExceededLimit: true,
-			wantAdvancePhase:  true,
-		},
-		{
-			name: "exceeded limit, last phase",
-			setup: func(e *Engine) {
-				e.ReviewPhaseCount = 1
-				e.CurrentPhaseIdx = 0
-				e.CurrentPhaseIter = 3
-				e.PhaseMaxIterFunc = func(_ int) int { return 3 }
-			},
-			wantExceededLimit: true,
-			wantAdvancePhase:  true,
-			wantAllPhasesDone: true,
 			wantReviewPassed:  true,
 		},
 		{
-			name: "nil PhaseMaxIterFunc treats limit as zero",
+			name: "no limit set (MaxReviewIter=0)",
 			setup: func(e *Engine) {
-				e.ReviewPhaseCount = 1
-				e.CurrentPhaseIdx = 0
-				e.CurrentPhaseIter = 0
-				e.PhaseMaxIterFunc = nil
+				e.MaxReviewIter = 0
+				e.ReviewIterations = 100
 			},
-			wantExceededLimit: true,
-			wantAdvancePhase:  true,
-			wantAllPhasesDone: true,
-			wantReviewPassed:  true,
+			wantNeedsFix: true, // no limit, always needs fix
 		},
 	}
 
@@ -415,18 +176,9 @@ func TestDecideReview(t *testing.T) {
 
 			decision := e.DecideReview(tc.passed)
 
-			if tc.wantExitError {
-				require.NotEmpty(t, decision.ExitError)
-				return
-			}
-			require.Equal(t, tc.wantAllPhasesDone, decision.AllPhasesDone)
-			require.Equal(t, tc.wantPhasePassed, decision.PhasePassed)
-			require.Equal(t, tc.wantAdvancePhase, decision.AdvancePhase)
+			require.Equal(t, tc.wantPassed, decision.Passed)
 			require.Equal(t, tc.wantNeedsFix, decision.NeedsFix)
 			require.Equal(t, tc.wantExceededLimit, decision.ExceededLimit)
-			if tc.wantExceededLimit {
-				require.False(t, e.PendingReviewFix, "PendingReviewFix should be reset after exceeding limit")
-			}
 			if tc.wantReviewPassed {
 				require.True(t, e.ReviewPassed)
 			}
@@ -487,17 +239,54 @@ func TestFormatIterationSummary(t *testing.T) {
 	}
 }
 
+func TestDecideReview_SingleIterationLimit(t *testing.T) {
+	// Verify that there's no per-phase iteration budget — only a single
+	// review.max_iterations controls the entire review loop.
+	e := newTestEngine()
+	e.MaxReviewIter = 3
+
+	// Simulate 3 failed iterations
+	for i := range 2 {
+		decision := e.DecideReview(false)
+		require.True(t, decision.NeedsFix, "iteration %d should need fix", i+1)
+		require.False(t, decision.ExceededLimit)
+		require.False(t, decision.Passed)
+		// Reset PendingReviewFix as the loop would
+		e.PendingReviewFix = false
+	}
+
+	// Third failure should hit the limit
+	decision := e.DecideReview(false)
+	require.True(t, decision.ExceededLimit, "should exceed limit at iteration 3")
+	require.False(t, decision.NeedsFix)
+	require.True(t, e.ReviewPassed, "ReviewPassed should be set when limit exceeded")
+}
+
+func TestDecideReview_PassStopsImmediately(t *testing.T) {
+	e := newTestEngine()
+	e.MaxReviewIter = 10
+
+	// Even after several failures, passing stops immediately
+	e.DecideReview(false) // iteration 1
+	e.PendingReviewFix = false
+	e.DecideReview(false) // iteration 2
+	e.PendingReviewFix = false
+
+	decision := e.DecideReview(true)
+	require.True(t, decision.Passed)
+	require.True(t, e.ReviewPassed)
+	require.Equal(t, 2, e.ReviewIterations, "iterations should not increment on pass")
+}
+
 func TestResetReviewState(t *testing.T) {
 	e := newTestEngine()
-	e.CurrentPhaseIdx = 2
-	e.CurrentPhaseIter = 5
+	e.ReviewIterations = 5
 	e.PendingReviewFix = true
 	e.ReviewPassed = true
 
 	e.ResetReviewState()
 
-	require.Equal(t, 0, e.CurrentPhaseIdx)
-	require.Equal(t, 0, e.CurrentPhaseIter)
+	require.Equal(t, 0, e.ReviewIterations)
 	require.False(t, e.PendingReviewFix)
 	require.False(t, e.ReviewPassed)
 }

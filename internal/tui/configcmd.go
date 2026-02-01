@@ -86,7 +86,6 @@ func runConfigShow(_ *cobra.Command, _ []string) error {
 	fmt.Println()
 
 	fmt.Println("## Codex Settings")
-	fmt.Printf("  enabled:          %t\n", cfg.Codex.Enabled)
 	fmt.Printf("  command:          %s\n", cfg.Codex.Command)
 	fmt.Printf("  model:            %s\n", cfg.Codex.Model)
 	fmt.Printf("  reasoning_effort: %s\n", cfg.Codex.ReasoningEffort)
@@ -99,24 +98,13 @@ func runConfigShow(_ *cobra.Command, _ []string) error {
 
 	fmt.Println("## Review Settings")
 	fmt.Printf("  max_iterations: %d\n", cfg.Review.MaxIterations)
-	if len(cfg.Review.Phases) > 0 {
-		fmt.Println("  phases:")
-		for _, phase := range cfg.Review.Phases {
-			fmt.Printf("    - %s (parallel: %t)\n", phase.Name, phase.Parallel)
-			if phase.IterationLimit > 0 {
-				fmt.Printf("        iteration_limit: %d\n", phase.IterationLimit)
-			}
-			if phase.IterationPct > 0 {
-				fmt.Printf("        iteration_pct: %d%%\n", phase.IterationPct)
-			}
-			if len(phase.SeverityFilter) > 0 {
-				fmt.Printf("        severity_filter: %s\n", strings.Join(phase.SeverityFilter, ", "))
-			}
-			for _, agent := range phase.Agents {
-				fmt.Printf("        agent: %s\n", agent.Name)
-				if len(agent.Focus) > 0 {
-					fmt.Printf("          focus: %s\n", strings.Join(agent.Focus, ", "))
-				}
+	fmt.Printf("  parallel:       %t\n", cfg.Review.Parallel)
+	if len(cfg.Review.Agents) > 0 {
+		fmt.Println("  agents:")
+		for _, agent := range cfg.Review.Agents {
+			fmt.Printf("    - %s\n", agent.Name)
+			if len(agent.Focus) > 0 {
+				fmt.Printf("        focus: %s\n", strings.Join(agent.Focus, ", "))
 			}
 		}
 	}

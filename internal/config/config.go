@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/worksonmyai/programmator/internal/review"
 	"gopkg.in/yaml.v3"
 )
 
@@ -22,28 +23,20 @@ var defaultsFS embed.FS
 // validModelName matches expected model name patterns (alphanumeric, dots, dashes, colons).
 var validModelName = regexp.MustCompile(`^[a-zA-Z0-9._:-]+$`)
 
-// ReviewAgentConfig defines a single review agent configuration.
-type ReviewAgentConfig struct {
-	Name   string   `yaml:"name"`
-	Focus  []string `yaml:"focus"`
-	Prompt string   `yaml:"prompt,omitempty"`
-}
-
-// ReviewPhase defines a review phase with iteration limits and severity filtering.
-// Phases are the new multi-phase review system, replacing passes for more control.
+// ReviewPhase is deprecated. Kept only for migration from old configs.
+// Use ReviewConfig.Agents instead.
 type ReviewPhase struct {
-	Name           string              `yaml:"name"`
-	IterationLimit int                 `yaml:"iteration_limit,omitempty"` // static limit (takes precedence)
-	IterationPct   int                 `yaml:"iteration_pct,omitempty"`   // % of max_iterations (min 3)
-	SeverityFilter []string            `yaml:"severity_filter,omitempty"` // empty = all severities
-	Agents         []ReviewAgentConfig `yaml:"agents"`
-	Parallel       bool                `yaml:"parallel"`
-	Validate       bool                `yaml:"validate,omitempty"`
+	Name           string               `yaml:"name"`
+	IterationLimit int                  `yaml:"iteration_limit,omitempty"`
+	IterationPct   int                  `yaml:"iteration_pct,omitempty"`
+	SeverityFilter []string             `yaml:"severity_filter,omitempty"`
+	Agents         []review.AgentConfig `yaml:"agents"`
+	Parallel       bool                 `yaml:"parallel"`
+	Validate       bool                 `yaml:"validate,omitempty"`
 }
 
 // CodexConfig holds codex review configuration.
 type CodexConfig struct {
-	Enabled         bool     `yaml:"enabled"`
 	Command         string   `yaml:"command"`
 	Model           string   `yaml:"model"`
 	ReasoningEffort string   `yaml:"reasoning_effort"`
@@ -53,17 +46,21 @@ type CodexConfig struct {
 	ErrorPatterns   []string `yaml:"error_patterns"`
 
 	// Set tracking for merge
-	EnabledSet   bool `yaml:"-"`
 	TimeoutMsSet bool `yaml:"-"`
 }
 
 // ReviewConfig holds review-specific configuration.
 type ReviewConfig struct {
-	MaxIterations int           `yaml:"max_iterations"`
-	Phases        []ReviewPhase `yaml:"phases,omitempty"`
+	MaxIterations int                  `yaml:"max_iterations"`
+	Parallel      bool                 `yaml:"parallel"`
+	Agents        []review.AgentConfig `yaml:"agents,omitempty"`
+
+	// Deprecated: Phases is kept only for migration. Ignored at runtime when Agents is set.
+	Phases []ReviewPhase `yaml:"phases,omitempty"`
 
 	// Set tracking for merge
 	MaxIterationsSet bool `yaml:"-"`
+	ParallelSet      bool `yaml:"-"`
 }
 
 // GitConfig holds git workflow configuration.
@@ -267,18 +264,18 @@ func parseConfigWithTracking(data []byte) (*Config, error) {
 
 	// Track review fields
 	if review, ok := raw["review"].(map[string]any); ok {
-		// Silently ignore legacy "passes" key; users should migrate to "phases".
+		// Silently ignore legacy "passes" key; users should migrate to "agents".
 		delete(review, "passes")
 		if _, ok := review["max_iterations"]; ok {
 			cfg.Review.MaxIterationsSet = true
+		}
+		if _, ok := review["parallel"]; ok {
+			cfg.Review.ParallelSet = true
 		}
 	}
 
 	// Track codex fields
 	if codex, ok := raw["codex"].(map[string]any); ok {
-		if _, ok := codex["enabled"]; ok {
-			cfg.Codex.EnabledSet = true
-		}
 		if _, ok := codex["timeout_ms"]; ok {
 			cfg.Codex.TimeoutMsSet = true
 		}
@@ -348,17 +345,6 @@ func (c *Config) applyEnv() {
 	if v := os.Getenv("PROGRAMMATOR_TICKET_COMMAND"); v != "" {
 		c.TicketCommand = v
 		c.sources = append(c.sources, "env:PROGRAMMATOR_TICKET_COMMAND")
-	}
-
-	// Codex env vars
-	if v := os.Getenv("PROGRAMMATOR_CODEX_ENABLED"); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			c.Codex.Enabled = b
-			c.Codex.EnabledSet = true
-			c.sources = append(c.sources, "env:PROGRAMMATOR_CODEX_ENABLED")
-		} else {
-			log.Printf("warning: ignoring invalid PROGRAMMATOR_CODEX_ENABLED=%q: %v", v, err)
-		}
 	}
 
 	if v := os.Getenv("PROGRAMMATOR_CODEX_COMMAND"); v != "" {
@@ -511,15 +497,17 @@ func (c *Config) mergeFrom(src *Config) {
 		c.Review.MaxIterations = src.Review.MaxIterations
 		c.Review.MaxIterationsSet = true
 	}
+	if src.Review.ParallelSet {
+		c.Review.Parallel = src.Review.Parallel
+		c.Review.ParallelSet = true
+	}
+	if len(src.Review.Agents) > 0 {
+		c.Review.Agents = src.Review.Agents
+	}
 	if len(src.Review.Phases) > 0 {
 		c.Review.Phases = src.Review.Phases
 	}
 
-	// Codex config merge
-	if src.Codex.EnabledSet {
-		c.Codex.Enabled = src.Codex.Enabled
-		c.Codex.EnabledSet = true
-	}
 	if src.Codex.Command != "" {
 		if isValidCommandName(src.Codex.Command) {
 			c.Codex.Command = src.Codex.Command

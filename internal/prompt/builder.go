@@ -15,12 +15,10 @@ import (
 
 // Builder creates prompts using customizable templates.
 type Builder struct {
-	phasedTmpl       *template.Template
-	phaselessTmpl    *template.Template
-	reviewFirstTmpl  *template.Template
-	reviewSecondTmpl *template.Template
-	planCreateTmpl   *template.Template
-	codexEvalTmpl    *template.Template
+	phasedTmpl      *template.Template
+	phaselessTmpl   *template.Template
+	reviewFirstTmpl *template.Template
+	planCreateTmpl  *template.Template
 }
 
 // NewBuilder creates a prompt builder from loaded prompts.
@@ -50,31 +48,16 @@ func NewBuilder(prompts *config.Prompts) (*Builder, error) {
 		return nil, fmt.Errorf("parse review_first template: %w", err)
 	}
 
-	reviewSecondTmpl, err := template.New("review_second").Parse(prompts.ReviewSecond)
-	if err != nil {
-		return nil, fmt.Errorf("parse review_second template: %w", err)
-	}
-
 	planCreateTmpl, err := template.New("plan_create").Parse(prompts.PlanCreate)
 	if err != nil {
 		return nil, fmt.Errorf("parse plan_create template: %w", err)
 	}
 
-	var codexEvalTmpl *template.Template
-	if prompts.CodexEval != "" {
-		codexEvalTmpl, err = template.New("codex_eval").Parse(prompts.CodexEval)
-		if err != nil {
-			return nil, fmt.Errorf("parse codex_eval template: %w", err)
-		}
-	}
-
 	return &Builder{
-		phasedTmpl:       phasedTmpl,
-		phaselessTmpl:    phaselessTmpl,
-		reviewFirstTmpl:  reviewFirstTmpl,
-		reviewSecondTmpl: reviewSecondTmpl,
-		planCreateTmpl:   planCreateTmpl,
-		codexEvalTmpl:    codexEvalTmpl,
+		phasedTmpl:      phasedTmpl,
+		phaselessTmpl:   phaselessTmpl,
+		reviewFirstTmpl: reviewFirstTmpl,
+		planCreateTmpl:  planCreateTmpl,
 	}, nil
 }
 
@@ -95,17 +78,6 @@ type ReviewFixData struct {
 	FilesList      string
 	IssuesMarkdown string
 	AutoCommit     bool
-}
-
-// CodexEvalData contains the data for rendering codex evaluation prompts.
-type CodexEvalData struct {
-	CodexOutput string
-	BaseBranch  string
-	FilesList   string
-	WorkItemID  string
-	Title       string
-	RawContent  string
-	AutoCommit  bool
 }
 
 // PlanCreateData contains the data for rendering plan creation prompts.
@@ -151,29 +123,6 @@ func (b *Builder) BuildReviewFirst(baseBranch string, filesChanged []string, iss
 		AutoCommit:     autoCommit,
 	}
 	return b.render(b.reviewFirstTmpl, data)
-}
-
-// BuildReviewSecond creates a prompt for critical/major issues review phase (multi-phase system).
-func (b *Builder) BuildReviewSecond(baseBranch string, filesChanged []string, issuesMarkdown string, iteration int, autoCommit bool) (string, error) {
-	data := ReviewFixData{
-		BaseBranch:     baseBranch,
-		Iteration:      iteration,
-		FilesList:      formatFilesList(filesChanged),
-		IssuesMarkdown: issuesMarkdown,
-		AutoCommit:     autoCommit,
-	}
-	return b.render(b.reviewSecondTmpl, data)
-}
-
-// BuildCodexEval creates a prompt for evaluating Codex review findings.
-func (b *Builder) BuildCodexEval(data CodexEvalData) (string, error) {
-	if b.codexEvalTmpl == nil {
-		return "", fmt.Errorf("codex_eval template not loaded")
-	}
-	if data.FilesList == "" {
-		data.FilesList = "(no files)"
-	}
-	return b.render(b.codexEvalTmpl, data)
 }
 
 // BuildPlanCreate creates a prompt for interactive plan creation.

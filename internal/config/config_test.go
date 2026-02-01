@@ -18,11 +18,9 @@ func TestLoadEmbedded(t *testing.T) {
 	assert.Equal(t, 3, cfg.StagnationLimit)
 	assert.Equal(t, 900, cfg.Timeout)
 	assert.Equal(t, "", cfg.ClaudeFlags)
-	assert.Equal(t, 50, cfg.Review.MaxIterations) // Used as base for iteration_pct calculations
-	assert.Len(t, cfg.Review.Phases, 3)
-	for _, phase := range cfg.Review.Phases {
-		assert.True(t, phase.Validate)
-	}
+	assert.Equal(t, 10, cfg.Review.MaxIterations)
+	assert.True(t, cfg.Review.Parallel)
+	assert.Len(t, cfg.Review.Agents, 9)
 }
 
 func TestLoadWithDirs_GlobalOnly(t *testing.T) {
@@ -208,6 +206,38 @@ review:
 	assert.Equal(t, "custom_agent", cfg.Review.Phases[0].Agents[0].Name)
 }
 
+func TestReviewAgentsConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	configContent := `
+review:
+  max_iterations: 3
+  agents:
+    - name: quality
+      focus:
+        - error handling
+        - concurrency
+      prompt: custom_prompt.md
+    - name: security
+      focus:
+        - injection
+`
+	err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(configContent), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := LoadWithDirs(tmpDir, "")
+	require.NoError(t, err)
+
+	assert.Equal(t, 3, cfg.Review.MaxIterations)
+	require.Len(t, cfg.Review.Agents, 2)
+	assert.Equal(t, "quality", cfg.Review.Agents[0].Name)
+	assert.Equal(t, []string{"error handling", "concurrency"}, cfg.Review.Agents[0].Focus)
+	assert.Equal(t, "custom_prompt.md", cfg.Review.Agents[0].Prompt)
+	assert.Equal(t, "security", cfg.Review.Agents[1].Name)
+	assert.Equal(t, []string{"injection"}, cfg.Review.Agents[1].Focus)
+	assert.Empty(t, cfg.Review.Agents[1].Prompt)
+}
+
 func TestDefaultConfigDir(t *testing.T) {
 	dir := DefaultConfigDir()
 	assert.Contains(t, dir, "programmator")
@@ -257,7 +287,6 @@ func TestLoadEmbedded_CodexDefaults(t *testing.T) {
 	cfg, err := loadEmbedded()
 	require.NoError(t, err)
 
-	assert.True(t, cfg.Codex.Enabled)
 	assert.Equal(t, "codex", cfg.Codex.Command)
 	assert.Equal(t, "gpt-5.2-codex", cfg.Codex.Model)
 	assert.Equal(t, "xhigh", cfg.Codex.ReasoningEffort)
@@ -270,14 +299,11 @@ func TestLoadEmbedded_CodexDefaults(t *testing.T) {
 func TestParseConfigWithTracking_Codex(t *testing.T) {
 	data := []byte(`
 codex:
-  enabled: false
   timeout_ms: 600000
 `)
 	cfg, err := parseConfigWithTracking(data)
 	require.NoError(t, err)
 
-	assert.True(t, cfg.Codex.EnabledSet)
-	assert.False(t, cfg.Codex.Enabled)
 	assert.True(t, cfg.Codex.TimeoutMsSet)
 	assert.Equal(t, 600000, cfg.Codex.TimeoutMs)
 }
@@ -285,7 +311,6 @@ codex:
 func TestMergeFrom_Codex(t *testing.T) {
 	base := &Config{
 		Codex: CodexConfig{
-			Enabled:   true,
 			Command:   "codex",
 			Model:     "gpt-5.2-codex",
 			TimeoutMs: 3600000,
@@ -294,8 +319,6 @@ func TestMergeFrom_Codex(t *testing.T) {
 
 	override := &Config{
 		Codex: CodexConfig{
-			Enabled:      false,
-			EnabledSet:   true,
 			Model:        "gpt-4o",
 			TimeoutMs:    600000,
 			TimeoutMsSet: true,
@@ -304,7 +327,6 @@ func TestMergeFrom_Codex(t *testing.T) {
 
 	base.mergeFrom(override)
 
-	assert.False(t, base.Codex.Enabled)
 	assert.Equal(t, "codex", base.Codex.Command) // not overridden (empty in src)
 	assert.Equal(t, "gpt-4o", base.Codex.Model)
 	assert.Equal(t, 600000, base.Codex.TimeoutMs)
@@ -363,7 +385,6 @@ func TestMergeFrom_Codex_InvalidSandbox(t *testing.T) {
 
 func TestApplyEnv_Codex(t *testing.T) {
 	envVars := map[string]string{
-		"PROGRAMMATOR_CODEX_ENABLED":          "false",
 		"PROGRAMMATOR_CODEX_COMMAND":          "my-codex",
 		"PROGRAMMATOR_CODEX_MODEL":            "gpt-4o",
 		"PROGRAMMATOR_CODEX_REASONING_EFFORT": "high",
@@ -390,8 +411,6 @@ func TestApplyEnv_Codex(t *testing.T) {
 	require.NoError(t, err)
 	cfg.applyEnv()
 
-	assert.False(t, cfg.Codex.Enabled)
-	assert.True(t, cfg.Codex.EnabledSet)
 	assert.Equal(t, "my-codex", cfg.Codex.Command)
 	assert.Equal(t, "gpt-4o", cfg.Codex.Model)
 	assert.Equal(t, "high", cfg.Codex.ReasoningEffort)
@@ -506,7 +525,6 @@ func TestApplyEnv_InvalidValues(t *testing.T) {
 	}{
 		{"invalid max_iterations", "PROGRAMMATOR_MAX_ITERATIONS", "abc"},
 		{"invalid timeout", "PROGRAMMATOR_TIMEOUT", "xyz"},
-		{"invalid codex_enabled", "PROGRAMMATOR_CODEX_ENABLED", "invalid"},
 		{"invalid codex_timeout_ms", "PROGRAMMATOR_CODEX_TIMEOUT_MS", "abc"},
 		{"invalid stagnation_limit", "PROGRAMMATOR_STAGNATION_LIMIT", "not_a_number"},
 	}
@@ -525,7 +543,6 @@ func TestApplyEnv_InvalidValues(t *testing.T) {
 			preMaxIter := cfg.MaxIterations
 			preTimeout := cfg.Timeout
 			preStag := cfg.StagnationLimit
-			preCodexEnabled := cfg.Codex.Enabled
 			preCodexTimeout := cfg.Codex.TimeoutMs
 
 			cfg.applyEnv()
@@ -534,7 +551,6 @@ func TestApplyEnv_InvalidValues(t *testing.T) {
 			assert.Equal(t, preMaxIter, cfg.MaxIterations)
 			assert.Equal(t, preTimeout, cfg.Timeout)
 			assert.Equal(t, preStag, cfg.StagnationLimit)
-			assert.Equal(t, preCodexEnabled, cfg.Codex.Enabled)
 			assert.Equal(t, preCodexTimeout, cfg.Codex.TimeoutMs)
 		})
 	}
