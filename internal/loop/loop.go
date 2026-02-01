@@ -207,13 +207,10 @@ func (l *Loop) autoCommitPhase(phaseName string, filesChanged []string) error {
 		return nil
 	}
 
-	// Build commit message
-	commitMsg := fmt.Sprintf("phase: %s", phaseName)
+	l.log(fmt.Sprintf("Auto-committing: %s", phaseName))
+	l.logProgressf("Auto-committing: %s", phaseName)
 
-	l.log(fmt.Sprintf("Auto-committing: %s", commitMsg))
-	l.logProgressf("Auto-committing: %s", commitMsg)
-
-	if err := l.gitRepo.AddAndCommit(filesChanged, commitMsg); err != nil {
+	if err := l.gitRepo.AddAndCommit(filesChanged, phaseName); err != nil {
 		return fmt.Errorf("auto-commit: %w", err)
 	}
 
