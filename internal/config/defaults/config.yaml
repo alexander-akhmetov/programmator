@@ -5,27 +5,27 @@
 #   - Local:  .programmator/config.yaml (project-specific)
 
 # Loop settings
-max_iterations: 50        # Maximum loop iterations before forced exit
-stagnation_limit: 3       # Exit after N consecutive iterations with no file changes
-timeout: 900              # Seconds per Claude invocation
+max_iterations: 50 # Maximum loop iterations before forced exit
+stagnation_limit: 3 # Exit after N consecutive iterations with no file changes
+timeout: 900 # Seconds per Claude invocation
 
 # Claude settings
-claude_flags: ""          # Additional flags passed to claude command
-claude_config_dir: ""     # Custom Claude config directory (empty = default)
-anthropic_api_key: ""     # Anthropic API key to pass to Claude (filters inherited ANTHROPIC_API_KEY)
+claude_flags: "" # Additional flags passed to claude command
+claude_config_dir: "" # Custom Claude config directory (empty = default)
+anthropic_api_key: "" # Anthropic API key to pass to Claude (filters inherited ANTHROPIC_API_KEY)
 
 # Ticket settings
-ticket_command: "tk"      # Binary name for the ticket CLI (tk or ticket)
+ticket_command: "tk" # Binary name for the ticket CLI (tk or ticket)
 
 # Progress log settings
-logs_dir: ""              # Directory for progress logs (default: ~/.programmator/logs)
+logs_dir: "" # Directory for progress logs (default: ~/.programmator/logs)
 
 # Git workflow settings
 git:
-  auto_commit: false         # Auto-commit after each phase completion
+  auto_commit: false # Auto-commit after each phase completion
   move_completed_plans: false # Move completed plans to completed/ directory
-  completed_plans_dir: ""    # Directory for completed plans (default: plans/completed)
-  branch_prefix: ""          # Prefix for auto-created branches (default: programmator/)
+  completed_plans_dir: "" # Directory for completed plans (default: plans/completed)
+  branch_prefix: "" # Prefix for auto-created branches (default: programmator/)
 
 # Codex review settings (used by the codex review agent)
 codex:
@@ -40,8 +40,8 @@ codex:
 
 # Review settings
 review:
-  max_iterations: 3         # Maximum review fix iterations
-  parallel: true             # Run agents in parallel
+  max_iterations: 3 # Maximum review fix iterations
+  parallel: true # Run agents in parallel
 
   agents:
     - name: error-handling
