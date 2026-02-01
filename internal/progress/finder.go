@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/worksonmyai/programmator/internal/dirs"
 )
 
 // LogFile represents a progress log file.
@@ -20,11 +22,7 @@ type LogFile struct {
 // Files are returned sorted by timestamp, newest first.
 func FindLogs(logsDir, sourceID string) ([]LogFile, error) {
 	if logsDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, err
-		}
-		logsDir = filepath.Join(home, ".programmator", "logs")
+		logsDir = dirs.LogsDir()
 	}
 
 	entries, err := os.ReadDir(logsDir)

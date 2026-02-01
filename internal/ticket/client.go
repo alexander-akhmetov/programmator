@@ -63,7 +63,11 @@ func ValidateID(id string) error {
 func NewClient(command string) *CLIClient {
 	dir := os.Getenv("TICKETS_DIR")
 	if dir == "" {
-		dir = filepath.Join(os.Getenv("HOME"), ".tickets")
+		home, err := os.UserHomeDir()
+		if err != nil {
+			home = os.Getenv("HOME")
+		}
+		dir = filepath.Join(home, ".tickets")
 	}
 	if command == "" {
 		command = "tk"

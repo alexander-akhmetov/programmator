@@ -31,11 +31,7 @@ Displays information about the currently running loop including:
 }
 
 func runStatus(_ *cobra.Command, _ []string) error {
-	path, err := sessionFilePath()
-	if err != nil {
-		fmt.Println("No active programmator sessions")
-		return nil //nolint:nilerr // intentional: no home dir means no session file to check
-	}
+	path := sessionFilePath()
 
 	data, err := os.ReadFile(path)
 	if err != nil {
