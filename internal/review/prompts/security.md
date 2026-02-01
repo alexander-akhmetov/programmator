@@ -1,5 +1,10 @@
 Deep security review focusing on vulnerabilities that the quality agent may miss.
 
+## Evidence
+
+- Avoid speculation. Report only issues you can verify from the code.
+- If a concern depends on missing context, mark it as "needs context" and state what context is required.
+
 ## Injection and Traversal
 
 1. Command injection - unsanitized input in shell commands, exec calls
@@ -35,4 +40,3 @@ Deep security review focusing on vulnerabilities that the quality agent may miss
 - Prioritize by exploitability and impact
 - Provide specific remediation steps
 - Report problems only - no positive observations.
-

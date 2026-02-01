@@ -1,5 +1,10 @@
 Review code for bugs, security issues, and quality problems.
 
+## Evidence
+
+- Avoid speculation. Report only issues you can verify from the code.
+- If a concern depends on missing context, mark it as "needs context" and state what context is required.
+
 ## Correctness Review
 
 1. Logic errors - off-by-one errors, incorrect conditionals, wrong operators
@@ -35,4 +40,3 @@ For each issue:
 
 Focus on defects that would cause runtime failures, security vulnerabilities, or maintainability problems.
 Report problems only - no positive observations.
-
