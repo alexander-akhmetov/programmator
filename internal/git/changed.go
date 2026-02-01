@@ -1,7 +1,11 @@
 package git
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"os/exec"
+	"strings"
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -15,44 +19,11 @@ import (
 //
 // Returns an error only if all sources fail (e.g. not a git repo).
 func ChangedFiles(workingDir, baseBranch string) ([]string, error) {
-	repo, err := gogit.PlainOpenWithOptions(workingDir, &gogit.PlainOpenOptions{
-		DetectDotGit: true,
-	})
+	r, err := NewRepo(workingDir)
 	if err != nil {
 		return nil, fmt.Errorf("open git repo: %w", err)
 	}
-
-	seen := make(map[string]struct{})
-	var errs []error
-
-	// 1. Committed branch diff
-	branchFiles, err := committedDiff(repo, baseBranch)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("committed diff: %w", err))
-	}
-	for _, f := range branchFiles {
-		seen[f] = struct{}{}
-	}
-
-	// 2. Staged + unstaged changes from worktree status
-	wtFiles, err := worktreeChanges(repo)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("worktree changes: %w", err))
-	}
-	for _, f := range wtFiles {
-		seen[f] = struct{}{}
-	}
-
-	if len(errs) == 2 && len(seen) == 0 {
-		return nil, fmt.Errorf("git diff failed: %v; %v", errs[0], errs[1])
-	}
-
-	files := make([]string, 0, len(seen))
-	for f := range seen {
-		files = append(files, f)
-	}
-
-	return files, nil
+	return r.ChangedFilesFromBase(baseBranch)
 }
 
 // committedDiff returns files changed between baseBranch and HEAD.
@@ -138,4 +109,47 @@ func worktreeChanges(repo *gogit.Repository) ([]string, error) {
 	}
 
 	return files, nil
+}
+
+// filterGitIgnored removes gitignored files from the list by running
+// `git check-ignore -z --stdin` in the given repo root directory.
+// Uses NUL-delimited I/O to correctly handle filenames with special characters.
+func filterGitIgnored(repoRoot string, files []string) ([]string, error) {
+	if len(files) == 0 {
+		return files, nil
+	}
+
+	input := strings.Join(files, "\x00") + "\x00"
+	cmd := exec.Command("git", "check-ignore", "--stdin", "-z")
+	cmd.Dir = repoRoot
+	cmd.Stdin = strings.NewReader(input)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	// git check-ignore exits 1 when no files are ignored — not an error for us.
+	err := cmd.Run()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return files, nil
+		}
+		return nil, fmt.Errorf("git check-ignore: %w (stderr: %s)", err, stderr.String())
+	}
+
+	ignored := make(map[string]struct{})
+	for entry := range strings.SplitSeq(stdout.String(), "\x00") {
+		if entry != "" {
+			ignored[entry] = struct{}{}
+		}
+	}
+
+	filtered := make([]string, 0, len(files))
+	for _, f := range files {
+		if _, ok := ignored[f]; !ok {
+			filtered = append(filtered, f)
+		}
+	}
+	return filtered, nil
 }

@@ -4,6 +4,7 @@ package git
 import (
 	"errors"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -13,12 +14,14 @@ import (
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/worksonmyai/programmator/internal/debug"
 )
 
 // Repo represents a git repository with operations for branch management and commits.
 type Repo struct {
-	repo    *git.Repository
-	workDir string
+	repo     *git.Repository
+	workDir  string
+	repoRoot string
 }
 
 // NewRepo creates a new Repo for the given working directory.
@@ -30,7 +33,15 @@ func NewRepo(workDir string) (*Repo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open git repo at %s: %w", workDir, err)
 	}
-	return &Repo{repo: r, workDir: workDir}, nil
+
+	rootCmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	rootCmd.Dir = workDir
+	rootOut, err := rootCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git rev-parse --show-toplevel at %s: %w", workDir, err)
+	}
+
+	return &Repo{repo: r, workDir: workDir, repoRoot: strings.TrimSpace(string(rootOut))}, nil
 }
 
 // BranchExists checks if a branch exists (local or remote).
@@ -241,26 +252,37 @@ func (r *Repo) ChangedFilesFromBase(baseBranch string) ([]string, error) {
 	if err != nil {
 		errs = append(errs, fmt.Errorf("committed diff: %w", err))
 	}
-	for _, f := range branchFiles {
-		seen[f] = struct{}{}
-	}
 
 	wtFiles, err := worktreeChanges(r.repo)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("worktree changes: %w", err))
 	}
-	for _, f := range wtFiles {
-		seen[f] = struct{}{}
+
+	if len(errs) == 2 && len(wtFiles) == 0 && len(branchFiles) == 0 {
+		return nil, fmt.Errorf("git diff failed: %v; %v", errs[0], errs[1])
 	}
 
-	if len(errs) == 2 && len(seen) == 0 {
-		return nil, fmt.Errorf("git diff failed: %v; %v", errs[0], errs[1])
+	// Filter gitignored files only from worktree changes (untracked/modified
+	// files). Committed diff paths are tracked by git and must not be filtered,
+	// otherwise deletions of paths matching .gitignore would be lost.
+	filteredWT, filterErr := filterGitIgnored(r.repoRoot, wtFiles)
+	if filterErr != nil {
+		debug.Logf("filterGitIgnored failed, using unfiltered worktree list: %v", filterErr)
+		filteredWT = wtFiles // non-fatal: use unfiltered list
+	}
+
+	for _, f := range branchFiles {
+		seen[f] = struct{}{}
+	}
+	for _, f := range filteredWT {
+		seen[f] = struct{}{}
 	}
 
 	files := make([]string, 0, len(seen))
 	for f := range seen {
 		files = append(files, f)
 	}
+
 	return files, nil
 }
 
