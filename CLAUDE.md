@@ -50,26 +50,31 @@ Programmator is an autonomous Claude Code orchestrator driven by tickets or plan
 main.go (entry) → Loop.Run() → [for each iteration]:
     1. Source.Get() → fetch ticket/plan, parse phases
     2. BuildPrompt() → create Claude prompt with source context
-    3. invokeClaudeCode() → exec call to `claude --print`
+    3. llm.Invoker.Invoke() → call `claude --print` via internal/llm
     4. ParseResponse() → extract PROGRAMMATOR_STATUS block (YAML)
-    5. Source.MarkPhaseComplete() → update checkbox in ticket/plan file
+    5. Source.UpdatePhase() → update checkbox in ticket/plan file
     6. CheckSafety() → verify iteration/stagnation limits
 ```
 
 ### Key Components
 
-- **internal/loop/loop.go**: Main orchestration. Manages iteration state, invokes Claude via os/exec, handles streaming JSON output. Supports pause/resume, process memory monitoring, auto-commit after phases, and progress logging.
+- **internal/loop/loop.go**: Main orchestration. Manages iteration state, invokes Claude via `llm.Invoker`, handles streaming JSON output. Supports pause/resume, process memory monitoring, auto-commit after phases, and progress logging.
+- **internal/llm/**: Claude CLI invocation layer. Defines `Invoker` interface, streaming JSON parser, environment filtering (strips `ANTHROPIC_API_KEY`), and hook support.
+- **internal/domain/**: Core model types (`WorkItem`, `Phase`).
+- **internal/protocol/**: Cross-package constants — status values (`CONTINUE`, `DONE`, `BLOCKED`, `REVIEW_PASS`, `REVIEW_FAIL`), signal markers for plan creation, and source type identifiers.
 - **internal/source/**: Abstraction layer for work sources. `Source` interface with `TicketSource` and `PlanSource` implementations.
 - **internal/source/detect.go**: Auto-detects source type from CLI argument (file path → plan, otherwise → ticket).
 - **internal/ticket/client.go**: Wrapper around external `ticket` CLI. Parses markdown tickets with checkbox phases (`- [ ]`/`- [x]`). Has mock implementation for testing.
 - **internal/plan/plan.go**: Parses standalone markdown plan files with checkbox tasks and optional validation commands. Supports `MoveTo()` for completed plan lifecycle.
 - **internal/prompt/builder.go**: Builds prompts using Go `text/template` with named variables. Loads templates from embedded defaults, global, or local override files.
-- **internal/parser/parser.go**: Extracts and parses `PROGRAMMATOR_STATUS` YAML block from Claude output. Status values: CONTINUE, DONE, BLOCKED. Also parses `PROGRAMMATOR_QUESTION` and `PROGRAMMATOR_PLAN_READY` signals for interactive plan creation.
+- **internal/parser/parser.go**: Extracts and parses `PROGRAMMATOR_STATUS` YAML block from Claude output. Status values: CONTINUE, DONE, BLOCKED. Also parses `<<<PROGRAMMATOR:QUESTION>>>` and `<<<PROGRAMMATOR:PLAN_READY>>>` signals for interactive plan creation.
+- **internal/review/**: Code review pipeline. Runs parallel review agents, collects structured issues, validates findings, and builds fix prompts.
+- **internal/codex/**: Codex review agent integration (calls external `codex` CLI for cross-checks).
+- **internal/event/**: Typed event system for communication between loop, TUI, and other components.
 - **internal/safety/safety.go**: Exit conditions: max iterations, stagnation (no file changes), repeated errors.
-- **internal/tui/tui.go**: Bubbletea-based TUI with status panel, markdown rendering via glamour, and real-time token usage display.
+- **internal/tui/**: Bubbletea-based TUI with status panel, markdown rendering via glamour, real-time token usage display, and all CLI command definitions.
 - **internal/config/**: Unified YAML configuration with multi-level merge (embedded defaults → global → env vars → local → CLI flags). Includes prompt template loading with fallback chain.
 - **internal/progress/**: Persistent run logging. `Logger` writes timestamped entries to `~/.programmator/logs/`. Includes file locking (`flock_unix.go`) for active session detection.
-- **internal/input/**: User input collection for interactive plan creation. `Collector` interface with `TerminalCollector` (fzf with numbered fallback).
 - **internal/git/repo.go**: Git operations wrapper (`Repo` struct) for branch creation, checkout, add, commit, and file moves. Used by auto-commit workflow.
 
 ### Status Protocol
@@ -119,6 +124,8 @@ Unified YAML config with multi-level merge: embedded defaults → `~/.config/pro
 | `PROGRAMMATOR_CLAUDE_FLAGS` | `""` | Flags passed to Claude |
 | `TICKETS_DIR` | `~/.tickets` | Where ticket files live |
 | `CLAUDE_CONFIG_DIR` | - | Custom Claude config directory |
+| `PROGRAMMATOR_TICKET_COMMAND` | `tk` | Binary name for the ticket CLI (`tk` or `ticket`) |
+| `PROGRAMMATOR_MAX_REVIEW_ITERATIONS` | 3 | Maximum review fix iterations |
 | `PROGRAMMATOR_ANTHROPIC_API_KEY` | - | Anthropic API key forwarded to Claude (`ANTHROPIC_API_KEY` is filtered from inherited env) |
 
 ### Prompt Templates
