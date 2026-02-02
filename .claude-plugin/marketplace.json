@@ -1,0 +1,13 @@
+{
+  "name": "programmator",
+  "owner": { "name": "alexander-akhmetov" },
+  "description": "Programmator tools",
+  "plugins": [
+    {
+      "name": "programmator",
+      "source": "./claude/plugins/programmator",
+      "description": "Programmator tools",
+      "version": "1.0.0"
+    }
+  ]
+}

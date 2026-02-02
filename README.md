@@ -203,6 +203,25 @@ Available templates: `phased.md`, `phaseless.md`, `review_first.md`, `plan_creat
 
 </details>
 
+## Claude Code Plugin
+
+Programmator ships a Claude Code plugin with commands for converting plans between formats.
+
+### Installation
+
+```bash
+# Add the marketplace (one-time)
+/plugin marketplace add alexander-akhmetov/programmator
+
+# Install the plugin
+/plugin install programmator@alexander-akhmetov-programmator
+```
+
+### Commands
+
+- **`/plan-to-ticket`** — Reads the most recent Claude Code plan (`~/.claude/plans/*.md`), extracts phases, and creates a programmator ticket via the `ticket` CLI.
+- **`/plan-to-file`** — Reads the most recent Claude Code plan and converts it into a programmator-compatible plan file (`plan.md`) in the current directory, ready for `programmator start ./plan.md`.
+
 ## Documentation
 
 - [Orchestration flow](docs/orchestration.md) — detailed walkthrough of execution, review, and plan creation
