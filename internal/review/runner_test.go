@@ -137,7 +137,7 @@ func TestDefaultAgentFactory_PassesEnvConfig(t *testing.T) {
 		Timeout:       120,
 		EnvConfig: llm.EnvConfig{
 			ClaudeConfigDir: "/custom/claude/config",
-			AnthropicAPIKey: "sk-test-key",
+			AnthropicAPIKey: "test-key",
 		},
 	}
 
@@ -147,7 +147,7 @@ func TestDefaultAgentFactory_PassesEnvConfig(t *testing.T) {
 	claudeAgent, ok := agent.(*ClaudeAgent)
 	require.True(t, ok)
 	require.Equal(t, "/custom/claude/config", claudeAgent.envConfig.ClaudeConfigDir)
-	require.Equal(t, "sk-test-key", claudeAgent.envConfig.AnthropicAPIKey)
+	require.Equal(t, "test-key", claudeAgent.envConfig.AnthropicAPIKey)
 }
 
 func TestDefaultAgentFactory_EmptyEnvConfig(t *testing.T) {
