@@ -59,7 +59,15 @@ Each iteration:
 
 After all tasks are done, a [multi-agent review](#review) runs automatically.
 
-## Plan Files
+## Plan
+
+When you run `programmator start <thing>`, the source type is auto-detected from the argument: file paths → plan file, everything else → ticket ID.
+
+### Tickets
+
+If you have [ticket](https://github.com/wedow/ticket) CLI installed, programmator can use it to get the plan from the ticket. Tickets are markdown files with YAML frontmatter and checkbox phases.
+
+### Files
 
 A plan file is a markdown file with checkbox tasks:
 
@@ -113,12 +121,6 @@ programmator config show                  # show resolved config
 ```
 
 `programmator run` is a lightweight wrapper around Claude Code — pass any prompt as an argument or pipe via stdin. Useful for one-off tasks that don't need plan tracking.
-
-## Tickets
-
-For persistent issue tracking, Programmator integrates with the external [ticket](https://github.com/wedow/ticket) CLI. Tickets are markdown files with YAML frontmatter and checkbox phases.
-
-Source type is auto-detected from the argument: file paths → plan file, everything else → ticket ID.
 
 ## Safety Gates
 
