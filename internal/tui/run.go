@@ -22,6 +22,7 @@ var (
 	runAllowPatterns   []string
 	runNonInteractive  bool
 	runMaxTurns        int
+	runExecutor        string
 )
 
 var runCmd = &cobra.Command{
@@ -45,6 +46,7 @@ func init() {
 	runCmd.Flags().StringArrayVar(&runAllowPatterns, "allow", nil, "Pre-allow permission patterns (e.g., 'Bash(git:*)', 'Read')")
 	runCmd.Flags().BoolVar(&runNonInteractive, "print", false, "Non-interactive mode: print output directly without TUI")
 	runCmd.Flags().IntVar(&runMaxTurns, "max-turns", 0, "Maximum agentic turns (0 = unlimited)")
+	runCmd.Flags().StringVar(&runExecutor, "executor", "", "Executor to use (default: claude)")
 }
 
 // buildPrompt assembles the prompt from CLI args or stdin.
@@ -101,7 +103,10 @@ func buildCommonFlags() []string {
 }
 
 func runClaudePrint(prompt, workingDir string) error {
-	inv := llm.NewClaudeInvoker(llm.EnvConfig{})
+	inv, err := llm.NewInvoker(llm.ExecutorConfig{Name: runExecutor})
+	if err != nil {
+		return fmt.Errorf("create invoker: %w", err)
+	}
 
 	opts := llm.InvokeOptions{
 		WorkingDir: workingDir,
@@ -111,14 +116,19 @@ func runClaudePrint(prompt, workingDir string) error {
 		},
 	}
 
-	_, err := inv.Invoke(context.Background(), prompt, opts)
+	_, err = inv.Invoke(context.Background(), prompt, opts)
 	return err
 }
 
 // runClaudeTUI runs Claude in interactive (non-print) mode with stdout/stderr
 // pipes for TUI display. This intentionally uses exec.Command directly because
 // it is not a --print invocation — it runs an interactive Claude session.
+// For non-claude executors, falls back to print mode since interactive TUI is Claude-specific.
 func runClaudeTUI(prompt, workingDir string) error {
+	if runExecutor != "" && runExecutor != "claude" {
+		return runClaudePrint(prompt, workingDir)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

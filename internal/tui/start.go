@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexander-akhmetov/programmator/internal/config"
 	"github.com/alexander-akhmetov/programmator/internal/dirs"
+	"github.com/alexander-akhmetov/programmator/internal/llm"
 	"github.com/alexander-akhmetov/programmator/internal/loop"
 	"github.com/alexander-akhmetov/programmator/internal/progress"
 	"github.com/alexander-akhmetov/programmator/internal/prompt"
@@ -155,6 +156,15 @@ func runStart(_ *cobra.Command, args []string) error {
 
 	// Wire codex config
 	t.SetCodexConfig(cfg.Codex)
+
+	// Wire executor config
+	t.SetExecutorConfig(llm.ExecutorConfig{
+		Name: cfg.Executor,
+		Claude: llm.EnvConfig{
+			ClaudeConfigDir: cfg.Claude.ConfigDir,
+			AnthropicAPIKey: cfg.Claude.AnthropicAPIKey,
+		},
+	})
 
 	timing.Log("TUI created, calling Run")
 	_, err = t.Run(ticketID, wd)
