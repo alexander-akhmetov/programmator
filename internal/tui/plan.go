@@ -110,7 +110,14 @@ func runPlanCreate(_ *cobra.Command, args []string) error {
 		builder:        builder,
 		collector:      collector,
 		progressLogger: progressLogger,
-		claudeFlags:    cfg.Claude.Flags,
+		executorConfig: llm.ExecutorConfig{
+			Name: cfg.Executor,
+			Claude: llm.EnvConfig{
+				ClaudeConfigDir: cfg.Claude.ConfigDir,
+				AnthropicAPIKey: cfg.Claude.AnthropicAPIKey,
+			},
+		},
+		claudeFlags: cfg.Claude.Flags,
 	}
 
 	planPath, err := creator.run()
@@ -154,6 +161,7 @@ type planCreator struct {
 	builder        *prompt.Builder
 	collector      Collector
 	progressLogger *progress.Logger
+	executorConfig llm.ExecutorConfig
 	claudeFlags    string
 	qa             []prompt.QA
 }
@@ -237,7 +245,10 @@ func (p *planCreator) run() (string, error) {
 }
 
 func (p *planCreator) invokeClaude(ctx context.Context, promptText string) (string, error) {
-	inv := llm.NewClaudeInvoker(llm.EnvConfig{})
+	inv, err := llm.NewInvoker(p.executorConfig)
+	if err != nil {
+		return "", fmt.Errorf("create invoker: %w", err)
+	}
 
 	opts := llm.InvokeOptions{
 		WorkingDir: p.workDir,
