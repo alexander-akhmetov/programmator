@@ -51,7 +51,10 @@ func (m Model) renderSidebar(width int, height int) string {
 	b.WriteString(m.renderSidebarProgress(width))
 	b.WriteString(m.renderSidebarUsage(width))
 	tips := m.renderSidebarTips(width)
-	tipsHeight := strings.Count(tips, "\n")
+	tipsHeight := 0
+	if tips != "" {
+		tipsHeight = len(strings.Split(tips, "\n"))
+	}
 	b.WriteString(m.renderSidebarPhases(width, height, tipsHeight))
 	b.WriteString(tips)
 	b.WriteString(m.renderSidebarFooter())
