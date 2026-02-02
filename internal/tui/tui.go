@@ -89,6 +89,10 @@ func (t *TUI) SetTicketCommand(cmd string) {
 	t.ticketCommand = cmd
 }
 
+func (t *TUI) SetHideTips(hide bool) {
+	t.model.hideTips = hide
+}
+
 // Run starts the TUI and the orchestration loop, blocking until done.
 func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 	timing.Log("TUI.Run: start")

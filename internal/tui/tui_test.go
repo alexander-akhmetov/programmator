@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -13,6 +14,17 @@ import (
 	"github.com/alexander-akhmetov/programmator/internal/protocol"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
 )
+
+var tipSnippets = []string{
+	"plan create",
+	"plan.md",
+	"--auto-commit",
+	"logs --follow",
+	"config show",
+	"Press `p`",
+	".programmator/prompts/",
+	"Guard mode",
+}
 
 func TestNewModel(t *testing.T) {
 	config := safety.Config{
@@ -277,33 +289,47 @@ func TestModelView(t *testing.T) {
 }
 
 func TestModelRenderSidebar(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3}
-	model := NewModel(config)
-	model.width = 80
-	model.height = 24
-
-	model.runState = stateRunning
-	status := model.renderSidebar(36, 20)
-	if status == "" {
-		t.Error("renderSidebar() should not return empty string")
+	tests := []struct {
+		name     string
+		runState runState
+		contains []string
+	}{
+		{
+			name:     "running state",
+			runState: stateRunning,
+			contains: []string{"Tips", "Did you know?"},
+		},
+		{
+			name:     "paused state",
+			runState: statePaused,
+			contains: []string{"Tips"},
+		},
+		{
+			name:     "stopped state",
+			runState: stateStopped,
+			contains: []string{"Tips"},
+		},
+		{
+			name:     "complete state",
+			runState: stateComplete,
+			contains: []string{"Tips"},
+		},
 	}
 
-	model.runState = statePaused
-	status = model.renderSidebar(36, 20)
-	if status == "" {
-		t.Error("renderSidebar() should not return empty string when paused")
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := safety.Config{MaxIterations: 10, StagnationLimit: 3}
+			model := NewModel(config)
+			model.width = 80
+			model.height = 24
+			model.runState = tt.runState
 
-	model.runState = stateStopped
-	status = model.renderSidebar(36, 20)
-	if status == "" {
-		t.Error("renderSidebar() should not return empty string when stopped")
-	}
-
-	model.runState = stateComplete
-	status = model.renderSidebar(36, 20)
-	if status == "" {
-		t.Error("renderSidebar() should not return empty string when complete")
+			status := model.renderSidebar(36, 20)
+			require.NotEmpty(t, status)
+			for _, s := range tt.contains {
+				require.Contains(t, status, s)
+			}
+		})
 	}
 }
 
@@ -322,9 +348,9 @@ func TestModelRenderSidebarWithTicket(t *testing.T) {
 
 	status := model.renderSidebar(36, 20)
 
-	if status == "" {
-		t.Error("renderSidebar() should not return empty string with ticket")
-	}
+	require.NotEmpty(t, status)
+	require.Contains(t, status, "Tips")
+	require.Contains(t, status, "Did you know?")
 }
 
 func TestModelRenderHelp(t *testing.T) {
@@ -525,6 +551,69 @@ func TestModelRenderSidebarAllPhasesComplete(t *testing.T) {
 	status := model.renderSidebar(36, 20)
 
 	require.NotEmpty(t, status)
+}
+
+func TestRenderSidebarTips(t *testing.T) {
+	require.Len(t, tipSnippets, len(sidebarTips), "tipSnippets must match sidebarTips length")
+
+	tests := []struct {
+		name     string
+		tipIndex int
+		wantIdx  int
+	}{
+		{
+			name:     "tipIndex 0 shows first tip",
+			tipIndex: 0,
+			wantIdx:  0,
+		},
+		{
+			name:     "tipIndex 3 shows fourth tip",
+			tipIndex: 3,
+			wantIdx:  3,
+		},
+		{
+			name:     "tipIndex wraps around",
+			tipIndex: len(sidebarTips) + 2,
+			wantIdx:  2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel(safety.Config{})
+			model.tipIndex = tt.tipIndex
+
+			result := model.renderSidebarTips(36)
+
+			require.Contains(t, result, "Tips")
+			require.Contains(t, result, tipSnippets[tt.wantIdx])
+		})
+	}
+}
+
+func TestRenderSidebarTipsHidden(t *testing.T) {
+	model := NewModel(safety.Config{})
+	model.hideTips = true
+
+	result := model.renderSidebarTips(36)
+	require.Empty(t, result)
+}
+
+func TestRenderSidebarTipsCycleAll(t *testing.T) {
+	model := NewModel(safety.Config{})
+
+	seen := make(map[int]bool)
+	for i := range len(sidebarTips) {
+		model.tipIndex = i
+		result := model.renderSidebarTips(60)
+		for j, snippet := range tipSnippets {
+			if strings.Contains(result, snippet) {
+				seen[j] = true
+			}
+		}
+	}
+
+	require.Len(t, seen, len(sidebarTips), "all tips should be reachable by cycling tipIndex")
 }
 
 func TestWrapLogs(t *testing.T) {

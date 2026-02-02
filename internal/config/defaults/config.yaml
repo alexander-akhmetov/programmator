@@ -9,6 +9,9 @@ max_iterations: 50 # Maximum loop iterations before forced exit
 stagnation_limit: 3 # Exit after N consecutive iterations with no file changes
 timeout: 900 # Seconds per Claude invocation
 
+# TUI settings
+hide_tips: false # Hide sidebar tips section
+
 # Claude settings
 claude_flags: "" # Additional flags passed to claude command
 claude_config_dir: "" # Custom Claude config directory (empty = default)

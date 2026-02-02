@@ -106,6 +106,9 @@ type Config struct {
 	// Codex review settings (nested)
 	Codex CodexConfig `yaml:"codex"`
 
+	// TUI settings
+	HideTips bool `yaml:"hide_tips"`
+
 	// Prompts (loaded separately, not from YAML)
 	Prompts *Prompts `yaml:"-"`
 
@@ -113,6 +116,7 @@ type Config struct {
 	MaxIterationsSet   bool `yaml:"-"`
 	StagnationLimitSet bool `yaml:"-"`
 	TimeoutSet         bool `yaml:"-"`
+	HideTipsSet        bool `yaml:"-"`
 
 	// Private: track where config was loaded from
 	configDir string
@@ -257,6 +261,9 @@ func parseConfigWithTracking(data []byte) (*Config, error) {
 	}
 	if _, ok := raw["timeout"]; ok {
 		cfg.TimeoutSet = true
+	}
+	if _, ok := raw["hide_tips"]; ok {
+		cfg.HideTipsSet = true
 	}
 
 	// Track review fields
@@ -471,6 +478,10 @@ func (c *Config) mergeFrom(src *Config) {
 	if src.TimeoutSet {
 		c.Timeout = src.Timeout
 		c.TimeoutSet = true
+	}
+	if src.HideTipsSet {
+		c.HideTips = src.HideTips
+		c.HideTipsSet = true
 	}
 	if src.ClaudeFlags != "" {
 		c.ClaudeFlags = src.ClaudeFlags

@@ -74,4 +74,8 @@ var (
 	guardStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("42")).
 			Bold(true)
+
+	tipStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("243")).
+			Faint(true)
 )
