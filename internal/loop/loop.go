@@ -98,6 +98,9 @@ type Loop struct {
 	gitConfig GitWorkflowConfig
 	gitRepo   *gitutil.Repo
 
+	// Executor configuration for the factory
+	executorConfig llm.ExecutorConfig
+
 	// Track consecutive invocation failures to exit early on persistent errors
 	consecutiveInvokeErrors int
 }
@@ -158,6 +161,24 @@ func (l *Loop) SetTicketCommand(cmd string) {
 // SetGitWorkflowConfig sets the git workflow configuration.
 func (l *Loop) SetGitWorkflowConfig(cfg GitWorkflowConfig) {
 	l.gitConfig = cfg
+}
+
+// SetExecutorConfig sets the executor configuration for the invoker factory.
+func (l *Loop) SetExecutorConfig(cfg llm.ExecutorConfig) {
+	l.executorConfig = cfg
+}
+
+// isClaudeExecutor returns true when the configured executor is Claude (or default).
+func (l *Loop) isClaudeExecutor() bool {
+	return l.executorConfig.Name == "claude" || l.executorConfig.Name == ""
+}
+
+// executorName returns a display name for the configured executor.
+func (l *Loop) executorName() string {
+	if l.executorConfig.Name == "" {
+		return "claude"
+	}
+	return l.executorConfig.Name
 }
 
 // SetCodexConfig is a no-op kept for backward compatibility.
@@ -358,7 +379,7 @@ func (l *Loop) handleAllPhasesComplete(rc *runContext) loopAction {
 
 	// If we have pending review fixes, invoke Claude to fix them
 	if l.engine.PendingReviewFix {
-		l.log("Pending review fixes - invoking Claude to fix issues")
+		l.log("Pending review fixes - invoking executor to fix issues")
 		return loopBreakToClaudeInvocation
 	}
 
@@ -540,7 +561,7 @@ func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) 
 	}
 
 	if result.TaskCompleted {
-		l.log("Claude reported DONE")
+		l.log("Executor reported DONE")
 		rc.taskCompleted = true
 		if !rc.state.InReviewPhase {
 			l.addNote(rc, fmt.Sprintf("progress: Task marked complete in %d iterations", rc.state.Iteration))
@@ -549,7 +570,7 @@ func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) 
 	}
 
 	if result.ShouldExit {
-		l.log(fmt.Sprintf("Claude reported BLOCKED: %s", result.BlockedError))
+		l.log(fmt.Sprintf("Executor reported BLOCKED: %s", result.BlockedError))
 		l.addNote(rc, fmt.Sprintf("error: [iter %d] BLOCKED: %s", rc.state.Iteration, result.BlockedError))
 		rc.result.ExitReason = result.ExitReason
 		rc.result.Iterations = rc.state.Iteration
@@ -736,12 +757,12 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 			l.onStateChange(rc.state, rc.workItem, rc.result.TotalFilesChanged)
 		}
 
-		l.log("Invoking Claude...")
+		l.log(fmt.Sprintf("Invoking %s...", l.executorName()))
 
 		output, err := l.invokeClaudePrint(ctx, promptText)
 		if err != nil {
-			l.log(fmt.Sprintf("Claude invocation failed: %v", err))
-			l.logErrorf("Claude invocation failed: %v", err)
+			l.log(fmt.Sprintf("Invocation failed: %v", err))
+			l.logErrorf("Invocation failed: %v", err)
 			rc.state.RecordIteration(nil, "invocation_error")
 			if l.onStateChange != nil {
 				l.onStateChange(rc.state, rc.workItem, rc.result.TotalFilesChanged)
@@ -787,24 +808,37 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string, error) {
 	inv := l.invoker
 	if inv == nil {
-		inv = llm.NewClaudeInvoker(llm.EnvConfig{
+		cfg := l.executorConfig
+		if cfg.Name == "" {
+			cfg.Name = l.config.Executor
+		}
+		cfg.Claude = llm.EnvConfig{
 			ClaudeConfigDir: l.config.Claude.ConfigDir,
 			AnthropicAPIKey: l.config.Claude.AnthropicAPIKey,
-		})
+		}
+		var err error
+		inv, err = llm.NewInvoker(cfg)
+		if err != nil {
+			return "", fmt.Errorf("create invoker: %w", err)
+		}
 	}
 
-	settingsJSON := ""
-	if l.permissionSocketPath != "" || l.guardMode {
-		settingsJSON = llm.BuildHookSettings(llm.HookConfig{
-			PermissionSocketPath: l.permissionSocketPath,
-			GuardMode:            l.guardMode,
-		})
+	var settingsJSON string
+	var extraFlags string
+	if l.isClaudeExecutor() {
+		if l.permissionSocketPath != "" || l.guardMode {
+			settingsJSON = llm.BuildHookSettings(llm.HookConfig{
+				PermissionSocketPath: l.permissionSocketPath,
+				GuardMode:            l.guardMode,
+			})
+		}
+		extraFlags = l.config.Claude.Flags
 	}
 
 	opts := llm.InvokeOptions{
 		WorkingDir:   l.workingDir,
 		Streaming:    l.streaming,
-		ExtraFlags:   l.config.Claude.Flags,
+		ExtraFlags:   extraFlags,
 		SettingsJSON: settingsJSON,
 		Timeout:      l.config.Timeout,
 		OnOutput: func(text string) {
@@ -1266,11 +1300,13 @@ func (l *Loop) buildHookSettings() string {
 // applySettingsToReviewConfig copies guard mode / permission socket settings
 // into the review config so review agents get the same flags as the main loop.
 func (l *Loop) applySettingsToReviewConfig() {
-	if l.config.Claude.Flags != "" {
-		l.reviewConfig.ClaudeFlags = l.config.Claude.Flags
-	}
-	if l.permissionSocketPath != "" || l.guardMode {
-		l.reviewConfig.SettingsJSON = l.buildHookSettings()
+	if l.isClaudeExecutor() {
+		if l.config.Claude.Flags != "" {
+			l.reviewConfig.ClaudeFlags = l.config.Claude.Flags
+		}
+		if l.permissionSocketPath != "" || l.guardMode {
+			l.reviewConfig.SettingsJSON = l.buildHookSettings()
+		}
 	}
 	l.reviewConfig.EnvConfig = llm.EnvConfig{
 		ClaudeConfigDir: l.config.ClaudeConfigDir,
@@ -1477,11 +1513,11 @@ func (l *Loop) invokeFixAndProcess(roc *reviewOnlyContext, reviewResult *review.
 		l.onStateChange(roc.state, nil, roc.result.FilesFixed)
 	}
 
-	l.log("Invoking Claude to fix review issues...")
+	l.log(fmt.Sprintf("Invoking %s to fix review issues...", l.executorName()))
 	output, err := l.invokeClaudePrint(roc.ctx, promptText)
 	if err != nil {
-		l.log(fmt.Sprintf("Claude invocation failed: %v", err))
-		l.logErrorf("Claude invocation failed: %v", err)
+		l.log(fmt.Sprintf("Invocation failed: %v", err))
+		l.logErrorf("Invocation failed: %v", err)
 		roc.state.RecordIteration(nil, "invocation_error")
 		return false, nil
 	}
@@ -1519,7 +1555,7 @@ func (l *Loop) invokeFixAndProcess(roc *reviewOnlyContext, reviewResult *review.
 	}
 
 	if status.Status == protocol.StatusBlocked {
-		l.log(fmt.Sprintf("Claude reported BLOCKED: %s", status.Error))
+		l.log(fmt.Sprintf("Executor reported BLOCKED: %s", status.Error))
 		roc.result.ExitReason = safety.ExitReasonBlocked
 		return true, nil
 	}
@@ -1527,7 +1563,7 @@ func (l *Loop) invokeFixAndProcess(roc *reviewOnlyContext, reviewResult *review.
 	if len(status.FilesChanged) > 0 && l.gitConfig.AutoCommit {
 		if status.CommitMade {
 			roc.result.CommitsMade++
-			l.log(fmt.Sprintf("Commit made by Claude (total: %d)", roc.result.CommitsMade))
+			l.log(fmt.Sprintf("Commit made by executor (total: %d)", roc.result.CommitsMade))
 		} else if l.gitRepo != nil {
 			l.log("Auto-committing changes...")
 			if err := l.autoCommitChanges(status.FilesChanged, status.Summary); err != nil {
@@ -1552,7 +1588,7 @@ func (l *Loop) invokeFixAndProcess(roc *reviewOnlyContext, reviewResult *review.
 	}
 
 	if status.Status == protocol.StatusDone {
-		l.log("Claude reports fixes complete - re-reviewing")
+		l.log("Executor reports fixes complete - re-reviewing")
 	}
 
 	return false, nil
