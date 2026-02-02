@@ -1273,8 +1273,8 @@ func (l *Loop) applySettingsToReviewConfig() {
 		l.reviewConfig.SettingsJSON = l.buildHookSettings()
 	}
 	l.reviewConfig.EnvConfig = llm.EnvConfig{
-		ClaudeConfigDir: l.config.ClaudeConfigDir,
-		AnthropicAPIKey: l.config.AnthropicAPIKey,
+		ClaudeConfigDir: l.config.Claude.ConfigDir,
+		AnthropicAPIKey: l.config.Claude.AnthropicAPIKey,
 	}
 }
 
