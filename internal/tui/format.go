@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	gitutil "github.com/worksonmyai/programmator/internal/git"
-	"github.com/worksonmyai/programmator/internal/safety"
+	gitutil "github.com/alexander-akhmetov/programmator/internal/git"
+	"github.com/alexander-akhmetov/programmator/internal/safety"
 )
 
 // wrapText wraps text to fit within width, with optional indent for continuation lines.

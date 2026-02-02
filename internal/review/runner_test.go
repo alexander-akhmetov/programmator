@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"github.com/worksonmyai/programmator/internal/llm"
-	"github.com/worksonmyai/programmator/internal/protocol"
+	"github.com/alexander-akhmetov/programmator/internal/llm"
+	"github.com/alexander-akhmetov/programmator/internal/protocol"
 )
 
 func TestRunResult_HasCriticalIssues(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/worksonmyai/programmator/internal/safety"
+	"github.com/alexander-akhmetov/programmator/internal/safety"
 )
 
 func TestApplySkipPermissions(t *testing.T) {

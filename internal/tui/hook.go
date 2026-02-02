@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/worksonmyai/programmator/internal/debug"
-	"github.com/worksonmyai/programmator/internal/permission"
+	"github.com/alexander-akhmetov/programmator/internal/debug"
+	"github.com/alexander-akhmetov/programmator/internal/permission"
 )
 
 var socketPath string

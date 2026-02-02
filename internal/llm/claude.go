@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/worksonmyai/programmator/internal/debug"
-	"github.com/worksonmyai/programmator/internal/protocol"
+	"github.com/alexander-akhmetov/programmator/internal/debug"
+	"github.com/alexander-akhmetov/programmator/internal/protocol"
 )
 
 // ClaudeInvoker invokes the Claude CLI binary.

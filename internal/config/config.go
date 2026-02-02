@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/worksonmyai/programmator/internal/dirs"
-	"github.com/worksonmyai/programmator/internal/review"
+	"github.com/alexander-akhmetov/programmator/internal/dirs"
+	"github.com/alexander-akhmetov/programmator/internal/review"
 	"gopkg.in/yaml.v3"
 )
 

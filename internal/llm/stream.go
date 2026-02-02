@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/worksonmyai/programmator/internal/debug"
+	"github.com/alexander-akhmetov/programmator/internal/debug"
 )
 
 // streamEvent is the JSON structure emitted by `claude --output-format stream-json`.

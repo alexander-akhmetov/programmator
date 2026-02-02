@@ -6,11 +6,11 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/worksonmyai/programmator/internal/domain"
-	"github.com/worksonmyai/programmator/internal/event"
-	"github.com/worksonmyai/programmator/internal/loop"
-	"github.com/worksonmyai/programmator/internal/permission"
-	"github.com/worksonmyai/programmator/internal/safety"
+	"github.com/alexander-akhmetov/programmator/internal/domain"
+	"github.com/alexander-akhmetov/programmator/internal/event"
+	"github.com/alexander-akhmetov/programmator/internal/loop"
+	"github.com/alexander-akhmetov/programmator/internal/permission"
+	"github.com/alexander-akhmetov/programmator/internal/safety"
 )
 
 type runState int

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/worksonmyai/programmator/internal/protocol"
+	"github.com/alexander-akhmetov/programmator/internal/protocol"
 )
 
 func TestNewLogger(t *testing.T) {

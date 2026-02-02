@@ -3,7 +3,7 @@ package source
 import (
 	"sync"
 
-	"github.com/worksonmyai/programmator/internal/domain"
+	"github.com/alexander-akhmetov/programmator/internal/domain"
 )
 
 // MockSource implements the Source interface for testing.

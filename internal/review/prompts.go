@@ -1,7 +1,7 @@
 package review
 
 import (
-	"github.com/worksonmyai/programmator/internal/review/prompts"
+	"github.com/alexander-akhmetov/programmator/internal/review/prompts"
 )
 
 // GetDefaultPrompt returns the default prompt for an agent by name.

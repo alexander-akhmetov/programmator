@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/worksonmyai/programmator/internal/safety"
+	"github.com/alexander-akhmetov/programmator/internal/safety"
 )
 
 // applySkipPermissions ensures --dangerously-skip-permissions is present in

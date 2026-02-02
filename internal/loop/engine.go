@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/worksonmyai/programmator/internal/protocol"
-	"github.com/worksonmyai/programmator/internal/safety"
+	"github.com/alexander-akhmetov/programmator/internal/protocol"
+	"github.com/alexander-akhmetov/programmator/internal/safety"
 )
 
 // Engine makes pure decisions about what the loop should do next.

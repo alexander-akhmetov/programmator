@@ -7,18 +7,18 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/worksonmyai/programmator/internal/config"
-	"github.com/worksonmyai/programmator/internal/debug"
-	"github.com/worksonmyai/programmator/internal/domain"
-	"github.com/worksonmyai/programmator/internal/event"
-	gitutil "github.com/worksonmyai/programmator/internal/git"
-	"github.com/worksonmyai/programmator/internal/loop"
-	"github.com/worksonmyai/programmator/internal/permission"
-	"github.com/worksonmyai/programmator/internal/progress"
-	"github.com/worksonmyai/programmator/internal/prompt"
-	"github.com/worksonmyai/programmator/internal/review"
-	"github.com/worksonmyai/programmator/internal/safety"
-	"github.com/worksonmyai/programmator/internal/timing"
+	"github.com/alexander-akhmetov/programmator/internal/config"
+	"github.com/alexander-akhmetov/programmator/internal/debug"
+	"github.com/alexander-akhmetov/programmator/internal/domain"
+	"github.com/alexander-akhmetov/programmator/internal/event"
+	gitutil "github.com/alexander-akhmetov/programmator/internal/git"
+	"github.com/alexander-akhmetov/programmator/internal/loop"
+	"github.com/alexander-akhmetov/programmator/internal/permission"
+	"github.com/alexander-akhmetov/programmator/internal/progress"
+	"github.com/alexander-akhmetov/programmator/internal/prompt"
+	"github.com/alexander-akhmetov/programmator/internal/review"
+	"github.com/alexander-akhmetov/programmator/internal/safety"
+	"github.com/alexander-akhmetov/programmator/internal/timing"
 )
 
 // TUI wraps the bubbletea program and the orchestration loop.

@@ -7,9 +7,9 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/worksonmyai/programmator/internal/debug"
-	gitutil "github.com/worksonmyai/programmator/internal/git"
-	"github.com/worksonmyai/programmator/internal/permission"
+	"github.com/alexander-akhmetov/programmator/internal/debug"
+	gitutil "github.com/alexander-akhmetov/programmator/internal/git"
+	"github.com/alexander-akhmetov/programmator/internal/permission"
 )
 
 var (

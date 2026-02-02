@@ -5,9 +5,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/worksonmyai/programmator/internal/parser"
-	"github.com/worksonmyai/programmator/internal/protocol"
-	"github.com/worksonmyai/programmator/internal/safety"
+	"github.com/alexander-akhmetov/programmator/internal/parser"
+	"github.com/alexander-akhmetov/programmator/internal/protocol"
+	"github.com/alexander-akhmetov/programmator/internal/safety"
 )
 
 func newTestEngine() *Engine {

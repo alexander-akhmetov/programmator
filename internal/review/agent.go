@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/worksonmyai/programmator/internal/llm"
+	"github.com/alexander-akhmetov/programmator/internal/llm"
 	"gopkg.in/yaml.v3"
 )
 

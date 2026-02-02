@@ -8,8 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/worksonmyai/programmator/internal/domain"
-	"github.com/worksonmyai/programmator/internal/protocol"
+	"github.com/alexander-akhmetov/programmator/internal/domain"
+	"github.com/alexander-akhmetov/programmator/internal/protocol"
 )
 
 func TestMockSource(t *testing.T) {

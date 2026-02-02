@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/worksonmyai/programmator/internal/domain"
-	"github.com/worksonmyai/programmator/internal/protocol"
-	"github.com/worksonmyai/programmator/internal/ticket"
+	"github.com/alexander-akhmetov/programmator/internal/domain"
+	"github.com/alexander-akhmetov/programmator/internal/protocol"
+	"github.com/alexander-akhmetov/programmator/internal/ticket"
 )
 
 // mockTicketClient implements ticket.Client for testing.

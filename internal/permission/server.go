@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/worksonmyai/programmator/internal/debug"
+	"github.com/alexander-akhmetov/programmator/internal/debug"
 )
 
 type Decision string

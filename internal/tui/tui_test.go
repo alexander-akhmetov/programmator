@@ -7,11 +7,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/require"
 
-	"github.com/worksonmyai/programmator/internal/domain"
-	"github.com/worksonmyai/programmator/internal/event"
-	"github.com/worksonmyai/programmator/internal/loop"
-	"github.com/worksonmyai/programmator/internal/protocol"
-	"github.com/worksonmyai/programmator/internal/safety"
+	"github.com/alexander-akhmetov/programmator/internal/domain"
+	"github.com/alexander-akhmetov/programmator/internal/event"
+	"github.com/alexander-akhmetov/programmator/internal/loop"
+	"github.com/alexander-akhmetov/programmator/internal/protocol"
+	"github.com/alexander-akhmetov/programmator/internal/safety"
 )
 
 func TestNewModel(t *testing.T) {

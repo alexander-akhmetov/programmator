@@ -9,7 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/worksonmyai/programmator/internal/protocol"
+	"github.com/alexander-akhmetov/programmator/internal/protocol"
 )
 
 // Status is an alias for protocol.Status.

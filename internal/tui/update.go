@@ -8,10 +8,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 
-	"github.com/worksonmyai/programmator/internal/debug"
-	"github.com/worksonmyai/programmator/internal/event"
-	"github.com/worksonmyai/programmator/internal/protocol"
-	"github.com/worksonmyai/programmator/internal/timing"
+	"github.com/alexander-akhmetov/programmator/internal/debug"
+	"github.com/alexander-akhmetov/programmator/internal/event"
+	"github.com/alexander-akhmetov/programmator/internal/protocol"
+	"github.com/alexander-akhmetov/programmator/internal/timing"
 )
 
 func createRendererCmd(width int) tea.Cmd {

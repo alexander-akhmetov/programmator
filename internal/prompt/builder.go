@@ -8,9 +8,9 @@ import (
 	"sync"
 	"text/template"
 
-	"github.com/worksonmyai/programmator/internal/config"
-	"github.com/worksonmyai/programmator/internal/domain"
-	"github.com/worksonmyai/programmator/internal/protocol"
+	"github.com/alexander-akhmetov/programmator/internal/config"
+	"github.com/alexander-akhmetov/programmator/internal/domain"
+	"github.com/alexander-akhmetov/programmator/internal/protocol"
 )
 
 // Builder creates prompts using customizable templates.

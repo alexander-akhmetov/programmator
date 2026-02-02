@@ -6,8 +6,8 @@ package source
 import (
 	"errors"
 
-	"github.com/worksonmyai/programmator/internal/domain"
-	"github.com/worksonmyai/programmator/internal/protocol"
+	"github.com/alexander-akhmetov/programmator/internal/domain"
+	"github.com/alexander-akhmetov/programmator/internal/protocol"
 )
 
 // Re-export source type constants for use by source implementations.

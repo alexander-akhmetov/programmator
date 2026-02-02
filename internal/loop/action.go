@@ -5,8 +5,8 @@
 package loop
 
 import (
-	"github.com/worksonmyai/programmator/internal/parser"
-	"github.com/worksonmyai/programmator/internal/safety"
+	"github.com/alexander-akhmetov/programmator/internal/parser"
+	"github.com/alexander-akhmetov/programmator/internal/safety"
 )
 
 // ActionKind identifies the type of action the runner should execute.

@@ -5,8 +5,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/worksonmyai/programmator/internal/event"
-	"github.com/worksonmyai/programmator/internal/protocol"
+	"github.com/alexander-akhmetov/programmator/internal/event"
+	"github.com/alexander-akhmetov/programmator/internal/protocol"
 )
 
 // wrapLogs renders the log viewport content from typed events or legacy logs.

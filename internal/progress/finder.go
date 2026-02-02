@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/worksonmyai/programmator/internal/dirs"
+	"github.com/alexander-akhmetov/programmator/internal/dirs"
 )
 
 // LogFile represents a progress log file.

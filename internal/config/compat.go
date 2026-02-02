@@ -3,8 +3,8 @@ package config
 import (
 	"log"
 
-	"github.com/worksonmyai/programmator/internal/review"
-	"github.com/worksonmyai/programmator/internal/safety"
+	"github.com/alexander-akhmetov/programmator/internal/review"
+	"github.com/alexander-akhmetov/programmator/internal/safety"
 )
 
 // ToSafetyConfig converts the unified Config to a safety.Config.

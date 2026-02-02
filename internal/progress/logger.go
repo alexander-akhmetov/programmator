@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/worksonmyai/programmator/internal/dirs"
+	"github.com/alexander-akhmetov/programmator/internal/dirs"
 )
 
 // timestampFormat is the format for log timestamps.

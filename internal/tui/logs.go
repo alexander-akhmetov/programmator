@@ -11,11 +11,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/worksonmyai/programmator/internal/config"
-	"github.com/worksonmyai/programmator/internal/dirs"
-	"github.com/worksonmyai/programmator/internal/progress"
-	"github.com/worksonmyai/programmator/internal/source"
-	"github.com/worksonmyai/programmator/internal/ticket"
+	"github.com/alexander-akhmetov/programmator/internal/config"
+	"github.com/alexander-akhmetov/programmator/internal/dirs"
+	"github.com/alexander-akhmetov/programmator/internal/progress"
+	"github.com/alexander-akhmetov/programmator/internal/source"
+	"github.com/alexander-akhmetov/programmator/internal/ticket"
 )
 
 var (

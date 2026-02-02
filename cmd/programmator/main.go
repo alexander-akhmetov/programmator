@@ -5,7 +5,7 @@ import (
 	"os"
 	"runtime/debug"
 
-	"github.com/worksonmyai/programmator/internal/tui"
+	"github.com/alexander-akhmetov/programmator/internal/tui"
 )
 
 // Version information set via ldflags at build time.

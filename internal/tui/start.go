@@ -9,14 +9,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/worksonmyai/programmator/internal/config"
-	"github.com/worksonmyai/programmator/internal/dirs"
-	"github.com/worksonmyai/programmator/internal/loop"
-	"github.com/worksonmyai/programmator/internal/progress"
-	"github.com/worksonmyai/programmator/internal/prompt"
-	"github.com/worksonmyai/programmator/internal/protocol"
-	"github.com/worksonmyai/programmator/internal/source"
-	"github.com/worksonmyai/programmator/internal/timing"
+	"github.com/alexander-akhmetov/programmator/internal/config"
+	"github.com/alexander-akhmetov/programmator/internal/dirs"
+	"github.com/alexander-akhmetov/programmator/internal/loop"
+	"github.com/alexander-akhmetov/programmator/internal/progress"
+	"github.com/alexander-akhmetov/programmator/internal/prompt"
+	"github.com/alexander-akhmetov/programmator/internal/protocol"
+	"github.com/alexander-akhmetov/programmator/internal/source"
+	"github.com/alexander-akhmetov/programmator/internal/timing"
 )
 
 var (

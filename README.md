@@ -1,7 +1,7 @@
 # Programmator
 
-[![CI](https://github.com/worksonmyai/programmator/actions/workflows/ci.yml/badge.svg)](https://github.com/worksonmyai/programmator/actions/workflows/ci.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/worksonmyai/programmator)](https://goreportcard.com/report/github.com/worksonmyai/programmator)
+[![CI](https://github.com/alexander-akhmetov/programmator/actions/workflows/ci.yml/badge.svg)](https://github.com/alexander-akhmetov/programmator/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/alexander-akhmetov/programmator)](https://goreportcard.com/report/github.com/alexander-akhmetov/programmator)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Autonomous Claude Code orchestrator that executes multi-task plans without supervision.
@@ -25,7 +25,7 @@ Programmator splits work into isolated sessions with fresh context windows. Each
 - [dcg](https://github.com/Dicklesworthstone/destructive_command_guard) (destructive command guard) — blocks dangerous shell commands during autonomous execution. Guard mode is enabled by default; without dcg installed, programmator falls back to experimental interactive permission dialogs.
 
 ```bash
-go install github.com/worksonmyai/programmator/cmd/programmator@latest
+go install github.com/alexander-akhmetov/programmator/cmd/programmator@latest
 ```
 
 Write a plan file (`plan.md`):

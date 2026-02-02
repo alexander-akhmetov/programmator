@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/worksonmyai/programmator/internal/codex"
+	"github.com/alexander-akhmetov/programmator/internal/codex"
 )
 
 // CodexAgent implements Agent using the Codex CLI.

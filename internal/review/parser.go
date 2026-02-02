@@ -8,7 +8,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/worksonmyai/programmator/internal/protocol"
+	"github.com/alexander-akhmetov/programmator/internal/protocol"
 )
 
 // reviewResultRegex matches REVIEW_RESULT: blocks in Claude output.

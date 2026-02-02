@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/worksonmyai/programmator/internal/git"
-	"github.com/worksonmyai/programmator/internal/loop"
-	"github.com/worksonmyai/programmator/internal/review"
+	"github.com/alexander-akhmetov/programmator/internal/git"
+	"github.com/alexander-akhmetov/programmator/internal/loop"
+	"github.com/alexander-akhmetov/programmator/internal/review"
 )
 
 func TestReviewCmdDefinition(t *testing.T) {

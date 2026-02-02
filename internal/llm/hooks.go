@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 
-	"github.com/worksonmyai/programmator/internal/debug"
+	"github.com/alexander-akhmetov/programmator/internal/debug"
 )
 
 // safePathRe matches paths containing only safe characters.

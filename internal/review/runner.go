@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/worksonmyai/programmator/internal/event"
-	"github.com/worksonmyai/programmator/internal/protocol"
+	"github.com/alexander-akhmetov/programmator/internal/event"
+	"github.com/alexander-akhmetov/programmator/internal/protocol"
 )
 
 // RunResult holds the result of a complete review run.

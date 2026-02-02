@@ -10,15 +10,15 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/worksonmyai/programmator/internal/domain"
-	"github.com/worksonmyai/programmator/internal/event"
-	"github.com/worksonmyai/programmator/internal/llm"
-	"github.com/worksonmyai/programmator/internal/parser"
-	"github.com/worksonmyai/programmator/internal/prompt"
-	"github.com/worksonmyai/programmator/internal/protocol"
-	"github.com/worksonmyai/programmator/internal/review"
-	"github.com/worksonmyai/programmator/internal/safety"
-	"github.com/worksonmyai/programmator/internal/source"
+	"github.com/alexander-akhmetov/programmator/internal/domain"
+	"github.com/alexander-akhmetov/programmator/internal/event"
+	"github.com/alexander-akhmetov/programmator/internal/llm"
+	"github.com/alexander-akhmetov/programmator/internal/parser"
+	"github.com/alexander-akhmetov/programmator/internal/prompt"
+	"github.com/alexander-akhmetov/programmator/internal/protocol"
+	"github.com/alexander-akhmetov/programmator/internal/review"
+	"github.com/alexander-akhmetov/programmator/internal/safety"
+	"github.com/alexander-akhmetov/programmator/internal/source"
 )
 
 type fakeInvoker struct {

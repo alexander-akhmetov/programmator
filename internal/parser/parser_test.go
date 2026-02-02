@@ -3,7 +3,7 @@ package parser
 import (
 	"testing"
 
-	"github.com/worksonmyai/programmator/internal/protocol"
+	"github.com/alexander-akhmetov/programmator/internal/protocol"
 )
 
 func TestParse(t *testing.T) {
