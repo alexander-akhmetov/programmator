@@ -50,3 +50,17 @@ func TestNewInvoker(t *testing.T) {
 		})
 	}
 }
+
+func TestNewInvoker_EnvConfigPassthrough(t *testing.T) {
+	envCfg := EnvConfig{
+		ClaudeConfigDir: "/custom/config",
+		AnthropicAPIKey: "sk-test-key",
+	}
+	inv, err := NewInvoker(ExecutorConfig{Name: "claude", Claude: envCfg})
+	require.NoError(t, err)
+
+	ci, ok := inv.(*ClaudeInvoker)
+	require.True(t, ok)
+	assert.Equal(t, "/custom/config", ci.Env.ClaudeConfigDir)
+	assert.Equal(t, "sk-test-key", ci.Env.AnthropicAPIKey)
+}
