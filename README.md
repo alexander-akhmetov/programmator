@@ -22,7 +22,6 @@ Programmator splits work into isolated sessions with fresh context windows. Each
 **Requirements:**
 - Go 1.25.6+
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
-- [dcg](https://github.com/Dicklesworthstone/destructive_command_guard) (destructive command guard) — blocks dangerous shell commands during autonomous execution. Guard mode is enabled by default; without dcg installed, programmator falls back to experimental interactive permission dialogs.
 
 ```bash
 go install github.com/alexander-akhmetov/programmator/cmd/programmator@latest
@@ -123,7 +122,7 @@ Source type is auto-detected from the argument: file paths → plan file, everyt
 
 ## Safety Gates
 
-- **Guard mode**: Blocks destructive shell commands via [dcg](https://github.com/Dicklesworthstone/destructive_command_guard) (enabled by default, disable with `--guard=false`). Use `--dangerously-skip-permissions` to bypass all permission checks entirely.
+- **Guard mode**: If [dcg](https://github.com/Dicklesworthstone/destructive_command_guard) is installed, programmator uses it to block destructive shell commands during autonomous execution.
 - **Max iterations**: Prevents runaway loops (default: 50)
 - **Stagnation detection**: Exits if no files change for N iterations (default: 3)
 - **Error repetition**: Exits if same error occurs 3 times
@@ -135,7 +134,7 @@ Source type is auto-detected from the argument: file paths → plan file, everyt
 Opt-in via config or CLI flags:
 - `--auto-commit`: Creates a `programmator/<slug>` branch, commits after each phase
 - `--move-completed`: Moves completed plans to `plans/completed/`
-- `--branch <name>`: Custom branch name
+- `--branch [optional name]`: Custom branch name
 
 ## Configuration
 
