@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/worksonmyai/programmator/internal/event"
+	"github.com/worksonmyai/programmator/internal/llm"
 	"github.com/worksonmyai/programmator/internal/protocol"
 )
 
@@ -98,6 +99,9 @@ func (r *Runner) defaultAgentFactory(agentCfg AgentConfig, defaultPrompt string)
 	}
 	if r.config.SettingsJSON != "" {
 		opts = append(opts, WithSettingsJSON(r.config.SettingsJSON))
+	}
+	if r.config.EnvConfig != (llm.EnvConfig{}) {
+		opts = append(opts, WithEnvConfig(r.config.EnvConfig))
 	}
 	return NewClaudeAgent(agentCfg.Name, agentCfg.Focus, prompt, opts...)
 }
