@@ -674,6 +674,116 @@ func TestMergeFrom_CodexModelValidation(t *testing.T) {
 	assert.Equal(t, "gpt-5.2-codex", base.Codex.Model, "invalid model name should not override base")
 }
 
+func TestApplyEnv_ClaudeConfig(t *testing.T) {
+	envVars := map[string]string{
+		"PROGRAMMATOR_CLAUDE_FLAGS":      "--verbose --model opus",
+		"CLAUDE_CONFIG_DIR":              "/custom/claude",
+		"PROGRAMMATOR_ANTHROPIC_API_KEY": "sk-test-123",
+	}
+
+	saved := make(map[string]string)
+	for k := range envVars {
+		saved[k] = os.Getenv(k)
+	}
+	defer func() {
+		for k, v := range saved {
+			os.Setenv(k, v)
+		}
+	}()
+
+	for k, v := range envVars {
+		os.Setenv(k, v)
+	}
+
+	cfg, err := loadEmbedded()
+	require.NoError(t, err)
+	cfg.applyEnv()
+
+	assert.Equal(t, "--verbose --model opus", cfg.Claude.Flags)
+	assert.Equal(t, "/custom/claude", cfg.Claude.ConfigDir)
+	assert.Equal(t, "sk-test-123", cfg.Claude.AnthropicAPIKey)
+}
+
+func TestMergeFrom_Executor(t *testing.T) {
+	tests := []struct {
+		name         string
+		baseExec     string
+		overrideExec string
+		wantExec     string
+	}{
+		{
+			name:         "override replaces base",
+			baseExec:     "claude",
+			overrideExec: "custom",
+			wantExec:     "custom",
+		},
+		{
+			name:         "empty override keeps base",
+			baseExec:     "claude",
+			overrideExec: "",
+			wantExec:     "claude",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			base := &Config{Executor: tc.baseExec}
+			override := &Config{Executor: tc.overrideExec}
+			base.mergeFrom(override)
+			assert.Equal(t, tc.wantExec, base.Executor)
+		})
+	}
+}
+
+func TestMergeFrom_ClaudeConfig(t *testing.T) {
+	base := &Config{
+		Claude: ClaudeConfig{
+			Flags:           "--verbose",
+			ConfigDir:       "/base/dir",
+			AnthropicAPIKey: "base-key",
+		},
+	}
+
+	override := &Config{
+		Claude: ClaudeConfig{
+			Flags: "--model opus",
+			// ConfigDir and AnthropicAPIKey empty — should not override
+		},
+	}
+
+	base.mergeFrom(override)
+	assert.Equal(t, "--model opus", base.Claude.Flags)
+	assert.Equal(t, "/base/dir", base.Claude.ConfigDir)
+	assert.Equal(t, "base-key", base.Claude.AnthropicAPIKey)
+}
+
+func TestLoadWithDirs_ExecutorConfig(t *testing.T) {
+	// Clear env vars that could interfere
+	for _, key := range []string{"CLAUDE_CONFIG_DIR", "PROGRAMMATOR_CLAUDE_FLAGS", "PROGRAMMATOR_ANTHROPIC_API_KEY", "PROGRAMMATOR_EXECUTOR"} {
+		saved := os.Getenv(key)
+		t.Cleanup(func() { os.Setenv(key, saved) })
+		os.Unsetenv(key)
+	}
+
+	globalDir := t.TempDir()
+
+	configContent := `
+executor: claude
+claude:
+  flags: "--verbose"
+  config_dir: "/custom/dir"
+`
+	err := os.WriteFile(filepath.Join(globalDir, "config.yaml"), []byte(configContent), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := LoadWithDirs(globalDir, "")
+	require.NoError(t, err)
+
+	assert.Equal(t, "claude", cfg.Executor)
+	assert.Equal(t, "--verbose", cfg.Claude.Flags)
+	assert.Equal(t, "/custom/dir", cfg.Claude.ConfigDir)
+}
+
 func TestParseConfigWithTrackingIgnoresReviewPasses(t *testing.T) {
 	data := []byte(`
 review:
