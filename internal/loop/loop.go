@@ -1263,6 +1263,10 @@ func (l *Loop) applySettingsToReviewConfig() {
 	if l.permissionSocketPath != "" || l.guardMode {
 		l.reviewConfig.SettingsJSON = l.buildHookSettings()
 	}
+	l.reviewConfig.EnvConfig = llm.EnvConfig{
+		ClaudeConfigDir: l.config.ClaudeConfigDir,
+		AnthropicAPIKey: l.config.AnthropicAPIKey,
+	}
 }
 
 func (l *Loop) applyReviewContext(workItem *domain.WorkItem) {

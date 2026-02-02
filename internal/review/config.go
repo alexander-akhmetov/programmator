@@ -4,6 +4,8 @@ package review
 import (
 	"os"
 	"strconv"
+
+	"github.com/worksonmyai/programmator/internal/llm"
 )
 
 const (
@@ -18,6 +20,7 @@ type Config struct {
 	Agents        []AgentConfig `yaml:"agents,omitempty"`
 	ClaudeFlags   string        `yaml:"-"` // inherited from main config, not user-configured
 	SettingsJSON  string        `yaml:"-"` // pre-computed --settings JSON for guard mode
+	EnvConfig     llm.EnvConfig `yaml:"-"` // Claude subprocess environment (config dir, API key)
 	TicketContext string        `yaml:"-"` // full ticket/plan content for reviewer context
 	Codex         CodexSettings `yaml:"-"` // codex agent settings, injected from main config
 }

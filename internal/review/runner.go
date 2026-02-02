@@ -99,6 +99,7 @@ func (r *Runner) defaultAgentFactory(agentCfg AgentConfig, defaultPrompt string)
 	if r.config.SettingsJSON != "" {
 		opts = append(opts, WithSettingsJSON(r.config.SettingsJSON))
 	}
+	opts = append(opts, WithEnvConfig(r.config.EnvConfig))
 	return NewClaudeAgent(agentCfg.Name, agentCfg.Focus, prompt, opts...)
 }
 

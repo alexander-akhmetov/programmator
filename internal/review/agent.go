@@ -121,6 +121,7 @@ type ClaudeAgent struct {
 	timeout      time.Duration
 	claudeArgs   []string
 	settingsJSON string
+	envConfig    llm.EnvConfig
 	invoker      llm.Invoker
 }
 
@@ -145,6 +146,13 @@ func WithClaudeArgs(args []string) ClaudeAgentOption {
 func WithSettingsJSON(settingsJSON string) ClaudeAgentOption {
 	return func(a *ClaudeAgent) {
 		a.settingsJSON = settingsJSON
+	}
+}
+
+// WithEnvConfig sets the Claude subprocess environment configuration.
+func WithEnvConfig(cfg llm.EnvConfig) ClaudeAgentOption {
+	return func(a *ClaudeAgent) {
+		a.envConfig = cfg
 	}
 }
 
@@ -259,7 +267,7 @@ REVIEW_RESULT:
 func (a *ClaudeAgent) invokeClaude(ctx context.Context, workingDir, promptText string) (string, error) {
 	inv := a.invoker
 	if inv == nil {
-		inv = llm.NewClaudeInvoker(llm.EnvConfig{})
+		inv = llm.NewClaudeInvoker(a.envConfig)
 	}
 
 	extraFlags := strings.Join(a.claudeArgs, " ")

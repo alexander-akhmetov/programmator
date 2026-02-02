@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/worksonmyai/programmator/internal/llm"
 	"github.com/worksonmyai/programmator/internal/protocol"
 )
 
@@ -98,11 +99,17 @@ func TestClaudeAgent(t *testing.T) {
 			WithTimeout(10*time.Minute),
 			WithClaudeArgs([]string{"--verbose"}),
 			WithSettingsJSON(`{"hooks":{}}`),
+			WithEnvConfig(llm.EnvConfig{
+				ClaudeConfigDir: "/custom/config",
+				AnthropicAPIKey: "test-key",
+			}),
 		)
 
 		require.Equal(t, 10*time.Minute, agent.timeout)
 		require.Equal(t, []string{"--verbose"}, agent.claudeArgs)
 		require.Equal(t, `{"hooks":{}}`, agent.settingsJSON)
+		require.Equal(t, "/custom/config", agent.envConfig.ClaudeConfigDir)
+		require.Equal(t, "test-key", agent.envConfig.AnthropicAPIKey)
 	})
 }
 
@@ -122,6 +129,38 @@ func TestDefaultAgentFactory_PassesClaudeFlagsAndSettings(t *testing.T) {
 	require.Equal(t, []string{"--dangerously-skip-permissions"}, claudeAgent.claudeArgs)
 	require.Equal(t, `{"hooks":{"PreToolUse":[]}}`, claudeAgent.settingsJSON)
 	require.Equal(t, 120*time.Second, claudeAgent.timeout)
+}
+
+func TestDefaultAgentFactory_PassesEnvConfig(t *testing.T) {
+	cfg := Config{
+		MaxIterations: 3,
+		Timeout:       120,
+		EnvConfig: llm.EnvConfig{
+			ClaudeConfigDir: "/custom/claude/config",
+			AnthropicAPIKey: "test-key",
+		},
+	}
+
+	runner := NewRunner(cfg, nil)
+	agent := runner.defaultAgentFactory(AgentConfig{Name: "test", Focus: []string{"bugs"}}, "default prompt")
+
+	claudeAgent, ok := agent.(*ClaudeAgent)
+	require.True(t, ok)
+	require.Equal(t, "/custom/claude/config", claudeAgent.envConfig.ClaudeConfigDir)
+	require.Equal(t, "test-key", claudeAgent.envConfig.AnthropicAPIKey)
+}
+
+func TestDefaultAgentFactory_EmptyEnvConfig(t *testing.T) {
+	cfg := Config{
+		MaxIterations: 3,
+	}
+
+	runner := NewRunner(cfg, nil)
+	agent := runner.defaultAgentFactory(AgentConfig{Name: "test", Focus: []string{"bugs"}}, "default prompt")
+
+	claudeAgent, ok := agent.(*ClaudeAgent)
+	require.True(t, ok)
+	require.Equal(t, llm.EnvConfig{}, claudeAgent.envConfig)
 }
 
 func TestIssueFingerprint(t *testing.T) {
