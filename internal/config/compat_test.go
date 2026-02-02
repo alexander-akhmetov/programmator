@@ -28,11 +28,24 @@ func TestToSafetyConfig(t *testing.T) {
 	assert.Equal(t, 100, sc.MaxIterations)
 	assert.Equal(t, 5, sc.StagnationLimit)
 	assert.Equal(t, 600, sc.Timeout)
-	assert.Equal(t, "claude", sc.Executor)
-	assert.Equal(t, "--verbose", sc.Claude.Flags)
-	assert.Equal(t, "/custom/dir", sc.Claude.ConfigDir)
-	assert.Equal(t, "test-key", sc.Claude.AnthropicAPIKey)
 	assert.Equal(t, 10, sc.MaxReviewIterations)
+}
+
+func TestToExecutorConfig(t *testing.T) {
+	cfg := &Config{
+		Executor: "claude",
+		Claude: ClaudeConfig{
+			Flags:           "--verbose",
+			ConfigDir:       "/custom/dir",
+			AnthropicAPIKey: "test-key",
+		},
+	}
+
+	ec := cfg.ToExecutorConfig()
+	assert.Equal(t, "claude", ec.Name)
+	assert.Equal(t, "--verbose", ec.ExtraFlags)
+	assert.Equal(t, "/custom/dir", ec.Claude.ClaudeConfigDir)
+	assert.Equal(t, "test-key", ec.Claude.AnthropicAPIKey)
 }
 
 func TestToReviewConfig_WithAgents(t *testing.T) {
@@ -160,5 +173,5 @@ func TestToSafetyConfig_ZeroValues(t *testing.T) {
 	assert.Equal(t, 0, sc.MaxIterations)
 	assert.Equal(t, 0, sc.StagnationLimit)
 	assert.Equal(t, 0, sc.Timeout)
-	assert.Equal(t, "", sc.Claude.Flags)
+	assert.Equal(t, 0, sc.MaxReviewIterations)
 }

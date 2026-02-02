@@ -87,7 +87,7 @@ func (m Model) renderSidebarHeader(width int) string {
 	if m.guardMode {
 		b.WriteString(guardStyle.Render("🛡  GUARD MODE"))
 		b.WriteString("\n")
-	} else if strings.Contains(m.config.Claude.Flags, "--dangerously-skip-permissions") {
+	} else if strings.Contains(m.claudeFlags, "--dangerously-skip-permissions") {
 		b.WriteString(dangerStyle.Render("⚠ SKIP PERMISSIONS"))
 		b.WriteString("\n")
 	}
@@ -156,7 +156,7 @@ func (m Model) renderSidebarTicket(width int) string {
 }
 
 func (m Model) renderSidebarEnvironment(width int) string {
-	if m.workingDir == "" && m.gitBranch == "" && m.config.Claude.ConfigDir == "" {
+	if m.workingDir == "" && m.gitBranch == "" && m.claudeConfigDir == "" {
 		return ""
 	}
 
@@ -179,9 +179,9 @@ func (m Model) renderSidebarEnvironment(width int) string {
 		b.WriteString(valueStyle.Render(branchStr))
 		b.WriteString("\n")
 	}
-	if m.config.Claude.ConfigDir != "" {
+	if m.claudeConfigDir != "" {
 		b.WriteString(labelStyle.Render("Claude: "))
-		b.WriteString(valueStyle.Render(abbreviatePath(m.config.Claude.ConfigDir)))
+		b.WriteString(valueStyle.Render(abbreviatePath(m.claudeConfigDir)))
 		b.WriteString("\n")
 	}
 

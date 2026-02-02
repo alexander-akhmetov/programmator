@@ -27,19 +27,10 @@ const (
 	ExitReasonMaxReviewRetries ExitReason = "max_review_retries"
 )
 
-// ClaudeConfig holds Claude-specific fields carried through safety config.
-type ClaudeConfig struct {
-	Flags           string
-	ConfigDir       string
-	AnthropicAPIKey string
-}
-
 type Config struct {
 	MaxIterations       int
 	StagnationLimit     int
 	Timeout             int
-	Executor            string
-	Claude              ClaudeConfig
 	MaxReviewIterations int
 }
 
@@ -48,7 +39,6 @@ func ConfigFromEnv() Config {
 		MaxIterations:       DefaultMaxIterations,
 		StagnationLimit:     DefaultStagnationLimit,
 		Timeout:             DefaultTimeout,
-		Executor:            "claude",
 		MaxReviewIterations: DefaultMaxReviewIterations,
 	}
 
@@ -68,18 +58,6 @@ func ConfigFromEnv() Config {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Timeout = n
 		}
-	}
-
-	if v := os.Getenv("PROGRAMMATOR_EXECUTOR"); v != "" {
-		cfg.Executor = v
-	}
-
-	if v := os.Getenv("PROGRAMMATOR_CLAUDE_FLAGS"); v != "" {
-		cfg.Claude.Flags = v
-	}
-
-	if v := os.Getenv("CLAUDE_CONFIG_DIR"); v != "" {
-		cfg.Claude.ConfigDir = v
 	}
 
 	if v := os.Getenv("PROGRAMMATOR_MAX_REVIEW_ITERATIONS"); v != "" {

@@ -808,19 +808,12 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string, error) {
 	inv := l.invoker
 	if inv == nil {
-		cfg := l.executorConfig
-		if cfg.Name == "" {
-			cfg.Name = l.config.Executor
-		}
-		cfg.Claude = llm.EnvConfig{
-			ClaudeConfigDir: l.config.Claude.ConfigDir,
-			AnthropicAPIKey: l.config.Claude.AnthropicAPIKey,
-		}
 		var err error
-		inv, err = llm.NewInvoker(cfg)
+		inv, err = llm.NewInvoker(l.executorConfig)
 		if err != nil {
 			return "", fmt.Errorf("create invoker: %w", err)
 		}
+		l.invoker = inv
 	}
 
 	var settingsJSON string
@@ -832,7 +825,7 @@ func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string
 				GuardMode:            l.guardMode,
 			})
 		}
-		extraFlags = l.config.Claude.Flags
+		extraFlags = l.executorConfig.ExtraFlags
 	}
 
 	opts := llm.InvokeOptions{
@@ -1301,17 +1294,14 @@ func (l *Loop) buildHookSettings() string {
 // into the review config so review agents get the same flags as the main loop.
 func (l *Loop) applySettingsToReviewConfig() {
 	if l.isClaudeExecutor() {
-		if l.config.Claude.Flags != "" {
-			l.reviewConfig.ClaudeFlags = l.config.Claude.Flags
+		if l.executorConfig.ExtraFlags != "" {
+			l.reviewConfig.ClaudeFlags = l.executorConfig.ExtraFlags
 		}
 		if l.permissionSocketPath != "" || l.guardMode {
 			l.reviewConfig.SettingsJSON = l.buildHookSettings()
 		}
 	}
-	l.reviewConfig.EnvConfig = llm.EnvConfig{
-		ClaudeConfigDir: l.config.ClaudeConfigDir,
-		AnthropicAPIKey: l.config.AnthropicAPIKey,
-	}
+	l.reviewConfig.EnvConfig = l.executorConfig.Claude
 }
 
 func (l *Loop) applyReviewContext(workItem *domain.WorkItem) {

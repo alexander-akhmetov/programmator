@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/alexander-akhmetov/programmator/internal/safety"
+	"github.com/alexander-akhmetov/programmator/internal/llm"
 )
 
 func TestApplySkipPermissions(t *testing.T) {
@@ -38,19 +38,19 @@ func TestApplySkipPermissions(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := safety.Config{Claude: safety.ClaudeConfig{Flags: tc.initial}}
+			cfg := llm.ExecutorConfig{ExtraFlags: tc.initial}
 			applySkipPermissions(&cfg)
-			assert.Equal(t, tc.expected, cfg.Claude.Flags)
+			assert.Equal(t, tc.expected, cfg.ExtraFlags)
 		})
 	}
 }
 
 func TestResolveGuardMode(t *testing.T) {
 	t.Run("disabled guard mode returns false", func(t *testing.T) {
-		cfg := safety.Config{}
+		cfg := llm.ExecutorConfig{}
 		result := resolveGuardMode(false, &cfg)
 		assert.False(t, result)
-		assert.Empty(t, cfg.Claude.Flags)
+		assert.Empty(t, cfg.ExtraFlags)
 	})
 
 	// Note: cannot test dcg found/not found without mocking exec.LookPath,
