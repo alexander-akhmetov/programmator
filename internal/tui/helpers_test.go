@@ -38,9 +38,9 @@ func TestApplySkipPermissions(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := safety.Config{ClaudeFlags: tc.initial}
+			cfg := safety.Config{Claude: safety.ClaudeConfig{Flags: tc.initial}}
 			applySkipPermissions(&cfg)
-			assert.Equal(t, tc.expected, cfg.ClaudeFlags)
+			assert.Equal(t, tc.expected, cfg.Claude.Flags)
 		})
 	}
 }
@@ -50,7 +50,7 @@ func TestResolveGuardMode(t *testing.T) {
 		cfg := safety.Config{}
 		result := resolveGuardMode(false, &cfg)
 		assert.False(t, result)
-		assert.Empty(t, cfg.ClaudeFlags)
+		assert.Empty(t, cfg.Claude.Flags)
 	})
 
 	// Note: cannot test dcg found/not found without mocking exec.LookPath,

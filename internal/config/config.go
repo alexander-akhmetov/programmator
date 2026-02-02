@@ -50,6 +50,13 @@ type CodexConfig struct {
 	TimeoutMsSet bool `yaml:"-"`
 }
 
+// ClaudeConfig holds Claude executor configuration.
+type ClaudeConfig struct {
+	Flags           string `yaml:"flags"`
+	ConfigDir       string `yaml:"config_dir"`
+	AnthropicAPIKey string `yaml:"anthropic_api_key"`
+}
+
 // ReviewConfig holds review-specific configuration.
 type ReviewConfig struct {
 	MaxIterations int                  `yaml:"max_iterations"`
@@ -86,10 +93,9 @@ type Config struct {
 	StagnationLimit int `yaml:"stagnation_limit"`
 	Timeout         int `yaml:"timeout"` // seconds
 
-	// Claude settings
-	ClaudeFlags     string `yaml:"claude_flags"`
-	ClaudeConfigDir string `yaml:"claude_config_dir"`
-	AnthropicAPIKey string `yaml:"anthropic_api_key"`
+	// Executor settings
+	Executor string       `yaml:"executor"`
+	Claude   ClaudeConfig `yaml:"claude"`
 
 	// Ticket settings
 	TicketCommand string `yaml:"ticket_command"` // Binary name for the ticket CLI (default: tk)
@@ -331,18 +337,23 @@ func (c *Config) applyEnv() {
 		}
 	}
 
+	if v := os.Getenv("PROGRAMMATOR_EXECUTOR"); v != "" {
+		c.Executor = v
+		c.sources = append(c.sources, "env:PROGRAMMATOR_EXECUTOR")
+	}
+
 	if v := os.Getenv("PROGRAMMATOR_CLAUDE_FLAGS"); v != "" {
-		c.ClaudeFlags = v
+		c.Claude.Flags = v
 		c.sources = append(c.sources, "env:PROGRAMMATOR_CLAUDE_FLAGS")
 	}
 
 	if v := os.Getenv("CLAUDE_CONFIG_DIR"); v != "" {
-		c.ClaudeConfigDir = v
+		c.Claude.ConfigDir = v
 		c.sources = append(c.sources, "env:CLAUDE_CONFIG_DIR")
 	}
 
 	if v := os.Getenv("PROGRAMMATOR_ANTHROPIC_API_KEY"); v != "" {
-		c.AnthropicAPIKey = v
+		c.Claude.AnthropicAPIKey = v
 		c.sources = append(c.sources, "env:PROGRAMMATOR_ANTHROPIC_API_KEY")
 	}
 
@@ -483,15 +494,18 @@ func (c *Config) mergeFrom(src *Config) {
 		c.HideTips = src.HideTips
 		c.HideTipsSet = true
 	}
-	if src.ClaudeFlags != "" {
-		c.ClaudeFlags = src.ClaudeFlags
+	if src.Executor != "" {
+		c.Executor = src.Executor
 	}
-	if src.ClaudeConfigDir != "" {
-		c.ClaudeConfigDir = src.ClaudeConfigDir
+	if src.Claude.Flags != "" {
+		c.Claude.Flags = src.Claude.Flags
 	}
-	if src.AnthropicAPIKey != "" {
-		log.Printf("warning: anthropic_api_key loaded from config file — ensure this is a trusted source")
-		c.AnthropicAPIKey = src.AnthropicAPIKey
+	if src.Claude.ConfigDir != "" {
+		c.Claude.ConfigDir = src.Claude.ConfigDir
+	}
+	if src.Claude.AnthropicAPIKey != "" {
+		log.Printf("warning: claude.anthropic_api_key loaded from config file — ensure this is a trusted source")
+		c.Claude.AnthropicAPIKey = src.Claude.AnthropicAPIKey
 	}
 	if src.LogsDir != "" {
 		c.LogsDir = src.LogsDir
