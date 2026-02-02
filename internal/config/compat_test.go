@@ -3,9 +3,9 @@ package config
 import (
 	"testing"
 
+	"github.com/alexander-akhmetov/programmator/internal/review"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/alexander-akhmetov/programmator/internal/review"
 )
 
 func TestToSafetyConfig(t *testing.T) {

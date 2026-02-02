@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"github.com/alexander-akhmetov/programmator/internal/codex"
+	"github.com/stretchr/testify/require"
 )
 
 // mockRunner implements codex.Runner for testing.
