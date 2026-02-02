@@ -12,10 +12,10 @@ import (
 // applySkipPermissions ensures --dangerously-skip-permissions is present in
 // ClaudeFlags when the caller requests it (via guard-mode or explicit flag).
 func applySkipPermissions(cfg *safety.Config) {
-	if cfg.ClaudeFlags == "" {
-		cfg.ClaudeFlags = "--dangerously-skip-permissions"
-	} else if !strings.Contains(cfg.ClaudeFlags, "--dangerously-skip-permissions") {
-		cfg.ClaudeFlags += " --dangerously-skip-permissions"
+	if cfg.Claude.Flags == "" {
+		cfg.Claude.Flags = "--dangerously-skip-permissions"
+	} else if !strings.Contains(cfg.Claude.Flags, "--dangerously-skip-permissions") {
+		cfg.Claude.Flags += " --dangerously-skip-permissions"
 	}
 }
 

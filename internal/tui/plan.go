@@ -110,7 +110,7 @@ func runPlanCreate(_ *cobra.Command, args []string) error {
 		builder:        builder,
 		collector:      collector,
 		progressLogger: progressLogger,
-		claudeFlags:    cfg.ClaudeFlags,
+		claudeFlags:    cfg.Claude.Flags,
 	}
 
 	planPath, err := creator.run()

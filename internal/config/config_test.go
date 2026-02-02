@@ -17,7 +17,8 @@ func TestLoadEmbedded(t *testing.T) {
 	assert.Equal(t, 50, cfg.MaxIterations)
 	assert.Equal(t, 3, cfg.StagnationLimit)
 	assert.Equal(t, 900, cfg.Timeout)
-	assert.Equal(t, "", cfg.ClaudeFlags)
+	assert.Equal(t, "claude", cfg.Executor)
+	assert.Equal(t, "", cfg.Claude.Flags)
 	assert.Equal(t, 3, cfg.Review.MaxIterations)
 	assert.True(t, cfg.Review.Parallel)
 	assert.Len(t, cfg.Review.Agents, 9)
@@ -91,6 +92,20 @@ func TestApplyEnv(t *testing.T) {
 	assert.Equal(t, 10, cfg.StagnationLimit)
 	assert.True(t, cfg.MaxIterationsSet)
 	assert.True(t, cfg.StagnationLimitSet)
+}
+
+func TestApplyEnv_Executor(t *testing.T) {
+	saved := os.Getenv("PROGRAMMATOR_EXECUTOR")
+	defer os.Setenv("PROGRAMMATOR_EXECUTOR", saved)
+
+	os.Setenv("PROGRAMMATOR_EXECUTOR", "custom-executor")
+
+	cfg, err := loadEmbedded()
+	require.NoError(t, err)
+
+	cfg.applyEnv()
+
+	assert.Equal(t, "custom-executor", cfg.Executor)
 }
 
 func TestEnvBetweenGlobalAndLocal(t *testing.T) {

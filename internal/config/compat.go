@@ -10,12 +10,15 @@ import (
 // ToSafetyConfig converts the unified Config to a safety.Config.
 func (c *Config) ToSafetyConfig() safety.Config {
 	return safety.Config{
-		MaxIterations:       c.MaxIterations,
-		StagnationLimit:     c.StagnationLimit,
-		Timeout:             c.Timeout,
-		ClaudeFlags:         c.ClaudeFlags,
-		ClaudeConfigDir:     c.ClaudeConfigDir,
-		AnthropicAPIKey:     c.AnthropicAPIKey,
+		MaxIterations:   c.MaxIterations,
+		StagnationLimit: c.StagnationLimit,
+		Timeout:         c.Timeout,
+		Executor:        c.Executor,
+		Claude: safety.ClaudeConfig{
+			Flags:           c.Claude.Flags,
+			ConfigDir:       c.Claude.ConfigDir,
+			AnthropicAPIKey: c.Claude.AnthropicAPIKey,
+		},
 		MaxReviewIterations: c.Review.MaxIterations,
 	}
 }
@@ -27,7 +30,7 @@ func (c *Config) ToReviewConfig() review.Config {
 		MaxIterations: c.Review.MaxIterations,
 		Parallel:      c.Review.Parallel,
 		Timeout:       c.Timeout,
-		ClaudeFlags:   c.ClaudeFlags,
+		ClaudeFlags:   c.Claude.Flags,
 		Agents:        agents,
 		Codex: review.CodexSettings{
 			Command:         c.Codex.Command,

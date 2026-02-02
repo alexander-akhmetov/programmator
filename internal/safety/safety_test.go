@@ -18,11 +18,14 @@ func TestConfigFromEnv_Defaults(t *testing.T) {
 	if cfg.Timeout != DefaultTimeout {
 		t.Errorf("Timeout = %d, want %d", cfg.Timeout, DefaultTimeout)
 	}
-	if cfg.ClaudeFlags != "" {
-		t.Errorf("ClaudeFlags = %q, want %q", cfg.ClaudeFlags, "")
+	if cfg.Executor != "claude" {
+		t.Errorf("Executor = %q, want %q", cfg.Executor, "claude")
 	}
-	if cfg.ClaudeConfigDir != "" {
-		t.Errorf("ClaudeConfigDir = %q, want %q", cfg.ClaudeConfigDir, "")
+	if cfg.Claude.Flags != "" {
+		t.Errorf("Claude.Flags = %q, want %q", cfg.Claude.Flags, "")
+	}
+	if cfg.Claude.ConfigDir != "" {
+		t.Errorf("Claude.ConfigDir = %q, want %q", cfg.Claude.ConfigDir, "")
 	}
 }
 
@@ -45,11 +48,11 @@ func TestConfigFromEnv_CustomValues(t *testing.T) {
 	if cfg.Timeout != 1800 {
 		t.Errorf("Timeout = %d, want %d", cfg.Timeout, 1800)
 	}
-	if cfg.ClaudeFlags != "--verbose" {
-		t.Errorf("ClaudeFlags = %q, want %q", cfg.ClaudeFlags, "--verbose")
+	if cfg.Claude.Flags != "--verbose" {
+		t.Errorf("Claude.Flags = %q, want %q", cfg.Claude.Flags, "--verbose")
 	}
-	if cfg.ClaudeConfigDir != "/home/user/.claude-personal" {
-		t.Errorf("ClaudeConfigDir = %q, want %q", cfg.ClaudeConfigDir, "/home/user/.claude-personal")
+	if cfg.Claude.ConfigDir != "/home/user/.claude-personal" {
+		t.Errorf("Claude.ConfigDir = %q, want %q", cfg.Claude.ConfigDir, "/home/user/.claude-personal")
 	}
 }
 

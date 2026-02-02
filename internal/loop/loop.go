@@ -788,8 +788,8 @@ func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string
 	inv := l.invoker
 	if inv == nil {
 		inv = llm.NewClaudeInvoker(llm.EnvConfig{
-			ClaudeConfigDir: l.config.ClaudeConfigDir,
-			AnthropicAPIKey: l.config.AnthropicAPIKey,
+			ClaudeConfigDir: l.config.Claude.ConfigDir,
+			AnthropicAPIKey: l.config.Claude.AnthropicAPIKey,
 		})
 	}
 
@@ -804,7 +804,7 @@ func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string
 	opts := llm.InvokeOptions{
 		WorkingDir:   l.workingDir,
 		Streaming:    l.streaming,
-		ExtraFlags:   l.config.ClaudeFlags,
+		ExtraFlags:   l.config.Claude.Flags,
 		SettingsJSON: settingsJSON,
 		Timeout:      l.config.Timeout,
 		OnOutput: func(text string) {
@@ -1266,8 +1266,8 @@ func (l *Loop) buildHookSettings() string {
 // applySettingsToReviewConfig copies guard mode / permission socket settings
 // into the review config so review agents get the same flags as the main loop.
 func (l *Loop) applySettingsToReviewConfig() {
-	if l.config.ClaudeFlags != "" {
-		l.reviewConfig.ClaudeFlags = l.config.ClaudeFlags
+	if l.config.Claude.Flags != "" {
+		l.reviewConfig.ClaudeFlags = l.config.Claude.Flags
 	}
 	if l.permissionSocketPath != "" || l.guardMode {
 		l.reviewConfig.SettingsJSON = l.buildHookSettings()
