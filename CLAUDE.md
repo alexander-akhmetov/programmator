@@ -123,6 +123,7 @@ Unified YAML config with multi-level merge: embedded defaults → `~/.config/pro
 | `PROGRAMMATOR_MAX_ITERATIONS` | 50 | Loop limit |
 | `PROGRAMMATOR_STAGNATION_LIMIT` | 3 | Exit after N iterations with no file changes |
 | `PROGRAMMATOR_TIMEOUT` | 900 | Seconds per Claude invocation |
+| `PROGRAMMATOR_EXECUTOR` | `claude` | Which executor to use (only "claude" supported) |
 | `PROGRAMMATOR_CLAUDE_FLAGS` | `""` | Flags passed to Claude |
 | `TICKETS_DIR` | `~/.tickets` | Where ticket files live |
 | `CLAUDE_CONFIG_DIR` | - | Custom Claude config directory |

@@ -3,22 +3,29 @@ package config
 import (
 	"log"
 
+	"github.com/alexander-akhmetov/programmator/internal/llm"
 	"github.com/alexander-akhmetov/programmator/internal/review"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
 )
 
+// ToExecutorConfig converts the unified Config to an llm.ExecutorConfig.
+func (c *Config) ToExecutorConfig() llm.ExecutorConfig {
+	return llm.ExecutorConfig{
+		Name: c.Executor,
+		Claude: llm.EnvConfig{
+			ClaudeConfigDir: c.Claude.ConfigDir,
+			AnthropicAPIKey: c.Claude.AnthropicAPIKey,
+		},
+		ExtraFlags: c.Claude.Flags,
+	}
+}
+
 // ToSafetyConfig converts the unified Config to a safety.Config.
 func (c *Config) ToSafetyConfig() safety.Config {
 	return safety.Config{
-		MaxIterations:   c.MaxIterations,
-		StagnationLimit: c.StagnationLimit,
-		Timeout:         c.Timeout,
-		Executor:        c.Executor,
-		Claude: safety.ClaudeConfig{
-			Flags:           c.Claude.Flags,
-			ConfigDir:       c.Claude.ConfigDir,
-			AnthropicAPIKey: c.Claude.AnthropicAPIKey,
-		},
+		MaxIterations:       c.MaxIterations,
+		StagnationLimit:     c.StagnationLimit,
+		Timeout:             c.Timeout,
 		MaxReviewIterations: c.Review.MaxIterations,
 	}
 }

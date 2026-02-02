@@ -97,6 +97,8 @@ func (t *TUI) SetHideTips(hide bool) {
 
 func (t *TUI) SetExecutorConfig(cfg llm.ExecutorConfig) {
 	t.executorConfig = &cfg
+	t.model.claudeFlags = cfg.ExtraFlags
+	t.model.claudeConfigDir = cfg.Claude.ClaudeConfigDir
 }
 
 // Run starts the TUI and the orchestration loop, blocking until done.

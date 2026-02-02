@@ -6,23 +6,23 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/alexander-akhmetov/programmator/internal/safety"
+	"github.com/alexander-akhmetov/programmator/internal/llm"
 )
 
 // applySkipPermissions ensures --dangerously-skip-permissions is present in
-// ClaudeFlags when the caller requests it (via guard-mode or explicit flag).
-func applySkipPermissions(cfg *safety.Config) {
-	if cfg.Claude.Flags == "" {
-		cfg.Claude.Flags = "--dangerously-skip-permissions"
-	} else if !strings.Contains(cfg.Claude.Flags, "--dangerously-skip-permissions") {
-		cfg.Claude.Flags += " --dangerously-skip-permissions"
+// ExtraFlags when the caller requests it (via guard-mode or explicit flag).
+func applySkipPermissions(cfg *llm.ExecutorConfig) {
+	if cfg.ExtraFlags == "" {
+		cfg.ExtraFlags = "--dangerously-skip-permissions"
+	} else if !strings.Contains(cfg.ExtraFlags, "--dangerously-skip-permissions") {
+		cfg.ExtraFlags += " --dangerously-skip-permissions"
 	}
 }
 
-// resolveGuardMode checks whether dcg is available and adjusts the safety
+// resolveGuardMode checks whether dcg is available and adjusts the executor
 // config accordingly. Returns the effective guard-mode value.
 // If dcg is not found, guard mode is disabled and a warning is printed.
-func resolveGuardMode(guardMode bool, cfg *safety.Config) bool {
+func resolveGuardMode(guardMode bool, cfg *llm.ExecutorConfig) bool {
 	if !guardMode {
 		return false
 	}

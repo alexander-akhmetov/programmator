@@ -110,14 +110,8 @@ func runPlanCreate(_ *cobra.Command, args []string) error {
 		builder:        builder,
 		collector:      collector,
 		progressLogger: progressLogger,
-		executorConfig: llm.ExecutorConfig{
-			Name: cfg.Executor,
-			Claude: llm.EnvConfig{
-				ClaudeConfigDir: cfg.Claude.ConfigDir,
-				AnthropicAPIKey: cfg.Claude.AnthropicAPIKey,
-			},
-		},
-		claudeFlags: cfg.Claude.Flags,
+		executorConfig: cfg.ToExecutorConfig(),
+		claudeFlags:    cfg.Claude.Flags,
 	}
 
 	planPath, err := creator.run()
@@ -183,7 +177,7 @@ func (p *planCreator) run() (string, error) {
 		// Invoke Claude
 		output, err := p.invokeClaude(ctx, promptText)
 		if err != nil {
-			return "", fmt.Errorf("invoke Claude: %w", err)
+			return "", fmt.Errorf("invoke executor: %w", err)
 		}
 
 		// Check for plan ready signal

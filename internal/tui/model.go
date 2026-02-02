@@ -51,6 +51,8 @@ type Model struct {
 	permissionDialog *PermissionDialog
 	tipIndex         int
 	hideTips         bool
+	claudeFlags      string
+	claudeConfigDir  string
 }
 
 // NewModel creates a new Model with the given safety config.

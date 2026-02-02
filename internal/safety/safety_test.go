@@ -18,23 +18,12 @@ func TestConfigFromEnv_Defaults(t *testing.T) {
 	if cfg.Timeout != DefaultTimeout {
 		t.Errorf("Timeout = %d, want %d", cfg.Timeout, DefaultTimeout)
 	}
-	if cfg.Executor != "claude" {
-		t.Errorf("Executor = %q, want %q", cfg.Executor, "claude")
-	}
-	if cfg.Claude.Flags != "" {
-		t.Errorf("Claude.Flags = %q, want %q", cfg.Claude.Flags, "")
-	}
-	if cfg.Claude.ConfigDir != "" {
-		t.Errorf("Claude.ConfigDir = %q, want %q", cfg.Claude.ConfigDir, "")
-	}
 }
 
 func TestConfigFromEnv_CustomValues(t *testing.T) {
 	os.Setenv("PROGRAMMATOR_MAX_ITERATIONS", "100")
 	os.Setenv("PROGRAMMATOR_STAGNATION_LIMIT", "5")
 	os.Setenv("PROGRAMMATOR_TIMEOUT", "1800")
-	os.Setenv("PROGRAMMATOR_CLAUDE_FLAGS", "--verbose")
-	os.Setenv("CLAUDE_CONFIG_DIR", "/home/user/.claude-personal")
 	defer os.Clearenv()
 
 	cfg := ConfigFromEnv()
@@ -47,12 +36,6 @@ func TestConfigFromEnv_CustomValues(t *testing.T) {
 	}
 	if cfg.Timeout != 1800 {
 		t.Errorf("Timeout = %d, want %d", cfg.Timeout, 1800)
-	}
-	if cfg.Claude.Flags != "--verbose" {
-		t.Errorf("Claude.Flags = %q, want %q", cfg.Claude.Flags, "--verbose")
-	}
-	if cfg.Claude.ConfigDir != "/home/user/.claude-personal" {
-		t.Errorf("Claude.ConfigDir = %q, want %q", cfg.Claude.ConfigDir, "/home/user/.claude-personal")
 	}
 }
 

@@ -4,8 +4,9 @@ import "fmt"
 
 // ExecutorConfig selects and configures the LLM executor implementation.
 type ExecutorConfig struct {
-	Name   string    // "claude" (only supported value for now)
-	Claude EnvConfig // passed to ClaudeInvoker when Name is "claude"
+	Name       string    // "claude" (only supported value for now)
+	Claude     EnvConfig // passed to ClaudeInvoker when Name is "claude"
+	ExtraFlags string    // additional CLI flags for the executor
 }
 
 // NewInvoker creates an Invoker based on the executor name in cfg.

@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/alexander-akhmetov/programmator/internal/config"
 	"github.com/alexander-akhmetov/programmator/internal/llm"
 	"github.com/alexander-akhmetov/programmator/internal/permission"
 )
@@ -103,7 +104,17 @@ func buildCommonFlags() []string {
 }
 
 func runClaudePrint(prompt, workingDir string) error {
-	inv, err := llm.NewInvoker(llm.ExecutorConfig{Name: runExecutor})
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	execCfg := cfg.ToExecutorConfig()
+	if runExecutor != "" {
+		execCfg.Name = runExecutor
+	}
+
+	inv, err := llm.NewInvoker(execCfg)
 	if err != nil {
 		return fmt.Errorf("create invoker: %w", err)
 	}
@@ -125,7 +136,13 @@ func runClaudePrint(prompt, workingDir string) error {
 // it is not a --print invocation — it runs an interactive Claude session.
 // For non-claude executors, falls back to print mode since interactive TUI is Claude-specific.
 func runClaudeTUI(prompt, workingDir string) error {
-	if runExecutor != "" && runExecutor != "claude" {
+	executorName := runExecutor
+	if executorName == "" {
+		if cfg, err := config.Load(); err == nil {
+			executorName = cfg.Executor
+		}
+	}
+	if executorName != "" && executorName != "claude" {
 		return runClaudePrint(prompt, workingDir)
 	}
 

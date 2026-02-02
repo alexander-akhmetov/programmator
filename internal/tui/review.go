@@ -87,10 +87,11 @@ func runReview(_ *cobra.Command, _ []string) error {
 	}
 
 	safetyConfig := cfg.ToSafetyConfig()
+	execConfig := cfg.ToExecutorConfig()
 
-	reviewGuardMode = resolveGuardMode(reviewGuardMode, &safetyConfig)
+	reviewGuardMode = resolveGuardMode(reviewGuardMode, &execConfig)
 	if reviewSkipPermissions {
-		applySkipPermissions(&safetyConfig)
+		applySkipPermissions(&execConfig)
 	}
 
 	reviewConfig := cfg.ToReviewConfig()
@@ -128,6 +129,7 @@ func runReview(_ *cobra.Command, _ []string) error {
 	}
 	reviewLoop.SetPromptBuilder(promptBuilder)
 	reviewLoop.SetCodexConfig(cfg.Codex)
+	reviewLoop.SetExecutorConfig(execConfig)
 
 	// Run review-only loop
 	result, err := reviewLoop.RunReviewOnly(reviewBaseBranch, filesChanged)
