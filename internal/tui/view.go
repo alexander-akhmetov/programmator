@@ -50,7 +50,13 @@ func (m Model) renderSidebar(width int, height int) string {
 	b.WriteString(m.renderSidebarEnvironment(width))
 	b.WriteString(m.renderSidebarProgress(width))
 	b.WriteString(m.renderSidebarUsage(width))
-	b.WriteString(m.renderSidebarPhases(width, height))
+	tips := m.renderSidebarTips(width)
+	tipsHeight := 0
+	if tips != "" {
+		tipsHeight = len(strings.Split(tips, "\n"))
+	}
+	b.WriteString(m.renderSidebarPhases(width, height, tipsHeight))
+	b.WriteString(tips)
 	b.WriteString(m.renderSidebarFooter())
 
 	return b.String()
@@ -222,7 +228,7 @@ func (m Model) renderSidebarUsage(width int) string {
 	return b.String()
 }
 
-func (m Model) renderSidebarPhases(width int, height int) string {
+func (m Model) renderSidebarPhases(width int, height int, tipsHeight int) string {
 	if m.workItem == nil || len(m.workItem.Phases) == 0 {
 		return ""
 	}
@@ -231,7 +237,36 @@ func (m Model) renderSidebarPhases(width int, height int) string {
 	b.WriteString("\n")
 	b.WriteString(sectionHeader("Phases", width))
 	b.WriteString("\n")
-	b.WriteString(m.renderPhasesContent(width, height))
+	b.WriteString(m.renderPhasesContent(width, height, tipsHeight))
+
+	return b.String()
+}
+
+var sidebarTips = []string{
+	"Did you know? `plan create` lets you build plans interactively",
+	"Did you know? You can run plan files directly with `start ./plan.md`",
+	"Did you know? `--auto-commit` commits after each completed phase",
+	"Did you know? `logs --follow` tails the active session in real time",
+	"Did you know? `config show` displays your resolved configuration",
+	"Did you know? Press `p` to pause and resume anytime",
+	"Did you know? You can override prompt templates in `.programmator/prompts/`",
+	"Did you know? Guard mode blocks destructive commands automatically via dcg",
+}
+
+func (m Model) renderSidebarTips(width int) string {
+	if m.hideTips {
+		return ""
+	}
+
+	var b strings.Builder
+
+	tip := sidebarTips[m.tipIndex%len(sidebarTips)]
+
+	b.WriteString("\n")
+	b.WriteString(sectionHeader("Tips", width))
+	b.WriteString("\n")
+	b.WriteString(tipStyle.Render(wrapText(tip, width, "", 2)))
+	b.WriteString("\n")
 
 	return b.String()
 }
@@ -260,7 +295,7 @@ func (m Model) renderSidebarFooter() string {
 	return b.String()
 }
 
-func (m Model) renderPhasesContent(width int, height int) string {
+func (m Model) renderPhasesContent(width int, height int, tipsHeight int) string {
 	var b strings.Builder
 
 	currentPhase := m.workItem.CurrentPhase()
@@ -272,7 +307,7 @@ func (m Model) renderPhasesContent(width int, height int) string {
 		}
 	}
 
-	usedLines := 8
+	usedLines := 8 + tipsHeight
 	availableForPhases := max(5, height-usedLines)
 	contextSize := max(2, (availableForPhases-2)/2)
 

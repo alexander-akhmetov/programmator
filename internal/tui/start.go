@@ -142,6 +142,7 @@ func runStart(_ *cobra.Command, args []string) error {
 		t.SetProgressLogger(progressLogger)
 	}
 	t.SetTicketCommand(cfg.TicketCommand)
+	t.SetHideTips(cfg.HideTips)
 
 	// Set git workflow config from CLI flags and config file
 	t.SetGitWorkflowConfig(loop.GitWorkflowConfig{

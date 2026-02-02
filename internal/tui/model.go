@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"math/rand/v2"
+
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/glamour"
@@ -47,6 +49,8 @@ type Model struct {
 	claudeMemKB      int64
 	guardMode        bool
 	permissionDialog *PermissionDialog
+	tipIndex         int
+	hideTips         bool
 }
 
 // NewModel creates a new Model with the given safety config.
@@ -61,6 +65,7 @@ func NewModel(config safety.Config) Model {
 		logs:     make([]string, 0),
 		spinner:  s,
 		runState: stateRunning,
+		tipIndex: rand.IntN(len(sidebarTips)),
 	}
 }
 
