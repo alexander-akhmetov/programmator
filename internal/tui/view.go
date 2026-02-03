@@ -65,9 +65,14 @@ func (m Model) renderSidebar(width int, height int) string {
 	tips := m.renderSidebarTips(width)
 	tipsLines := lipgloss.Height(tips)
 
-	b.WriteString(m.renderSidebarPhases(width, height, usedLines, tipsLines))
+	// Pre-render footer so its height can be reserved in the phases area
+	footer := m.renderSidebarFooter()
+	footerLines := lipgloss.Height(footer)
+
+	// Reserve space for both tips and footer when rendering phases
+	b.WriteString(m.renderSidebarPhases(width, height, usedLines, tipsLines+footerLines))
 	b.WriteString(tips)
-	b.WriteString(m.renderSidebarFooter())
+	b.WriteString(footer)
 
 	return b.String()
 }
@@ -317,17 +322,34 @@ func (m Model) renderPhasesContent(width int, height int, usedLines int, tipsLin
 		}
 	}
 
-	// Account for the "Phases" header (3 lines: newline + header + newline) and tips
-	totalUsed := usedLines + 3 + tipsLines
-	availableForPhases := max(5, height-totalUsed)
-	contextSize := max(2, (availableForPhases-2)/2)
+	// Account for the "Phases" header (3 lines: newline + header + newline) and tips/footer
+	// Also subtract 1 for trailing newline effect on lipgloss.Height
+	totalUsed := usedLines + 3 + tipsLines + 1
+	availableForPhases := max(3, height-totalUsed)
+
+	// Reserve space for overflow indicators (up to 2 lines) and "Done" block (2 lines if complete)
+	reservedLines := 0
+	if len(m.workItem.Phases) > availableForPhases {
+		reservedLines += 2 // ↑ and ↓ indicators
+	}
+	if m.runState == stateComplete {
+		reservedLines += 2 // newline + "✓ Done"
+	}
+
+	// Space for actual phase lines after reserving for indicators/done
+	spaceForPhaseLines := max(1, availableForPhases-reservedLines)
+	contextSize := max(0, (spaceForPhaseLines-1)/2)
 
 	showFrom := 0
 	showTo := len(m.workItem.Phases) - 1
 
-	if len(m.workItem.Phases) > availableForPhases && currentIdx >= 0 {
+	if len(m.workItem.Phases) > spaceForPhaseLines && currentIdx >= 0 {
 		showFrom = max(0, currentIdx-contextSize)
 		showTo = min(len(m.workItem.Phases)-1, currentIdx+contextSize)
+		// Ensure we show at least the current phase
+		if showTo-showFrom+1 > spaceForPhaseLines {
+			showTo = showFrom + spaceForPhaseLines - 1
+		}
 	}
 
 	if showFrom > 0 {

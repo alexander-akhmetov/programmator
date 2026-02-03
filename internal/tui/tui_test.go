@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexander-akhmetov/programmator/internal/domain"
@@ -586,6 +587,109 @@ func TestModelRenderSidebarManyPhasesOverflow(t *testing.T) {
 	require.Contains(t, view, "Stagnation", "Stagnation should be visible in height-constrained view")
 	// Overflow indicators should appear
 	require.Contains(t, view, "more", "should show overflow indicator")
+}
+
+func TestModelRenderSidebarCompleteStateWithManyPhases(t *testing.T) {
+	model := NewModel(safety.Config{MaxIterations: 50, StagnationLimit: 3})
+
+	// Create 30 phases, all completed
+	phases := make([]domain.Phase, 30)
+	for i := range phases {
+		phases[i] = domain.Phase{
+			Name:      fmt.Sprintf("Phase %d: Task description", i+1),
+			Completed: true,
+		}
+	}
+
+	model.workItem = &domain.WorkItem{
+		ID:     "t-complete",
+		Title:  "Test Complete State",
+		Phases: phases,
+	}
+	model.state = safety.NewState()
+	model.state.Iteration = 10
+	model.runState = stateComplete
+	model.result = &loop.Result{ExitReason: safety.ExitReasonComplete, ExitMessage: "All phases completed"}
+
+	// Very small height to stress test the layout
+	model.width = 120
+	model.height = 25
+
+	view := model.View()
+
+	require.NotEmpty(t, view)
+	// Top sections must remain visible even with footer and done block
+	require.Contains(t, view, "Progress", "Progress section should be visible")
+	require.Contains(t, view, "Stagnation", "Stagnation should be visible")
+	// Footer should be visible in complete state
+	require.Contains(t, view, "Exit", "Exit reason should be visible in complete state")
+}
+
+func TestRenderPhasesContentFitsAvailableSpace(t *testing.T) {
+	model := NewModel(safety.Config{MaxIterations: 50, StagnationLimit: 3})
+
+	// Create many phases with current in the middle to trigger both overflow indicators
+	phases := make([]domain.Phase, 30)
+	for i := range phases {
+		phases[i] = domain.Phase{
+			Name:      fmt.Sprintf("Phase %d", i+1),
+			Completed: i < 15,
+		}
+	}
+
+	model.workItem = &domain.WorkItem{
+		ID:     "t-fit",
+		Title:  "Test Fit",
+		Phases: phases,
+	}
+
+	tests := []struct {
+		name             string
+		availableHeight  int
+		runState         runState
+		wantMaxLines     int
+		wantUpIndicator  bool
+		wantDownIndicator bool
+	}{
+		{
+			name:              "minimal height with overflow",
+			availableHeight:   5,
+			runState:          stateRunning,
+			wantMaxLines:      5,
+			wantUpIndicator:   true,
+			wantDownIndicator: true,
+		},
+		{
+			name:             "minimal height complete state",
+			availableHeight:  7,
+			runState:         stateComplete,
+			wantMaxLines:     7,
+			wantUpIndicator:  true,
+			wantDownIndicator: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			model.runState = tc.runState
+
+			// Call renderPhasesContent with minimal available space
+			// usedLines=0 and tipsLines=0 to isolate phases content
+			content := model.renderPhasesContent(40, tc.availableHeight+3, 0, 0)
+
+			lines := lipgloss.Height(content)
+			require.LessOrEqual(t, lines, tc.wantMaxLines,
+				"phases content (%d lines) should fit in available space (%d lines):\n%s",
+				lines, tc.wantMaxLines, content)
+
+			if tc.wantUpIndicator {
+				require.Contains(t, content, "↑", "should have up overflow indicator")
+			}
+			if tc.wantDownIndicator {
+				require.Contains(t, content, "↓", "should have down overflow indicator")
+			}
+		})
+	}
 }
 
 func TestRenderSidebarTips(t *testing.T) {
