@@ -578,15 +578,22 @@ func TestModelRenderSidebarManyPhasesOverflow(t *testing.T) {
 	model.width = 120
 	model.height = 30
 
-	// Render through View() which applies statusBoxStyle.Height() constraint
-	view := model.View()
+	sidebarWidth := max(45, min(60, model.width*40/100))
+	contentHeight := model.height - 3
 
-	require.NotEmpty(t, view)
+	// Render sidebar directly to verify height constraint
+	sidebar := model.renderSidebar(sidebarWidth-4, contentHeight-2)
+	sidebarHeight := lipgloss.Height(sidebar)
+
+	// Sidebar content must fit within the allocated height
+	require.LessOrEqual(t, sidebarHeight, contentHeight-2,
+		"sidebar (%d lines) should fit in allocated height (%d lines)", sidebarHeight, contentHeight-2)
+
 	// Progress section should be visible (top not cut off by height constraint)
-	require.Contains(t, view, "Progress", "Progress section should be visible in height-constrained view")
-	require.Contains(t, view, "Stagnation", "Stagnation should be visible in height-constrained view")
+	require.Contains(t, sidebar, "Progress", "Progress section should be visible in height-constrained view")
+	require.Contains(t, sidebar, "Stagnation", "Stagnation should be visible in height-constrained view")
 	// Overflow indicators should appear
-	require.Contains(t, view, "more", "should show overflow indicator")
+	require.Contains(t, sidebar, "more", "should show overflow indicator")
 }
 
 func TestModelRenderSidebarCompleteStateWithManyPhases(t *testing.T) {
@@ -610,19 +617,32 @@ func TestModelRenderSidebarCompleteStateWithManyPhases(t *testing.T) {
 	model.state.Iteration = 10
 	model.runState = stateComplete
 	model.result = &loop.Result{ExitReason: safety.ExitReasonComplete, ExitMessage: "All phases completed"}
+	model.hideTips = true // Hide tips to simplify calculation
 
-	// Very small height to stress test the layout
+	// Use a height that can fit fixed sections + footer + some phases
+	// Fixed sections ~16 lines + footer ~5 lines = 21 lines minimum
 	model.width = 120
-	model.height = 25
+	model.height = 35
 
-	view := model.View()
+	sidebarWidth := max(45, min(60, model.width*40/100))
+	contentHeight := model.height - 3
 
-	require.NotEmpty(t, view)
+	// Render sidebar directly to verify height constraint
+	sidebar := model.renderSidebar(sidebarWidth-4, contentHeight-2)
+	sidebarHeight := lipgloss.Height(sidebar)
+
+	// Sidebar content must fit within the allocated height
+	allocatedHeight := contentHeight - 2
+	require.LessOrEqual(t, sidebarHeight, allocatedHeight,
+		"sidebar (%d lines) should fit in allocated height (%d lines)", sidebarHeight, allocatedHeight)
+
 	// Top sections must remain visible even with footer and done block
-	require.Contains(t, view, "Progress", "Progress section should be visible")
-	require.Contains(t, view, "Stagnation", "Stagnation should be visible")
+	require.Contains(t, sidebar, "Progress", "Progress section should be visible")
+	require.Contains(t, sidebar, "Stagnation", "Stagnation should be visible")
 	// Footer should be visible in complete state
-	require.Contains(t, view, "Exit", "Exit reason should be visible in complete state")
+	require.Contains(t, sidebar, "Exit", "Exit reason should be visible in complete state")
+	// Overflow indicator should appear since we have 30 phases
+	require.Contains(t, sidebar, "more", "should show overflow indicator for many phases")
 }
 
 func TestRenderPhasesContentFitsAvailableSpace(t *testing.T) {

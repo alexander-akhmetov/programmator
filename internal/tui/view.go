@@ -58,16 +58,17 @@ func (m Model) renderSidebar(width int, height int) string {
 	b.WriteString(progress)
 	b.WriteString(usage)
 
-	// Calculate actual lines used by fixed sections (lipgloss.Height is ANSI-aware)
-	usedLines := lipgloss.Height(header) + lipgloss.Height(ticket) +
-		lipgloss.Height(environment) + lipgloss.Height(progress) + lipgloss.Height(usage)
+	// Calculate actual lines used by fixed sections
+	// Note: lipgloss.Height("") returns 1, so use heightOf to treat empty as 0
+	usedLines := heightOf(header) + heightOf(ticket) +
+		heightOf(environment) + heightOf(progress) + heightOf(usage)
 
 	tips := m.renderSidebarTips(width)
-	tipsLines := lipgloss.Height(tips)
+	tipsLines := heightOf(tips)
 
 	// Pre-render footer so its height can be reserved in the phases area
 	footer := m.renderSidebarFooter()
-	footerLines := lipgloss.Height(footer)
+	footerLines := heightOf(footer)
 
 	// Reserve space for both tips and footer when rendering phases
 	b.WriteString(m.renderSidebarPhases(width, height, usedLines, tipsLines+footerLines))
@@ -327,28 +328,38 @@ func (m Model) renderPhasesContent(width int, height int, usedLines int, tipsLin
 	totalUsed := usedLines + 3 + tipsLines + 1
 	availableForPhases := max(3, height-totalUsed)
 
-	// Reserve space for overflow indicators (up to 2 lines) and "Done" block (2 lines if complete)
+	// Reserve space for "Done" block first (2 lines if complete)
 	reservedLines := 0
-	if len(m.workItem.Phases) > availableForPhases {
-		reservedLines += 2 // ↑ and ↓ indicators
-	}
 	if m.runState == stateComplete {
 		reservedLines += 2 // newline + "✓ Done"
 	}
 
-	// Space for actual phase lines after reserving for indicators/done
+	// Preliminary space for phase lines after reserving for "Done"
 	spaceForPhaseLines := max(1, availableForPhases-reservedLines)
+
+	// If phases overflow the preliminary space, reserve lines for ↑ and ↓ indicators
+	if len(m.workItem.Phases) > spaceForPhaseLines {
+		reservedLines += 2 // ↑ and ↓ indicators
+		spaceForPhaseLines = max(1, availableForPhases-reservedLines)
+	}
+
 	contextSize := max(0, (spaceForPhaseLines-1)/2)
 
 	showFrom := 0
 	showTo := len(m.workItem.Phases) - 1
 
-	if len(m.workItem.Phases) > spaceForPhaseLines && currentIdx >= 0 {
-		showFrom = max(0, currentIdx-contextSize)
-		showTo = min(len(m.workItem.Phases)-1, currentIdx+contextSize)
-		// Ensure we show at least the current phase
-		if showTo-showFrom+1 > spaceForPhaseLines {
-			showTo = showFrom + spaceForPhaseLines - 1
+	if len(m.workItem.Phases) > spaceForPhaseLines {
+		if currentIdx >= 0 {
+			showFrom = max(0, currentIdx-contextSize)
+			showTo = min(len(m.workItem.Phases)-1, currentIdx+contextSize)
+			// Ensure we show at most spaceForPhaseLines while including current phase
+			if showTo-showFrom+1 > spaceForPhaseLines {
+				showTo = showFrom + spaceForPhaseLines - 1
+			}
+		} else {
+			// No current phase (e.g., all phases complete): show the last spaceForPhaseLines phases
+			showTo = len(m.workItem.Phases) - 1
+			showFrom = max(0, len(m.workItem.Phases)-spaceForPhaseLines)
 		}
 	}
 
@@ -401,4 +412,13 @@ func (m Model) renderHelp() string {
 	parts = append(parts, "↑/↓: scroll", "q: quit")
 
 	return helpStyle.Render(strings.Join(parts, " • "))
+}
+
+// heightOf returns the rendered height of a string, treating empty strings as 0 lines.
+// This is needed because lipgloss.Height("") returns 1.
+func heightOf(s string) int {
+	if s == "" {
+		return 0
+	}
+	return lipgloss.Height(s)
 }
