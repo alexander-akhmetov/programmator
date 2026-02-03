@@ -573,15 +573,19 @@ func TestModelRenderSidebarManyPhasesOverflow(t *testing.T) {
 	model.state = safety.NewState()
 	model.state.Iteration = 10
 
-	// Small height to trigger overflow
-	status := model.renderSidebar(50, 25)
+	// Set dimensions to trigger View() rendering with height constraint
+	model.width = 120
+	model.height = 30
 
-	require.NotEmpty(t, status)
-	// Progress section should be visible (top not cut off)
-	require.Contains(t, status, "Progress")
-	require.Contains(t, status, "Stagnation")
+	// Render through View() which applies statusBoxStyle.Height() constraint
+	view := model.View()
+
+	require.NotEmpty(t, view)
+	// Progress section should be visible (top not cut off by height constraint)
+	require.Contains(t, view, "Progress", "Progress section should be visible in height-constrained view")
+	require.Contains(t, view, "Stagnation", "Stagnation should be visible in height-constrained view")
 	// Overflow indicators should appear
-	require.Contains(t, status, "more", "should show overflow indicator")
+	require.Contains(t, view, "more", "should show overflow indicator")
 }
 
 func TestRenderSidebarTips(t *testing.T) {

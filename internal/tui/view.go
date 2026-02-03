@@ -58,12 +58,12 @@ func (m Model) renderSidebar(width int, height int) string {
 	b.WriteString(progress)
 	b.WriteString(usage)
 
-	// Calculate actual lines used by fixed sections
-	fixedContent := header + ticket + environment + progress + usage
-	usedLines := strings.Count(fixedContent, "\n")
+	// Calculate actual lines used by fixed sections (lipgloss.Height is ANSI-aware)
+	usedLines := lipgloss.Height(header) + lipgloss.Height(ticket) +
+		lipgloss.Height(environment) + lipgloss.Height(progress) + lipgloss.Height(usage)
 
 	tips := m.renderSidebarTips(width)
-	tipsLines := strings.Count(tips, "\n")
+	tipsLines := lipgloss.Height(tips)
 
 	b.WriteString(m.renderSidebarPhases(width, height, usedLines, tipsLines))
 	b.WriteString(tips)
@@ -317,7 +317,7 @@ func (m Model) renderPhasesContent(width int, height int, usedLines int, tipsLin
 		}
 	}
 
-	// Account for the "Phases" header (2 lines: newline + header + newline) and tips
+	// Account for the "Phases" header (3 lines: newline + header + newline) and tips
 	totalUsed := usedLines + 3 + tipsLines
 	availableForPhases := max(5, height-totalUsed)
 	contextSize := max(2, (availableForPhases-2)/2)
