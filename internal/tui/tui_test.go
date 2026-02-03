@@ -553,6 +553,37 @@ func TestModelRenderSidebarAllPhasesComplete(t *testing.T) {
 	require.NotEmpty(t, status)
 }
 
+func TestModelRenderSidebarManyPhasesOverflow(t *testing.T) {
+	model := NewModel(safety.Config{MaxIterations: 50, StagnationLimit: 3})
+
+	// Create 30 phases with current phase in the middle
+	phases := make([]domain.Phase, 30)
+	for i := range phases {
+		phases[i] = domain.Phase{
+			Name:      fmt.Sprintf("Phase %d: Task description", i+1),
+			Completed: i < 15, // First 15 completed, current is 16
+		}
+	}
+
+	model.workItem = &domain.WorkItem{
+		ID:     "t-overflow",
+		Title:  "Test Overflow Behavior",
+		Phases: phases,
+	}
+	model.state = safety.NewState()
+	model.state.Iteration = 10
+
+	// Small height to trigger overflow
+	status := model.renderSidebar(50, 25)
+
+	require.NotEmpty(t, status)
+	// Progress section should be visible (top not cut off)
+	require.Contains(t, status, "Progress")
+	require.Contains(t, status, "Stagnation")
+	// Overflow indicators should appear
+	require.Contains(t, status, "more", "should show overflow indicator")
+}
+
 func TestRenderSidebarTips(t *testing.T) {
 	require.Len(t, tipSnippets, len(sidebarTips), "tipSnippets must match sidebarTips length")
 

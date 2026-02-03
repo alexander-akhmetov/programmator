@@ -45,17 +45,27 @@ func (m Model) View() string {
 func (m Model) renderSidebar(width int, height int) string {
 	var b strings.Builder
 
-	b.WriteString(m.renderSidebarHeader(width))
-	b.WriteString(m.renderSidebarTicket(width))
-	b.WriteString(m.renderSidebarEnvironment(width))
-	b.WriteString(m.renderSidebarProgress(width))
-	b.WriteString(m.renderSidebarUsage(width))
+	// Render fixed sections first to calculate actual line usage
+	header := m.renderSidebarHeader(width)
+	ticket := m.renderSidebarTicket(width)
+	environment := m.renderSidebarEnvironment(width)
+	progress := m.renderSidebarProgress(width)
+	usage := m.renderSidebarUsage(width)
+
+	b.WriteString(header)
+	b.WriteString(ticket)
+	b.WriteString(environment)
+	b.WriteString(progress)
+	b.WriteString(usage)
+
+	// Calculate actual lines used by fixed sections
+	fixedContent := header + ticket + environment + progress + usage
+	usedLines := strings.Count(fixedContent, "\n")
+
 	tips := m.renderSidebarTips(width)
-	tipsHeight := 0
-	if tips != "" {
-		tipsHeight = len(strings.Split(tips, "\n"))
-	}
-	b.WriteString(m.renderSidebarPhases(width, height, tipsHeight))
+	tipsLines := strings.Count(tips, "\n")
+
+	b.WriteString(m.renderSidebarPhases(width, height, usedLines, tipsLines))
 	b.WriteString(tips)
 	b.WriteString(m.renderSidebarFooter())
 
@@ -228,7 +238,7 @@ func (m Model) renderSidebarUsage(width int) string {
 	return b.String()
 }
 
-func (m Model) renderSidebarPhases(width int, height int, tipsHeight int) string {
+func (m Model) renderSidebarPhases(width int, height int, usedLines int, tipsLines int) string {
 	if m.workItem == nil || len(m.workItem.Phases) == 0 {
 		return ""
 	}
@@ -237,7 +247,7 @@ func (m Model) renderSidebarPhases(width int, height int, tipsHeight int) string
 	b.WriteString("\n")
 	b.WriteString(sectionHeader("Phases", width))
 	b.WriteString("\n")
-	b.WriteString(m.renderPhasesContent(width, height, tipsHeight))
+	b.WriteString(m.renderPhasesContent(width, height, usedLines, tipsLines))
 
 	return b.String()
 }
@@ -295,7 +305,7 @@ func (m Model) renderSidebarFooter() string {
 	return b.String()
 }
 
-func (m Model) renderPhasesContent(width int, height int, tipsHeight int) string {
+func (m Model) renderPhasesContent(width int, height int, usedLines int, tipsLines int) string {
 	var b strings.Builder
 
 	currentPhase := m.workItem.CurrentPhase()
@@ -307,8 +317,9 @@ func (m Model) renderPhasesContent(width int, height int, tipsHeight int) string
 		}
 	}
 
-	usedLines := 8 + tipsHeight
-	availableForPhases := max(5, height-usedLines)
+	// Account for the "Phases" header (2 lines: newline + header + newline) and tips
+	totalUsed := usedLines + 3 + tipsLines
+	availableForPhases := max(5, height-totalUsed)
 	contextSize := max(2, (availableForPhases-2)/2)
 
 	showFrom := 0
