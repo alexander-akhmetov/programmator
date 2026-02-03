@@ -644,11 +644,11 @@ func TestRenderPhasesContentFitsAvailableSpace(t *testing.T) {
 	}
 
 	tests := []struct {
-		name             string
-		availableHeight  int
-		runState         runState
-		wantMaxLines     int
-		wantUpIndicator  bool
+		name              string
+		availableHeight   int
+		runState          runState
+		wantMaxLines      int
+		wantUpIndicator   bool
 		wantDownIndicator bool
 	}{
 		{
@@ -660,11 +660,11 @@ func TestRenderPhasesContentFitsAvailableSpace(t *testing.T) {
 			wantDownIndicator: true,
 		},
 		{
-			name:             "minimal height complete state",
-			availableHeight:  7,
-			runState:         stateComplete,
-			wantMaxLines:     7,
-			wantUpIndicator:  true,
+			name:              "minimal height complete state",
+			availableHeight:   7,
+			runState:          stateComplete,
+			wantMaxLines:      7,
+			wantUpIndicator:   true,
 			wantDownIndicator: true,
 		},
 	}
