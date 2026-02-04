@@ -111,7 +111,6 @@ func runPlanCreate(_ *cobra.Command, args []string) error {
 		collector:      collector,
 		progressLogger: progressLogger,
 		executorConfig: cfg.ToExecutorConfig(),
-		claudeFlags:    cfg.Claude.Flags,
 	}
 
 	planPath, err := creator.run()
@@ -156,7 +155,6 @@ type planCreator struct {
 	collector      Collector
 	progressLogger *progress.Logger
 	executorConfig llm.ExecutorConfig
-	claudeFlags    string
 	qa             []prompt.QA
 }
 
@@ -246,7 +244,7 @@ func (p *planCreator) invokeClaude(ctx context.Context, promptText string) (stri
 
 	opts := llm.InvokeOptions{
 		WorkingDir: p.workDir,
-		ExtraFlags: p.claudeFlags,
+		ExtraFlags: p.executorConfig.ExtraFlags,
 		Timeout:    int((5 * time.Minute).Seconds()),
 		OnOutput: func(text string) {
 			if strings.Contains(text, "Reading") || strings.Contains(text, "Searching") {
