@@ -2180,12 +2180,12 @@ func TestReviewAgentErrorsHaveRetryLimit(t *testing.T) {
 	result, err := l.Run("test-infinite-loop")
 
 	require.NoError(t, err)
-	// Should exit due to hitting some limit, NOT loop forever
-	require.NotEqual(t, safety.ExitReasonComplete, result.ExitReason,
-		"should not complete successfully when agents always error")
-	// Should have a bounded number of retries, not infinite
-	require.LessOrEqual(t, agentErrorCount, 10,
-		"agent errors should be bounded, not infinite (got %d)", agentErrorCount)
+	// Should exit due to stagnation (agent errors count as no progress)
+	require.Equal(t, safety.ExitReasonStagnation, result.ExitReason,
+		"should exit due to stagnation when agents persistently fail")
+	// Should have a bounded number of retries based on stagnation limit (10 in this test)
+	require.LessOrEqual(t, agentErrorCount, 11,
+		"agent errors should be bounded by stagnation limit")
 	require.False(t, claudeInvoked,
 		"Claude should not be invoked when review agents keep erroring")
 }

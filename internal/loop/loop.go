@@ -439,29 +439,23 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 
 	errorCount := countReviewErrors(reviewResult.Results)
 	if errorCount > 0 {
-		l.engine.ConsecutiveAgentErrors++
+		// Agent errors count as stagnation (no progress made)
+		rc.state.ConsecutiveNoChanges++
 
-		// Check if we've exceeded the limit for consecutive agent errors
-		maxErrors := l.engine.MaxConsecutiveAgentErrors
-		if maxErrors == 0 {
-			maxErrors = 3 // default limit
-		}
-		if l.engine.ConsecutiveAgentErrors >= maxErrors {
-			l.log(fmt.Sprintf("Review agent errors (%d) - exceeded retry limit (%d consecutive errors)",
-				errorCount, l.engine.ConsecutiveAgentErrors))
-			l.addNote(rc, fmt.Sprintf("error: Review agent errors exceeded retry limit (%d consecutive errors)",
-				l.engine.ConsecutiveAgentErrors))
-			rc.result.ExitReason = safety.ExitReasonError
-			rc.result.ExitMessage = fmt.Sprintf("review agent errors exceeded retry limit (%d consecutive errors)",
-				l.engine.ConsecutiveAgentErrors)
+		// Check if stagnation limit exceeded
+		checkResult := safety.Check(l.config, rc.state)
+		if checkResult.ShouldExit {
+			l.log(fmt.Sprintf("Review agent errors (%d) - %s", errorCount, checkResult.Message))
+			l.addNote(rc, fmt.Sprintf("error: Review agent errors - %s", checkResult.Message))
+			rc.result.ExitReason = checkResult.Reason
+			rc.result.ExitMessage = checkResult.Message
 			rc.result.Iterations = rc.state.Iteration
+			l.engine.ReviewIterations--
 			return loopReturn
 		}
 
-		l.log(fmt.Sprintf("Review agent errors (%d) - retrying review without invoking Claude (attempt %d/%d)",
-			errorCount, l.engine.ConsecutiveAgentErrors, maxErrors))
-		l.addNote(rc, fmt.Sprintf("warning: Review agent errors (%d) - retrying review (attempt %d/%d)",
-			errorCount, l.engine.ConsecutiveAgentErrors, maxErrors))
+		l.log(fmt.Sprintf("Review agent errors (%d) - retrying review without invoking Claude", errorCount))
+		l.addNote(rc, fmt.Sprintf("warning: Review agent errors (%d) - retrying review", errorCount))
 
 		l.engine.ReviewIterations--
 		l.engine.PendingReviewFix = false
@@ -469,8 +463,8 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 		return loopRetryReview
 	}
 
-	// Reset consecutive agent error counter on successful review run
-	l.engine.ConsecutiveAgentErrors = 0
+	// Reset stagnation counter on successful review run
+	rc.state.ConsecutiveNoChanges = 0
 
 	decision := l.engine.DecideReview(reviewResult.Passed)
 

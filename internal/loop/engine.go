@@ -14,13 +14,11 @@ type Engine struct {
 	SafetyConfig safety.Config
 
 	// Review state (mutable, updated by the runner after each decision).
-	ReviewIterations          int  // total review iterations completed
-	PendingReviewFix          bool // true when Claude should fix review issues
-	ReviewPassed              bool // true when review has passed
-	ReviewOnly                bool // true for review-only mode (skips task phases)
-	MaxReviewIter             int  // from review.max_iterations; 0 means unlimited
-	ConsecutiveAgentErrors    int  // tracks consecutive review agent error retries
-	MaxConsecutiveAgentErrors int  // limit for consecutive agent errors before exiting (default 3)
+	ReviewIterations int  // total review iterations completed
+	PendingReviewFix bool // true when Claude should fix review issues
+	ReviewPassed     bool // true when review has passed
+	ReviewOnly       bool // true for review-only mode (skips task phases)
+	MaxReviewIter    int  // from review.max_iterations; 0 means unlimited
 }
 
 // ProcessStatus analyses a parsed Claude status block and returns pure decisions.
@@ -82,5 +80,4 @@ func (e *Engine) ResetReviewState() {
 	e.ReviewIterations = 0
 	e.PendingReviewFix = false
 	e.ReviewPassed = false
-	e.ConsecutiveAgentErrors = 0
 }
