@@ -12,6 +12,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// waitForSocket polls the socket until it's ready for connections.
+// Uses a 5-second timeout which is sufficient for test server startup.
+func waitForSocket(t *testing.T, socketPath string) {
+	t.Helper()
+	const timeout = 5 * time.Second
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		conn, err := net.Dial("unix", socketPath)
+		if err == nil {
+			conn.Close()
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("socket %s did not become ready within %v", socketPath, timeout)
+}
+
 func TestServerCreation(t *testing.T) {
 	tmpDir := t.TempDir()
 	server, err := NewServer(tmpDir, nil)
@@ -47,7 +64,7 @@ func TestServerAllowFromSettings(t *testing.T) {
 	ctx := t.Context()
 
 	go func() { _ = server.Serve(ctx) }()
-	time.Sleep(50 * time.Millisecond)
+	waitForSocket(t, server.SocketPath())
 
 	conn, err := net.Dial("unix", server.SocketPath())
 	require.NoError(t, err)
@@ -83,7 +100,7 @@ func TestServerDenyWhenNotAllowed(t *testing.T) {
 	ctx := t.Context()
 
 	go func() { _ = server.Serve(ctx) }()
-	time.Sleep(50 * time.Millisecond)
+	waitForSocket(t, server.SocketPath())
 
 	conn, err := net.Dial("unix", server.SocketPath())
 	require.NoError(t, err)
@@ -116,10 +133,13 @@ func TestServerSessionPermission(t *testing.T) {
 	require.NoError(t, err)
 	defer server.Close()
 
+	// Override global settings to ensure test isolation
+	server.settings.globalPath = filepath.Join(tmpDir, "nonexistent-global-settings.json")
+
 	ctx := t.Context()
 
 	go func() { _ = server.Serve(ctx) }()
-	time.Sleep(50 * time.Millisecond)
+	waitForSocket(t, server.SocketPath())
 
 	makeRequest := func() Response {
 		conn, err := net.Dial("unix", server.SocketPath())
@@ -129,7 +149,7 @@ func TestServerSessionPermission(t *testing.T) {
 		req := Request{
 			SessionID: "test-session",
 			ToolName:  "Bash",
-			ToolInput: map[string]any{"command": "echo hello"},
+			ToolInput: map[string]any{"command": "test-unique-cmd"},
 		}
 		encoder := json.NewEncoder(conn)
 		require.NoError(t, encoder.Encode(req))
@@ -164,7 +184,7 @@ func TestServerSessionPermissionWildcard(t *testing.T) {
 	ctx := t.Context()
 
 	go func() { _ = server.Serve(ctx) }()
-	time.Sleep(50 * time.Millisecond)
+	waitForSocket(t, server.SocketPath())
 
 	makeRequest := func(cmd string) Response {
 		conn, err := net.Dial("unix", server.SocketPath())
@@ -222,7 +242,7 @@ func TestServerPreAllowed(t *testing.T) {
 	ctx := t.Context()
 
 	go func() { _ = server.Serve(ctx) }()
-	time.Sleep(50 * time.Millisecond)
+	waitForSocket(t, server.SocketPath())
 
 	makeRequest := func(toolName string, input map[string]any) Response {
 		conn, err := net.Dial("unix", server.SocketPath())
