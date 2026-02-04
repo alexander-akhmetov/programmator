@@ -2283,3 +2283,343 @@ func TestFormatToolArg(t *testing.T) {
 		})
 	}
 }
+
+func TestHandleToolResult(t *testing.T) {
+	tests := []struct {
+		name          string
+		toolName      string
+		result        string
+		wantEvent     bool
+		wantContains  string
+		wantEventKind event.Kind
+	}{
+		{
+			name:      "no callbacks set",
+			toolName:  "Read",
+			result:    "line1\nline2\n",
+			wantEvent: false,
+		},
+		{
+			name:      "empty tool name",
+			toolName:  "",
+			result:    "some result",
+			wantEvent: false,
+		},
+		{
+			name:          "Read tool with lines",
+			toolName:      "Read",
+			result:        "line1\nline2\nline3\n",
+			wantEvent:     true,
+			wantContains:  "Read 3 lines",
+			wantEventKind: event.KindToolResult,
+		},
+		{
+			name:          "Write tool",
+			toolName:      "Write",
+			result:        "success",
+			wantEvent:     true,
+			wantContains:  "File written",
+			wantEventKind: event.KindToolResult,
+		},
+		{
+			name:          "Edit tool",
+			toolName:      "Edit",
+			result:        "success",
+			wantEvent:     true,
+			wantContains:  "File updated",
+			wantEventKind: event.KindToolResult,
+		},
+		{
+			name:          "Bash with output",
+			toolName:      "Bash",
+			result:        "hello world",
+			wantEvent:     true,
+			wantContains:  "hello world",
+			wantEventKind: event.KindToolResult,
+		},
+		{
+			name:      "empty result",
+			toolName:  "Read",
+			result:    "",
+			wantEvent: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var eventReceived event.Event
+			var eventCalled bool
+
+			l := New(safety.Config{}, "/tmp", nil, nil, false)
+
+			if tc.wantEvent {
+				l.onEvent = func(e event.Event) {
+					eventCalled = true
+					eventReceived = e
+				}
+			}
+
+			l.handleToolResult(tc.toolName, tc.result)
+
+			if tc.wantEvent {
+				require.True(t, eventCalled, "event callback should be called")
+				require.Equal(t, tc.wantEventKind, eventReceived.Kind)
+				require.Contains(t, eventReceived.Text, tc.wantContains)
+			} else {
+				require.False(t, eventCalled, "event callback should not be called")
+			}
+		})
+	}
+}
+
+func TestHandleToolResultWithOutputCallback(t *testing.T) {
+	// When only onOutput is set (no onEvent), output callback should be used
+	var outputText string
+	l := New(safety.Config{}, "/tmp", nil, nil, false)
+	l.onOutput = func(text string) {
+		outputText = text
+	}
+
+	l.handleToolResult("Read", "line1\nline2\n")
+
+	require.Contains(t, outputText, "Read 2 lines")
+	require.Contains(t, outputText, protocol.MarkerToolRes)
+}
+
+func TestOutputToolUse(t *testing.T) {
+	tests := []struct {
+		name          string
+		toolName      string
+		input         any
+		wantContains  string
+		wantEventKind event.Kind
+	}{
+		{
+			name:          "Read with file path",
+			toolName:      "Read",
+			input:         map[string]any{"file_path": "/foo/bar.go"},
+			wantContains:  "Read /foo/bar.go",
+			wantEventKind: event.KindToolUse,
+		},
+		{
+			name:          "Bash with command",
+			toolName:      "Bash",
+			input:         map[string]any{"command": "git status"},
+			wantContains:  "Bash git status",
+			wantEventKind: event.KindToolUse,
+		},
+		{
+			name:          "Glob with pattern",
+			toolName:      "Glob",
+			input:         map[string]any{"pattern": "**/*.go"},
+			wantContains:  "Glob **/*.go",
+			wantEventKind: event.KindToolUse,
+		},
+		{
+			name:          "tool without input",
+			toolName:      "SomeTool",
+			input:         nil,
+			wantContains:  "SomeTool",
+			wantEventKind: event.KindToolUse,
+		},
+		{
+			name:          "tool with non-map input",
+			toolName:      "Custom",
+			input:         "string input",
+			wantContains:  "Custom",
+			wantEventKind: event.KindToolUse,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var eventReceived event.Event
+
+			l := New(safety.Config{}, "/tmp", nil, nil, false)
+			l.onEvent = func(e event.Event) {
+				eventReceived = e
+			}
+
+			l.outputToolUse(tc.toolName, tc.input)
+
+			require.Equal(t, tc.wantEventKind, eventReceived.Kind)
+			require.Contains(t, eventReceived.Text, tc.wantContains)
+		})
+	}
+}
+
+func TestOutputToolUseWithOutputCallback(t *testing.T) {
+	// When only onOutput is set (no onEvent), output callback should be used
+	var outputText string
+	l := New(safety.Config{}, "/tmp", nil, nil, false)
+	l.onOutput = func(text string) {
+		outputText = text
+	}
+
+	l.outputToolUse("Read", map[string]any{"file_path": "/foo/bar.go"})
+
+	require.Contains(t, outputText, "Read /foo/bar.go")
+	require.Contains(t, outputText, protocol.MarkerTool)
+}
+
+func TestOutputToolUseNoCallback(_ *testing.T) {
+	l := New(safety.Config{}, "/tmp", nil, nil, false)
+	// No callbacks set - should not panic
+	l.outputToolUse("Read", map[string]any{"file_path": "/foo.go"})
+}
+
+func TestOutputEditDiff(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       map[string]any
+		wantHunk    string
+		wantDiffAdd bool
+		wantDiffDel bool
+	}{
+		{
+			name: "add lines",
+			input: map[string]any{
+				"old_string": "line1\n",
+				"new_string": "line1\nline2\nline3\n",
+			},
+			wantHunk:    "Added 2 lines",
+			wantDiffAdd: true,
+			wantDiffDel: false,
+		},
+		{
+			name: "remove lines",
+			input: map[string]any{
+				"old_string": "line1\nline2\nline3\n",
+				"new_string": "line1\n",
+			},
+			wantHunk:    "removed 2 lines",
+			wantDiffDel: true,
+			wantDiffAdd: false,
+		},
+		{
+			name: "modify same line count",
+			input: map[string]any{
+				"old_string": "old content\n",
+				"new_string": "new content\n",
+			},
+			wantHunk:    "Modified 1 line",
+			wantDiffAdd: true,
+			wantDiffDel: true,
+		},
+		{
+			name: "missing old_string",
+			input: map[string]any{
+				"new_string": "content\n",
+			},
+			wantHunk: "", // should not output anything
+		},
+		{
+			name: "missing new_string",
+			input: map[string]any{
+				"old_string": "content\n",
+			},
+			wantHunk: "", // should not output anything
+		},
+		{
+			name: "add single line",
+			input: map[string]any{
+				"old_string": "",
+				"new_string": "single line\n",
+			},
+			wantHunk:    "Added 1 line",
+			wantDiffAdd: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var events []event.Event
+
+			l := New(safety.Config{}, "/tmp", nil, nil, false)
+			l.onEvent = func(e event.Event) {
+				events = append(events, e)
+			}
+
+			l.outputEditDiff(tc.input)
+
+			if tc.wantHunk == "" {
+				require.Empty(t, events, "should not emit events for invalid input")
+				return
+			}
+
+			// Find the hunk event
+			var hunkFound bool
+			var diffAddFound, diffDelFound bool
+			for _, e := range events {
+				switch e.Kind {
+				case event.KindDiffHunk:
+					hunkFound = true
+					require.Contains(t, e.Text, tc.wantHunk)
+				case event.KindDiffAdd:
+					diffAddFound = true
+				case event.KindDiffDel:
+					diffDelFound = true
+				case event.KindProg, event.KindToolUse, event.KindToolResult,
+					event.KindReview, event.KindDiffCtx, event.KindMarkdown,
+					event.KindIterationSeparator:
+					// Not relevant for this test
+				}
+			}
+
+			require.True(t, hunkFound, "should emit DiffHunk event")
+			require.Equal(t, tc.wantDiffAdd, diffAddFound, "DiffAdd event presence mismatch")
+			require.Equal(t, tc.wantDiffDel, diffDelFound, "DiffDel event presence mismatch")
+		})
+	}
+}
+
+func TestOutputEditDiffWithOutputCallback(t *testing.T) {
+	var outputs []string
+
+	l := New(safety.Config{}, "/tmp", nil, nil, false)
+	l.onOutput = func(text string) {
+		outputs = append(outputs, text)
+	}
+	// Note: onEvent is nil, so onOutput should be used
+
+	l.outputEditDiff(map[string]any{
+		"old_string": "old\n",
+		"new_string": "new\n",
+	})
+
+	require.NotEmpty(t, outputs, "should output via onOutput callback")
+
+	// Check for diff markers in output
+	combined := strings.Join(outputs, "")
+	require.Contains(t, combined, protocol.MarkerDiffAt, "should contain diff marker")
+}
+
+func TestOutputToolUseTriggersEditDiff(t *testing.T) {
+	var events []event.Event
+
+	l := New(safety.Config{}, "/tmp", nil, nil, false)
+	l.onEvent = func(e event.Event) {
+		events = append(events, e)
+	}
+
+	// outputToolUse for "Edit" should also call outputEditDiff
+	l.outputToolUse("Edit", map[string]any{
+		"file_path":  "/test.go",
+		"old_string": "old\n",
+		"new_string": "new\n",
+	})
+
+	// Should have ToolUse event plus diff events
+	var toolUseFound, diffHunkFound bool
+	for _, e := range events {
+		if e.Kind == event.KindToolUse {
+			toolUseFound = true
+		}
+		if e.Kind == event.KindDiffHunk {
+			diffHunkFound = true
+		}
+	}
+
+	require.True(t, toolUseFound, "should emit ToolUse event")
+	require.True(t, diffHunkFound, "should emit DiffHunk event for Edit tool")
+}
