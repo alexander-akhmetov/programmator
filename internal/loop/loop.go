@@ -462,6 +462,10 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 		l.log(fmt.Sprintf("Review agent errors (%d) - retrying review without invoking Claude", errorCount))
 		l.addNote(rc, fmt.Sprintf("warning: Review agent errors (%d) - retrying review", errorCount))
 
+		// Record as no-progress iteration to trigger stagnation detection.
+		// Pass empty error to avoid triggering repeated-error exit (we want stagnation).
+		rc.state.RecordIteration(nil, "")
+
 		l.engine.ReviewIterations--
 		l.engine.PendingReviewFix = false
 		l.engine.ReviewPassed = false
@@ -685,6 +689,17 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 			return rc.result, nil
 		}
 		if action == loopRetryReview {
+			// Check safety limits on retry to prevent infinite loops from agent errors
+			checkResult := safety.Check(l.config, rc.state)
+			if checkResult.ShouldExit {
+				l.log(fmt.Sprintf("Safety exit during review retry: %s", checkResult.Reason))
+				l.addNote(rc, fmt.Sprintf("error: Safety exit during review: %s", checkResult.Reason))
+				rc.result.ExitReason = checkResult.Reason
+				rc.result.ExitMessage = checkResult.Message
+				rc.result.Iterations = rc.state.Iteration
+				rc.result.RecentSummaries = l.getRecentSummaries(rc, 5)
+				return rc.result, nil
+			}
 			continue
 		}
 		// If action == loopBreakToClaudeInvocation, we fall through to invoke Claude
