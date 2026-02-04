@@ -306,7 +306,6 @@ type runContext struct {
 	source             source.Source
 	state              *safety.State
 	result             *Result
-	progressNotes      []string
 	filesChangedSet    map[string]struct{}
 	workItem           *domain.WorkItem
 	iterationSummaries []string // Track summaries for each iteration
@@ -465,9 +464,6 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 	l.addNote(rc, fmt.Sprintf("review: [iter %d] Found %d issues:\n%s",
 		l.engine.ReviewIterations, reviewResult.TotalIssues, issueNote))
 
-	rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[iter %d] Review found %d issues - please fix them:\n%s",
-		l.engine.ReviewIterations, reviewResult.TotalIssues, issueNote))
-
 	return loopBreakToClaudeInvocation
 }
 
@@ -554,7 +550,6 @@ func (l *Loop) recordPhaseProgress(rc *runContext, status *parser.ParsedStatus) 
 			l.log(fmt.Sprintf("Warning: failed to update phase '%s': %v", status.PhaseCompleted, err))
 			l.logErrorf("failed to update phase '%s': %v", status.PhaseCompleted, err)
 		}
-		rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[iter %d] Completed: %s", rc.state.Iteration, status.PhaseCompleted))
 		l.addNote(rc, fmt.Sprintf("progress: [iter %d] Completed %s", rc.state.Iteration, status.PhaseCompleted))
 
 		// Auto-commit after phase completion if enabled
@@ -563,7 +558,6 @@ func (l *Loop) recordPhaseProgress(rc *runContext, status *parser.ParsedStatus) 
 			l.logErrorf("auto-commit failed: %v", err)
 		}
 	} else {
-		rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[iter %d] %s", rc.state.Iteration, status.Summary))
 		l.addNote(rc, fmt.Sprintf("progress: [iter %d] %s", rc.state.Iteration, status.Summary))
 	}
 }
@@ -642,7 +636,6 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 		source:          src,
 		state:           safety.NewState(),
 		result:          result,
-		progressNotes:   nil,
 		filesChangedSet: make(map[string]struct{}),
 		workItem:        workItem,
 	}
@@ -705,17 +698,17 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 			promptText, promptErr = l.buildReviewFixPrompt("", rc.result.TotalFilesChanged, l.lastReviewIssues, l.engine.ReviewIterations)
 			if promptErr != nil {
 				l.log(fmt.Sprintf("Failed to build review fix prompt: %v, falling back to task prompt", promptErr))
-				promptText = prompt.Build(rc.workItem, rc.progressNotes)
+				promptText = prompt.Build(rc.workItem)
 			}
 		} else if l.promptBuilder != nil {
 			var promptErr error
-			promptText, promptErr = l.promptBuilder.Build(rc.workItem, rc.progressNotes)
+			promptText, promptErr = l.promptBuilder.Build(rc.workItem)
 			if promptErr != nil {
 				l.log(fmt.Sprintf("Failed to build prompt from templates: %v, falling back to defaults", promptErr))
-				promptText = prompt.Build(rc.workItem, rc.progressNotes)
+				promptText = prompt.Build(rc.workItem)
 			}
 		} else {
-			promptText = prompt.Build(rc.workItem, rc.progressNotes)
+			promptText = prompt.Build(rc.workItem)
 		}
 
 		l.currentState = rc.state
@@ -735,7 +728,6 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 			if l.onStateChange != nil {
 				l.onStateChange(rc.state, rc.workItem, rc.result.TotalFilesChanged)
 			}
-			rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[iter %d] Claude invocation failed: %v", rc.state.Iteration, err))
 			l.consecutiveInvokeErrors++
 			if l.consecutiveInvokeErrors >= 3 {
 				l.log("3 consecutive invocation failures — exiting")
@@ -762,7 +754,6 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 			if l.onStateChange != nil {
 				l.onStateChange(rc.state, rc.workItem, rc.result.TotalFilesChanged)
 			}
-			rc.progressNotes = append(rc.progressNotes, fmt.Sprintf("[iter %d] No status block returned", rc.state.Iteration))
 			continue
 		}
 

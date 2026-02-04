@@ -5,17 +5,17 @@
 #   {{.ID}} - work item identifier (ticket ID or plan filename)
 #   {{.Title}} - human-readable title
 #   {{.RawContent}} - full content of the work item
-#   {{.Notes}} - formatted progress notes from previous iterations
 
 You are working on ticket {{.ID}}: {{.Title}}
 
 ## Current State
 {{.RawContent}}
 
-## Progress Notes
-{{.Notes}}
-
 ## Instructions
+
+IMPORTANT: Append notes to the "## Notes" section of the plan/ticket file (create if missing).
+Include: progress updates, key decisions, important findings, blockers encountered.
+Keep each note concise (1-2 lines). This is your memory across iterations.
 
 STEP 0 - ANNOUNCE:
 Before starting work, output a brief overview (up to 200 words):

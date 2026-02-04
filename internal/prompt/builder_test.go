@@ -14,7 +14,6 @@ func TestBuild(t *testing.T) {
 	tests := []struct {
 		name        string
 		workItem    *domain.WorkItem
-		notes       []string
 		wantSubs    []string
 		notWantSubs []string
 	}{
@@ -29,34 +28,11 @@ func TestBuild(t *testing.T) {
 					{Name: "Phase 2", Completed: false},
 				},
 			},
-			notes: nil,
 			wantSubs: []string{
 				"ticket t-123: Test Ticket",
 				"Ticket body content",
-				"(No previous notes)",
 				"**Phase 2**",
 				`phase_completed: "Phase 2"`,
-			},
-		},
-		{
-			name: "prompt with notes",
-			workItem: &domain.WorkItem{
-				ID:         "t-456",
-				Title:      "Another Ticket",
-				RawContent: "Body here",
-				Phases: []domain.Phase{
-					{Name: "Phase 1", Completed: false},
-				},
-			},
-			notes: []string{
-				"[iter 0] Completed setup",
-				"[iter 1] Fixed bug",
-			},
-			wantSubs: []string{
-				"ticket t-456: Another Ticket",
-				"- [iter 0] Completed setup",
-				"- [iter 1] Fixed bug",
-				"**Phase 1**",
 			},
 		},
 		{
@@ -70,7 +46,6 @@ func TestBuild(t *testing.T) {
 					{Name: "Phase 2", Completed: true},
 				},
 			},
-			notes: nil,
 			wantSubs: []string{
 				"All phases complete",
 				`phase_completed: "null"`,
@@ -84,7 +59,6 @@ func TestBuild(t *testing.T) {
 				RawContent: "Empty",
 				Phases:     nil,
 			},
-			notes: nil,
 			wantSubs: []string{
 				"ticket t-000: No Phases",
 				"STEP 0 - ANNOUNCE",
@@ -103,7 +77,6 @@ func TestBuild(t *testing.T) {
 				RawContent: "Also phaseless",
 				Phases:     []domain.Phase{},
 			},
-			notes: nil,
 			wantSubs: []string{
 				"STEP 0 - ANNOUNCE",
 			},
@@ -115,7 +88,7 @@ func TestBuild(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := Build(tt.workItem, tt.notes)
+			got := Build(tt.workItem)
 			for _, sub := range tt.wantSubs {
 				if !strings.Contains(got, sub) {
 					t.Errorf("Build() missing expected substring %q\n\nGot:\n%s", sub, got)
@@ -186,7 +159,7 @@ func TestNewBuilder(t *testing.T) {
 		},
 	}
 
-	result, err := builder.Build(workItem, nil)
+	result, err := builder.Build(workItem)
 	require.NoError(t, err)
 	assert.Contains(t, result, "test-123")
 	assert.Contains(t, result, "Test Item")
@@ -210,7 +183,7 @@ func TestNewBuilder_WithCustomPrompts(t *testing.T) {
 		Title:  "Custom Title",
 		Phases: []domain.Phase{{Name: "Phase", Completed: false}},
 	}
-	result, err := builder.Build(workItem, nil)
+	result, err := builder.Build(workItem)
 	require.NoError(t, err)
 	assert.Equal(t, "Custom phased: custom-1 - Custom Title", result)
 
@@ -220,7 +193,7 @@ func TestNewBuilder_WithCustomPrompts(t *testing.T) {
 		Title:  "Phaseless",
 		Phases: nil,
 	}
-	result, err = builder.Build(phaselessItem, nil)
+	result, err = builder.Build(phaselessItem)
 	require.NoError(t, err)
 	assert.Equal(t, "Custom phaseless: custom-2", result)
 }
@@ -258,37 +231,6 @@ func TestNewBuilder_InvalidTemplate(t *testing.T) {
 	_, err := NewBuilder(badPrompts)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "parse phased template")
-}
-
-func TestFormatNotes(t *testing.T) {
-	tests := []struct {
-		name     string
-		notes    []string
-		expected string
-	}{
-		{
-			name:     "empty notes",
-			notes:    nil,
-			expected: "(No previous notes)",
-		},
-		{
-			name:     "single note",
-			notes:    []string{"Note 1"},
-			expected: "- Note 1",
-		},
-		{
-			name:     "multiple notes",
-			notes:    []string{"Note 1", "Note 2"},
-			expected: "- Note 1\n- Note 2",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := formatNotes(tt.notes)
-			assert.Equal(t, tt.expected, got)
-		})
-	}
 }
 
 func TestFormatFilesList(t *testing.T) {

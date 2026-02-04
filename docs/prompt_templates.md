@@ -31,10 +31,11 @@ Only create the templates you want to override. Missing files fall through to th
 |----------|------|-------------|
 | `{{.ID}}` | string | Work item identifier (ticket ID or plan filename) |
 | `{{.Title}}` | string | Human-readable title |
-| `{{.RawContent}}` | string | Full content of the work item |
-| `{{.Notes}}` | string | Formatted progress notes from previous iterations |
+| `{{.RawContent}}` | string | Full content of the work item (includes `## Notes` section if present) |
 | `{{.CurrentPhase}}` | string | Current phase name, or "All phases complete" *(phased only)* |
 | `{{.CurrentPhaseName}}` | string | Raw phase name for the status block, or "null" *(phased only)* |
+
+**Note:** Progress notes are stored in the `## Notes` section within the work item itself, so they appear in `{{.RawContent}}`. The prompt template instructs Claude to append notes to this section.
 
 ### review_first.md
 
@@ -101,11 +102,11 @@ You are an autonomous coding agent working on: {{.Title}}
 Task:
 {{.RawContent}}
 
-What happened so far:
-{{.Notes}}
-
 Focus on:
 {{.CurrentPhase}}
+
+IMPORTANT: Append notes to the "## Notes" section of the plan/ticket file.
+Include: progress updates, key decisions, important findings, blockers.
 
 When done, output this block:
 
