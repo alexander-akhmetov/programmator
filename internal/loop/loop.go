@@ -438,6 +438,21 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 
 	errorCount := countReviewErrors(reviewResult.Results)
 	if errorCount > 0 {
+		// Agent errors count as stagnation (no progress made)
+		rc.state.ConsecutiveNoChanges++
+
+		// Check if stagnation limit exceeded
+		checkResult := safety.Check(l.config, rc.state)
+		if checkResult.ShouldExit {
+			l.log(fmt.Sprintf("Review agent errors (%d) - %s", errorCount, checkResult.Message))
+			l.addNote(rc, fmt.Sprintf("error: Review agent errors - %s", checkResult.Message))
+			rc.result.ExitReason = checkResult.Reason
+			rc.result.ExitMessage = checkResult.Message
+			rc.result.Iterations = rc.state.Iteration
+			l.engine.ReviewIterations--
+			return loopReturn
+		}
+
 		l.log(fmt.Sprintf("Review agent errors (%d) - retrying review without invoking Claude", errorCount))
 		l.addNote(rc, fmt.Sprintf("warning: Review agent errors (%d) - retrying review", errorCount))
 
@@ -446,6 +461,9 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 		l.engine.ReviewPassed = false
 		return loopRetryReview
 	}
+
+	// Reset stagnation counter on successful review run
+	rc.state.ConsecutiveNoChanges = 0
 
 	decision := l.engine.DecideReview(reviewResult.Passed)
 

@@ -2133,6 +2133,63 @@ func createMockReviewRunnerWithErrors(t *testing.T, resultFunc func() (agentErro
 	return runner
 }
 
+// TestReviewAgentErrorsHaveRetryLimit verifies that persistent agent errors
+// don't cause an infinite loop. The bug: when review agents error, the loop
+// decrements ReviewIterations and returns loopRetryReview, but the main loop
+// skips incrementing the iteration counter, so safety checks never fire.
+func TestReviewAgentErrorsHaveRetryLimit(t *testing.T) {
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
+			ID:    "test-infinite-loop",
+			Title: "Test Infinite Loop Bug",
+			Phases: []domain.Phase{
+				{Name: "Phase 1", Completed: true}, // All phases complete triggers review
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 10}
+	l := NewWithSource(config, "", nil, nil, false, mock)
+
+	l.SetReviewConfig(review.Config{
+		MaxIterations: 5,
+		Agents:        []review.AgentConfig{{Name: "test_agent"}},
+	})
+
+	// Review runner that ALWAYS returns agent errors
+	agentErrorCount := 0
+	runner := createMockReviewRunnerWithErrors(t, func() (agentError bool, hasIssues bool) {
+		agentErrorCount++
+		return true, false // Always return agent error
+	})
+	l.SetReviewRunner(runner)
+
+	// Claude should never be invoked since we're stuck retrying review
+	claudeInvoked := false
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		claudeInvoked = true
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: ["fix.go"]
+  summary: "fix"
+`, nil
+	}})
+
+	result, err := l.Run("test-infinite-loop")
+
+	require.NoError(t, err)
+	// Should exit due to stagnation (agent errors count as no progress)
+	require.Equal(t, safety.ExitReasonStagnation, result.ExitReason,
+		"should exit due to stagnation when agents persistently fail")
+	// Should have a bounded number of retries based on stagnation limit (10 in this test)
+	require.LessOrEqual(t, agentErrorCount, 11,
+		"agent errors should be bounded by stagnation limit")
+	require.False(t, claudeInvoked,
+		"Claude should not be invoked when review agents keep erroring")
+}
+
 func TestWorkItemHelpers_Phaseless(t *testing.T) {
 	// Test: WorkItem helper methods work correctly for phaseless items
 	tests := []struct {
