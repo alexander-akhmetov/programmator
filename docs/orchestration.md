@@ -37,7 +37,7 @@ A plain-language walkthrough of how programmator runs Claude Code.
 
 Used when the work item includes checkbox phases (`- [ ] Phase 1`, `- [ ] Phase 2`, ...).
 
-**Template variables:** `{{.ID}}`, `{{.Title}}`, `{{.RawContent}}`, `{{.Notes}}`, `{{.CurrentPhase}}`, `{{.CurrentPhaseName}}`
+**Template variables:** `{{.ID}}`, `{{.Title}}`, `{{.RawContent}}`, `{{.CurrentPhase}}`, `{{.CurrentPhaseName}}`
 
 Claude is expected to work on **one phase per invocation**, run validation commands, then output:
 
@@ -53,9 +53,11 @@ PROGRAMMATOR_STATUS:
 
 Used when the work item has no phases (a simple ticket or description).
 
-**Template variables:** `{{.ID}}`, `{{.Title}}`, `{{.RawContent}}`, `{{.Notes}}`
+**Template variables:** `{{.ID}}`, `{{.Title}}`, `{{.RawContent}}`
 
 Same status protocol but `phase_completed: null`.
+
+**Note:** Progress notes are stored directly in the work item's `## Notes` section (included in `{{.RawContent}}`). Claude is instructed to append notes there.
 
 ---
 

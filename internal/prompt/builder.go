@@ -66,7 +66,6 @@ type Data struct {
 	ID               string
 	Title            string
 	RawContent       string
-	Notes            string
 	CurrentPhase     string // Formatted phase name (e.g., "**Phase 1**" or "All phases complete")
 	CurrentPhaseName string // Raw phase name for status block (e.g., "Phase 1" or "null")
 }
@@ -86,13 +85,12 @@ type PlanCreateData struct {
 	PreviousAnswers string // Formatted list of previous Q&A exchanges
 }
 
-// Build creates a prompt from a work item and optional progress notes.
-func (b *Builder) Build(w *domain.WorkItem, notes []string) (string, error) {
+// Build creates a prompt from a work item.
+func (b *Builder) Build(w *domain.WorkItem) (string, error) {
 	data := Data{
 		ID:         w.ID,
 		Title:      w.Title,
 		RawContent: w.RawContent,
-		Notes:      formatNotes(notes),
 	}
 
 	// Use phaseless template when there are no phases
@@ -159,17 +157,6 @@ func (b *Builder) render(tmpl *template.Template, data any) (string, error) {
 	return buf.String(), nil
 }
 
-func formatNotes(notes []string) string {
-	if len(notes) == 0 {
-		return "(No previous notes)"
-	}
-	noteLines := make([]string, 0, len(notes))
-	for _, note := range notes {
-		noteLines = append(noteLines, fmt.Sprintf("- %s", note))
-	}
-	return strings.Join(noteLines, "\n")
-}
-
 func formatFilesList(files []string) string {
 	if len(files) == 0 {
 		return "(no files)"
@@ -199,7 +186,7 @@ var (
 
 // Build creates a prompt using the default builder (embedded templates).
 // This is a convenience function for backward compatibility.
-func Build(w *domain.WorkItem, notes []string) string {
+func Build(w *domain.WorkItem) string {
 	defaultBuilderOnce.Do(func() {
 		var err error
 		defaultBuilder, err = NewBuilder(nil)
@@ -210,7 +197,7 @@ func Build(w *domain.WorkItem, notes []string) string {
 	if defaultBuilder == nil {
 		return fmt.Sprintf("Work item %s: %s\n\n%s", w.ID, w.Title, w.RawContent)
 	}
-	result, err := defaultBuilder.Build(w, notes)
+	result, err := defaultBuilder.Build(w)
 	if err != nil {
 		return fmt.Sprintf("Work item %s: %s\n\n%s", w.ID, w.Title, w.RawContent)
 	}
