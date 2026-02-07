@@ -83,7 +83,7 @@ type Loop struct {
 	reviewConfig     review.Config
 	reviewOnly       bool
 	reviewRunner     *review.Runner
-	lastReviewIssues string // formatted issues from last review for Claude to fix
+	lastReviewIssues string // formatted issues from last review for executor to fix
 
 	// Prompt builder (uses customizable templates)
 	promptBuilder *prompt.Builder
@@ -97,6 +97,9 @@ type Loop struct {
 	// Git workflow configuration
 	gitConfig GitWorkflowConfig
 	gitRepo   *gitutil.Repo
+
+	// Executor configuration for the factory
+	executorConfig llm.ExecutorConfig
 
 	// Track consecutive invocation failures to exit early on persistent errors
 	consecutiveInvokeErrors int
@@ -158,6 +161,24 @@ func (l *Loop) SetTicketCommand(cmd string) {
 // SetGitWorkflowConfig sets the git workflow configuration.
 func (l *Loop) SetGitWorkflowConfig(cfg GitWorkflowConfig) {
 	l.gitConfig = cfg
+}
+
+// SetExecutorConfig sets the executor configuration for the invoker factory.
+func (l *Loop) SetExecutorConfig(cfg llm.ExecutorConfig) {
+	l.executorConfig = cfg
+}
+
+// isClaudeExecutor returns true when the configured executor is Claude (or default).
+func (l *Loop) isClaudeExecutor() bool {
+	return l.executorConfig.Name == "claude" || l.executorConfig.Name == ""
+}
+
+// executorName returns a display name for the configured executor.
+func (l *Loop) executorName() string {
+	if l.executorConfig.Name == "" {
+		return "claude"
+	}
+	return l.executorConfig.Name
 }
 
 // SetCodexConfig is a no-op kept for backward compatibility.
@@ -295,7 +316,7 @@ type loopAction int
 const (
 	loopContinue loopAction = iota
 	loopReturn
-	loopBreakToClaudeInvocation
+	loopBreakToInvocation
 	loopRetryReview
 )
 
@@ -309,7 +330,7 @@ type runContext struct {
 	filesChangedSet    map[string]struct{}
 	workItem           *domain.WorkItem
 	iterationSummaries []string // Track summaries for each iteration
-	taskCompleted      bool     // Claude reported DONE for the task
+	taskCompleted      bool     // Executor reported DONE for the task
 }
 
 // checkStopRequested checks if stop was requested and handles the response.
@@ -348,18 +369,18 @@ func (l *Loop) checkContextCanceled(rc *runContext) loopAction {
 }
 
 // handleAllPhasesComplete handles the logic when the task is complete.
-// Returns loopReturn if we should exit, loopBreakToClaudeInvocation if we should invoke Claude,
-// loopRetryReview to re-run review without invoking Claude, or loopContinue to proceed normally.
+// Returns loopReturn if we should exit, loopBreakToInvocation if we should invoke the executor,
+// loopRetryReview to re-run review without invoking executor, or loopContinue to proceed normally.
 func (l *Loop) handleAllPhasesComplete(rc *runContext) loopAction {
 	taskComplete := rc.taskCompleted || rc.workItem.AllPhasesComplete()
 	if !taskComplete && !l.reviewOnly {
 		return loopContinue
 	}
 
-	// If we have pending review fixes, invoke Claude to fix them
+	// If we have pending review fixes, invoke executor to fix them
 	if l.engine.PendingReviewFix {
-		l.log("Pending review fixes - invoking Claude to fix issues")
-		return loopBreakToClaudeInvocation
+		l.log("Pending review fixes - invoking executor to fix issues")
+		return loopBreakToInvocation
 	}
 
 	// Check if we should run review
@@ -438,32 +459,18 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 
 	errorCount := countReviewErrors(reviewResult.Results)
 	if errorCount > 0 {
-		// Agent errors count as stagnation (no progress made)
-		rc.state.ConsecutiveNoChanges++
-
-		// Check if stagnation limit exceeded
-		checkResult := safety.Check(l.config, rc.state)
-		if checkResult.ShouldExit {
-			l.log(fmt.Sprintf("Review agent errors (%d) - %s", errorCount, checkResult.Message))
-			l.addNote(rc, fmt.Sprintf("error: Review agent errors - %s", checkResult.Message))
-			rc.result.ExitReason = checkResult.Reason
-			rc.result.ExitMessage = checkResult.Message
-			rc.result.Iterations = rc.state.Iteration
-			l.engine.ReviewIterations--
-			return loopReturn
-		}
-
-		l.log(fmt.Sprintf("Review agent errors (%d) - retrying review without invoking Claude", errorCount))
+		l.log(fmt.Sprintf("Review agent errors (%d) - retrying review without invoking executor", errorCount))
 		l.addNote(rc, fmt.Sprintf("warning: Review agent errors (%d) - retrying review", errorCount))
+
+		// Record as no-progress iteration to trigger stagnation detection.
+		// Pass empty error to avoid triggering repeated-error exit (we want stagnation).
+		rc.state.RecordIteration(nil, "")
 
 		l.engine.ReviewIterations--
 		l.engine.PendingReviewFix = false
 		l.engine.ReviewPassed = false
 		return loopRetryReview
 	}
-
-	// Reset stagnation counter on successful review run
-	rc.state.ConsecutiveNoChanges = 0
 
 	decision := l.engine.DecideReview(reviewResult.Passed)
 
@@ -477,12 +484,12 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 	issueNote := review.FormatIssuesMarkdown(reviewResult.Results)
 	l.lastReviewIssues = issueNote
 
-	// NeedsFix: invoke Claude to fix issues
+	// NeedsFix: invoke executor to fix issues
 	l.log(fmt.Sprintf("Review found %d issues", reviewResult.TotalIssues))
 	l.addNote(rc, fmt.Sprintf("review: [iter %d] Found %d issues:\n%s",
 		l.engine.ReviewIterations, reviewResult.TotalIssues, issueNote))
 
-	return loopBreakToClaudeInvocation
+	return loopBreakToInvocation
 }
 
 // completeAllPhases marks the work item as complete and returns.
@@ -506,9 +513,9 @@ func (l *Loop) completeAllPhases(rc *runContext) loopAction {
 	return loopReturn
 }
 
-// processClaudeStatus processes the status returned by Claude.
+// processStatus processes the status returned by the executor.
 // Returns loopReturn if we should exit, loopContinue otherwise.
-func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) loopAction {
+func (l *Loop) processStatus(rc *runContext, status *parser.ParsedStatus) loopAction {
 	l.log(fmt.Sprintf("Status: %s", status.Status))
 	l.log(fmt.Sprintf("Summary: %s", status.Summary))
 	l.logStatus(string(status.Status), status.Summary, status.FilesChanged)
@@ -540,7 +547,7 @@ func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) 
 	}
 
 	if result.TaskCompleted {
-		l.log("Claude reported DONE")
+		l.log("Executor reported DONE")
 		rc.taskCompleted = true
 		if !rc.state.InReviewPhase {
 			l.addNote(rc, fmt.Sprintf("progress: Task marked complete in %d iterations", rc.state.Iteration))
@@ -549,7 +556,7 @@ func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) 
 	}
 
 	if result.ShouldExit {
-		l.log(fmt.Sprintf("Claude reported BLOCKED: %s", result.BlockedError))
+		l.log(fmt.Sprintf("Executor reported BLOCKED: %s", result.BlockedError))
 		l.addNote(rc, fmt.Sprintf("error: [iter %d] BLOCKED: %s", rc.state.Iteration, result.BlockedError))
 		rc.result.ExitReason = result.ExitReason
 		rc.result.Iterations = rc.state.Iteration
@@ -682,9 +689,20 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 			return rc.result, nil
 		}
 		if action == loopRetryReview {
+			// Check safety limits on retry to prevent infinite loops from agent errors
+			checkResult := safety.Check(l.config, rc.state)
+			if checkResult.ShouldExit {
+				l.log(fmt.Sprintf("Safety exit during review retry: %s", checkResult.Reason))
+				l.addNote(rc, fmt.Sprintf("error: Safety exit during review: %s", checkResult.Reason))
+				rc.result.ExitReason = checkResult.Reason
+				rc.result.ExitMessage = checkResult.Message
+				rc.result.Iterations = rc.state.Iteration
+				rc.result.RecentSummaries = l.getRecentSummaries(rc, 5)
+				return rc.result, nil
+			}
 			continue
 		}
-		// If action == loopBreakToClaudeInvocation, we fall through to invoke Claude
+		// If action == loopBreakToInvocation, we fall through to invoke executor
 
 		rc.state.Iteration++
 
@@ -736,12 +754,12 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 			l.onStateChange(rc.state, rc.workItem, rc.result.TotalFilesChanged)
 		}
 
-		l.log("Invoking Claude...")
+		l.log(fmt.Sprintf("Invoking %s...", l.executorName()))
 
-		output, err := l.invokeClaudePrint(ctx, promptText)
+		output, err := l.invokeExecutor(ctx, promptText)
 		if err != nil {
-			l.log(fmt.Sprintf("Claude invocation failed: %v", err))
-			l.logErrorf("Claude invocation failed: %v", err)
+			l.log(fmt.Sprintf("Invocation failed: %v", err))
+			l.logErrorf("Invocation failed: %v", err)
 			rc.state.RecordIteration(nil, "invocation_error")
 			if l.onStateChange != nil {
 				l.onStateChange(rc.state, rc.workItem, rc.result.TotalFilesChanged)
@@ -775,36 +793,42 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 			continue
 		}
 
-		if action := l.processClaudeStatus(rc, status); action == loopReturn {
+		if action := l.processStatus(rc, status); action == loopReturn {
 			return rc.result, nil
 		}
 	}
 }
 
-// invokeClaudePrint invokes Claude via the llm.Invoker interface.
+// invokeExecutor invokes the LLM executor via the llm.Invoker interface.
 // It wires loop-specific callbacks (output formatting, token tracking,
 // process stats) into InvokeOptions.
-func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string, error) {
+func (l *Loop) invokeExecutor(ctx context.Context, promptText string) (string, error) {
 	inv := l.invoker
 	if inv == nil {
-		inv = llm.NewClaudeInvoker(llm.EnvConfig{
-			ClaudeConfigDir: l.config.ClaudeConfigDir,
-			AnthropicAPIKey: l.config.AnthropicAPIKey,
-		})
+		var err error
+		inv, err = llm.NewInvoker(l.executorConfig)
+		if err != nil {
+			return "", fmt.Errorf("create invoker: %w", err)
+		}
+		l.invoker = inv
 	}
 
-	settingsJSON := ""
-	if l.permissionSocketPath != "" || l.guardMode {
-		settingsJSON = llm.BuildHookSettings(llm.HookConfig{
-			PermissionSocketPath: l.permissionSocketPath,
-			GuardMode:            l.guardMode,
-		})
+	var settingsJSON string
+	var extraFlags string
+	if l.isClaudeExecutor() {
+		if l.permissionSocketPath != "" || l.guardMode {
+			settingsJSON = llm.BuildHookSettings(llm.HookConfig{
+				PermissionSocketPath: l.permissionSocketPath,
+				GuardMode:            l.guardMode,
+			})
+		}
+		extraFlags = l.executorConfig.ExtraFlags
 	}
 
 	opts := llm.InvokeOptions{
 		WorkingDir:   l.workingDir,
 		Streaming:    l.streaming,
-		ExtraFlags:   l.config.ClaudeFlags,
+		ExtraFlags:   extraFlags,
 		SettingsJSON: settingsJSON,
 		Timeout:      l.config.Timeout,
 		OnOutput: func(text string) {
@@ -1224,7 +1248,7 @@ func getProcessMemory(pid int) int64 {
 	return rss
 }
 
-// SetInvoker sets the llm.Invoker used for Claude invocations.
+// SetInvoker sets the llm.Invoker used for executor invocations.
 func (l *Loop) SetInvoker(inv llm.Invoker) {
 	l.invoker = inv
 }
@@ -1266,15 +1290,14 @@ func (l *Loop) buildHookSettings() string {
 // applySettingsToReviewConfig copies guard mode / permission socket settings
 // into the review config so review agents get the same flags as the main loop.
 func (l *Loop) applySettingsToReviewConfig() {
-	if l.config.ClaudeFlags != "" {
-		l.reviewConfig.ClaudeFlags = l.config.ClaudeFlags
-	}
-	if l.permissionSocketPath != "" || l.guardMode {
-		l.reviewConfig.SettingsJSON = l.buildHookSettings()
-	}
-	l.reviewConfig.EnvConfig = llm.EnvConfig{
-		ClaudeConfigDir: l.config.ClaudeConfigDir,
-		AnthropicAPIKey: l.config.AnthropicAPIKey,
+	if l.isClaudeExecutor() {
+		if l.executorConfig.ExtraFlags != "" {
+			l.reviewConfig.ClaudeFlags = l.executorConfig.ExtraFlags
+		}
+		if l.permissionSocketPath != "" || l.guardMode {
+			l.reviewConfig.SettingsJSON = l.buildHookSettings()
+		}
+		l.reviewConfig.EnvConfig = l.executorConfig.Claude
 	}
 }
 
@@ -1395,7 +1418,7 @@ func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewO
 
 		errorCount := countReviewErrors(reviewResult.Results)
 		if errorCount > 0 {
-			l.log(fmt.Sprintf("Review agent errors (%d) - retrying review without invoking Claude", errorCount))
+			l.log(fmt.Sprintf("Review agent errors (%d) - retrying review without invoking executor", errorCount))
 			if iter+1 >= maxIter {
 				l.log(fmt.Sprintf("Review exceeded max iterations (%d) with agent errors - stopping", maxIter))
 				return result, nil
@@ -1410,7 +1433,7 @@ func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewO
 			return result, nil
 		}
 
-		l.log(fmt.Sprintf("Review found %d issues - invoking Claude to fix", reviewResult.TotalIssues))
+		l.log(fmt.Sprintf("Review found %d issues - invoking executor to fix", reviewResult.TotalIssues))
 
 		if iter+1 >= maxIter {
 			l.log(fmt.Sprintf("Review exceeded max iterations (%d) - stopping", maxIter))
@@ -1462,7 +1485,7 @@ func (l *Loop) checkReviewOnlyStop(roc *reviewOnlyContext) bool {
 	}
 }
 
-// invokeFixAndProcess invokes Claude to fix review issues and processes the response.
+// invokeFixAndProcess invokes executor to fix review issues and processes the response.
 // Returns (earlyReturn, error).
 func (l *Loop) invokeFixAndProcess(roc *reviewOnlyContext, reviewResult *review.RunResult) (bool, error) {
 	issuesMarkdown := review.FormatIssuesMarkdown(reviewResult.Results)
@@ -1477,11 +1500,11 @@ func (l *Loop) invokeFixAndProcess(roc *reviewOnlyContext, reviewResult *review.
 		l.onStateChange(roc.state, nil, roc.result.FilesFixed)
 	}
 
-	l.log("Invoking Claude to fix review issues...")
-	output, err := l.invokeClaudePrint(roc.ctx, promptText)
+	l.log(fmt.Sprintf("Invoking %s to fix review issues...", l.executorName()))
+	output, err := l.invokeExecutor(roc.ctx, promptText)
 	if err != nil {
-		l.log(fmt.Sprintf("Claude invocation failed: %v", err))
-		l.logErrorf("Claude invocation failed: %v", err)
+		l.log(fmt.Sprintf("Invocation failed: %v", err))
+		l.logErrorf("Invocation failed: %v", err)
 		roc.state.RecordIteration(nil, "invocation_error")
 		return false, nil
 	}
@@ -1519,7 +1542,7 @@ func (l *Loop) invokeFixAndProcess(roc *reviewOnlyContext, reviewResult *review.
 	}
 
 	if status.Status == protocol.StatusBlocked {
-		l.log(fmt.Sprintf("Claude reported BLOCKED: %s", status.Error))
+		l.log(fmt.Sprintf("Executor reported BLOCKED: %s", status.Error))
 		roc.result.ExitReason = safety.ExitReasonBlocked
 		return true, nil
 	}
@@ -1527,7 +1550,7 @@ func (l *Loop) invokeFixAndProcess(roc *reviewOnlyContext, reviewResult *review.
 	if len(status.FilesChanged) > 0 && l.gitConfig.AutoCommit {
 		if status.CommitMade {
 			roc.result.CommitsMade++
-			l.log(fmt.Sprintf("Commit made by Claude (total: %d)", roc.result.CommitsMade))
+			l.log(fmt.Sprintf("Commit made by executor (total: %d)", roc.result.CommitsMade))
 		} else if l.gitRepo != nil {
 			l.log("Auto-committing changes...")
 			if err := l.autoCommitChanges(status.FilesChanged, status.Summary); err != nil {
@@ -1552,7 +1575,7 @@ func (l *Loop) invokeFixAndProcess(roc *reviewOnlyContext, reviewResult *review.
 	}
 
 	if status.Status == protocol.StatusDone {
-		l.log("Claude reports fixes complete - re-reviewing")
+		l.log("Executor reports fixes complete - re-reviewing")
 	}
 
 	return false, nil
@@ -1572,7 +1595,7 @@ func (l *Loop) autoCommitChanges(files []string, summary string) error {
 	return l.gitRepo.AddAndCommit(files, commitMsg)
 }
 
-// buildReviewFixPrompt creates a prompt for Claude to fix review issues using the template.
+// buildReviewFixPrompt creates a prompt for executor to fix review issues using the template.
 func (l *Loop) buildReviewFixPrompt(baseBranch string, filesChanged []string, issuesMarkdown string, iteration int) (string, error) {
 	if l.promptBuilder != nil {
 		return l.promptBuilder.BuildReviewFirst(baseBranch, filesChanged, issuesMarkdown, iteration, l.gitConfig.AutoCommit)

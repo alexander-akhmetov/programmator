@@ -110,7 +110,7 @@ func runPlanCreate(_ *cobra.Command, args []string) error {
 		builder:        builder,
 		collector:      collector,
 		progressLogger: progressLogger,
-		claudeFlags:    cfg.ClaudeFlags,
+		executorConfig: cfg.ToExecutorConfig(),
 	}
 
 	planPath, err := creator.run()
@@ -154,7 +154,7 @@ type planCreator struct {
 	builder        *prompt.Builder
 	collector      Collector
 	progressLogger *progress.Logger
-	claudeFlags    string
+	executorConfig llm.ExecutorConfig
 	qa             []prompt.QA
 }
 
@@ -170,12 +170,12 @@ func (p *planCreator) run() (string, error) {
 			return "", fmt.Errorf("build prompt: %w", err)
 		}
 
-		p.logProgressf("Turn %d: invoking Claude", turn)
+		p.logProgressf("Turn %d: invoking executor", turn)
 
-		// Invoke Claude
-		output, err := p.invokeClaude(ctx, promptText)
+		// Invoke executor
+		output, err := p.invokeExecutor(ctx, promptText)
 		if err != nil {
-			return "", fmt.Errorf("invoke Claude: %w", err)
+			return "", fmt.Errorf("invoke executor: %w", err)
 		}
 
 		// Check for plan ready signal
@@ -236,12 +236,15 @@ func (p *planCreator) run() (string, error) {
 	return "", fmt.Errorf("max turns (%d) reached without generating a plan", p.maxTurns)
 }
 
-func (p *planCreator) invokeClaude(ctx context.Context, promptText string) (string, error) {
-	inv := llm.NewClaudeInvoker(llm.EnvConfig{})
+func (p *planCreator) invokeExecutor(ctx context.Context, promptText string) (string, error) {
+	inv, err := llm.NewInvoker(p.executorConfig)
+	if err != nil {
+		return "", fmt.Errorf("create invoker: %w", err)
+	}
 
 	opts := llm.InvokeOptions{
 		WorkingDir: p.workDir,
-		ExtraFlags: p.claudeFlags,
+		ExtraFlags: p.executorConfig.ExtraFlags,
 		Timeout:    int((5 * time.Minute).Seconds()),
 		OnOutput: func(text string) {
 			if strings.Contains(text, "Reading") || strings.Contains(text, "Searching") {

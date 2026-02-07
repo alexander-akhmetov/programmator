@@ -90,8 +90,9 @@ func runStart(_ *cobra.Command, args []string) error {
 	// Apply CLI flag overrides
 	cfg.ApplyCLIFlags(maxIterations, stagnationLimit, timeout)
 
-	// Convert to legacy safety.Config for compatibility
+	// Convert configs
 	safetyConfig := cfg.ToSafetyConfig()
+	execConfig := cfg.ToExecutorConfig()
 
 	wd, err := resolveWorkingDir(workingDir)
 	if err != nil {
@@ -104,9 +105,9 @@ func runStart(_ *cobra.Command, args []string) error {
 	defer removeSessionFile()
 	timing.Log("runStart: session file written")
 
-	guardMode = resolveGuardMode(guardMode, &safetyConfig)
+	guardMode = resolveGuardMode(guardMode, &execConfig)
 	if skipPermissions {
-		applySkipPermissions(&safetyConfig)
+		applySkipPermissions(&execConfig)
 	}
 
 	// Create progress logger
@@ -155,6 +156,9 @@ func runStart(_ *cobra.Command, args []string) error {
 
 	// Wire codex config
 	t.SetCodexConfig(cfg.Codex)
+
+	// Wire executor config (may have been modified by resolveGuardMode/applySkipPermissions)
+	t.SetExecutorConfig(execConfig)
 
 	timing.Log("TUI created, calling Run")
 	_, err = t.Run(ticketID, wd)

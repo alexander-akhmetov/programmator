@@ -3,9 +3,25 @@ package config
 import (
 	"log"
 
+	"github.com/alexander-akhmetov/programmator/internal/llm"
 	"github.com/alexander-akhmetov/programmator/internal/review"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
 )
+
+// ToExecutorConfig converts the unified Config to an llm.ExecutorConfig.
+func (c *Config) ToExecutorConfig() llm.ExecutorConfig {
+	cfg := llm.ExecutorConfig{
+		Name: c.Executor,
+	}
+	if c.Executor == "claude" || c.Executor == "" {
+		cfg.Claude = llm.EnvConfig{
+			ClaudeConfigDir: c.Claude.ConfigDir,
+			AnthropicAPIKey: c.Claude.AnthropicAPIKey,
+		}
+		cfg.ExtraFlags = c.Claude.Flags
+	}
+	return cfg
+}
 
 // ToSafetyConfig converts the unified Config to a safety.Config.
 func (c *Config) ToSafetyConfig() safety.Config {
@@ -13,9 +29,6 @@ func (c *Config) ToSafetyConfig() safety.Config {
 		MaxIterations:       c.MaxIterations,
 		StagnationLimit:     c.StagnationLimit,
 		Timeout:             c.Timeout,
-		ClaudeFlags:         c.ClaudeFlags,
-		ClaudeConfigDir:     c.ClaudeConfigDir,
-		AnthropicAPIKey:     c.AnthropicAPIKey,
 		MaxReviewIterations: c.Review.MaxIterations,
 	}
 }
@@ -27,7 +40,7 @@ func (c *Config) ToReviewConfig() review.Config {
 		MaxIterations: c.Review.MaxIterations,
 		Parallel:      c.Review.Parallel,
 		Timeout:       c.Timeout,
-		ClaudeFlags:   c.ClaudeFlags,
+		ClaudeFlags:   c.Claude.Flags,
 		Agents:        agents,
 		Codex: review.CodexSettings{
 			Command:         c.Codex.Command,
