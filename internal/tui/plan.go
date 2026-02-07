@@ -170,10 +170,10 @@ func (p *planCreator) run() (string, error) {
 			return "", fmt.Errorf("build prompt: %w", err)
 		}
 
-		p.logProgressf("Turn %d: invoking Claude", turn)
+		p.logProgressf("Turn %d: invoking executor", turn)
 
-		// Invoke Claude
-		output, err := p.invokeClaude(ctx, promptText)
+		// Invoke executor
+		output, err := p.invokeExecutor(ctx, promptText)
 		if err != nil {
 			return "", fmt.Errorf("invoke executor: %w", err)
 		}
@@ -236,7 +236,7 @@ func (p *planCreator) run() (string, error) {
 	return "", fmt.Errorf("max turns (%d) reached without generating a plan", p.maxTurns)
 }
 
-func (p *planCreator) invokeClaude(ctx context.Context, promptText string) (string, error) {
+func (p *planCreator) invokeExecutor(ctx context.Context, promptText string) (string, error) {
 	inv, err := llm.NewInvoker(p.executorConfig)
 	if err != nil {
 		return "", fmt.Errorf("create invoker: %w", err)

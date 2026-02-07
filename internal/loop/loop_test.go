@@ -99,7 +99,7 @@ func TestLoopStop(t *testing.T) {
 // NOTE: processTextOutput, processStreamingOutput, and timeoutBlockedStatus
 // have been moved to internal/llm and are tested there.
 
-func TestInvokeClaudePrintCapturesStderr(t *testing.T) {
+func TestInvokeExecutorCapturesStderr(t *testing.T) {
 	config := safety.Config{MaxIterations: 1, StagnationLimit: 1, Timeout: 10}
 	l := New(config, "", nil, nil, false)
 
@@ -112,14 +112,14 @@ func TestInvokeClaudePrintCapturesStderr(t *testing.T) {
 	t.Setenv("PATH", tmpDir+":"+origPath)
 
 	ctx := context.Background()
-	_, err = l.invokeClaudePrint(ctx, "test prompt")
+	_, err = l.invokeExecutor(ctx, "test prompt")
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "claude exited")
 	require.Contains(t, err.Error(), "some error message")
 }
 
-func TestInvokeClaudePrintErrorWithoutStderr(t *testing.T) {
+func TestInvokeExecutorErrorWithoutStderr(t *testing.T) {
 	config := safety.Config{MaxIterations: 1, StagnationLimit: 1, Timeout: 10}
 	l := New(config, "", nil, nil, false)
 
@@ -131,7 +131,7 @@ func TestInvokeClaudePrintErrorWithoutStderr(t *testing.T) {
 	t.Setenv("PATH", tmpDir+":"+origPath)
 
 	ctx := context.Background()
-	_, err = l.invokeClaudePrint(ctx, "test prompt")
+	_, err = l.invokeExecutor(ctx, "test prompt")
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "claude exited")

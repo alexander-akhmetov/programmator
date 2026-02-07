@@ -10,14 +10,17 @@ import (
 
 // ToExecutorConfig converts the unified Config to an llm.ExecutorConfig.
 func (c *Config) ToExecutorConfig() llm.ExecutorConfig {
-	return llm.ExecutorConfig{
+	cfg := llm.ExecutorConfig{
 		Name: c.Executor,
-		Claude: llm.EnvConfig{
+	}
+	if c.Executor == "claude" || c.Executor == "" {
+		cfg.Claude = llm.EnvConfig{
 			ClaudeConfigDir: c.Claude.ConfigDir,
 			AnthropicAPIKey: c.Claude.AnthropicAPIKey,
-		},
-		ExtraFlags: c.Claude.Flags,
+		}
+		cfg.ExtraFlags = c.Claude.Flags
 	}
+	return cfg
 }
 
 // ToSafetyConfig converts the unified Config to a safety.Config.

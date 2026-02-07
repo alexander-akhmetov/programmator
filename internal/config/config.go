@@ -94,7 +94,7 @@ type Config struct {
 	Timeout         int `yaml:"timeout"` // seconds
 
 	// Executor settings
-	Executor string       `yaml:"executor"`
+	Executor string       `yaml:"executor"` // LLM executor name (default: "claude")
 	Claude   ClaudeConfig `yaml:"claude"`
 
 	// Ticket settings

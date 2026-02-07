@@ -83,7 +83,7 @@ type Loop struct {
 	reviewConfig     review.Config
 	reviewOnly       bool
 	reviewRunner     *review.Runner
-	lastReviewIssues string // formatted issues from last review for Claude to fix
+	lastReviewIssues string // formatted issues from last review for executor to fix
 
 	// Prompt builder (uses customizable templates)
 	promptBuilder *prompt.Builder
@@ -316,7 +316,7 @@ type loopAction int
 const (
 	loopContinue loopAction = iota
 	loopReturn
-	loopBreakToClaudeInvocation
+	loopBreakToInvocation
 	loopRetryReview
 )
 
@@ -330,7 +330,7 @@ type runContext struct {
 	filesChangedSet    map[string]struct{}
 	workItem           *domain.WorkItem
 	iterationSummaries []string // Track summaries for each iteration
-	taskCompleted      bool     // Claude reported DONE for the task
+	taskCompleted      bool     // Executor reported DONE for the task
 }
 
 // checkStopRequested checks if stop was requested and handles the response.
@@ -369,18 +369,18 @@ func (l *Loop) checkContextCanceled(rc *runContext) loopAction {
 }
 
 // handleAllPhasesComplete handles the logic when the task is complete.
-// Returns loopReturn if we should exit, loopBreakToClaudeInvocation if we should invoke Claude,
-// loopRetryReview to re-run review without invoking Claude, or loopContinue to proceed normally.
+// Returns loopReturn if we should exit, loopBreakToInvocation if we should invoke the executor,
+// loopRetryReview to re-run review without invoking executor, or loopContinue to proceed normally.
 func (l *Loop) handleAllPhasesComplete(rc *runContext) loopAction {
 	taskComplete := rc.taskCompleted || rc.workItem.AllPhasesComplete()
 	if !taskComplete && !l.reviewOnly {
 		return loopContinue
 	}
 
-	// If we have pending review fixes, invoke Claude to fix them
+	// If we have pending review fixes, invoke executor to fix them
 	if l.engine.PendingReviewFix {
 		l.log("Pending review fixes - invoking executor to fix issues")
-		return loopBreakToClaudeInvocation
+		return loopBreakToInvocation
 	}
 
 	// Check if we should run review
@@ -459,7 +459,7 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 
 	errorCount := countReviewErrors(reviewResult.Results)
 	if errorCount > 0 {
-		l.log(fmt.Sprintf("Review agent errors (%d) - retrying review without invoking Claude", errorCount))
+		l.log(fmt.Sprintf("Review agent errors (%d) - retrying review without invoking executor", errorCount))
 		l.addNote(rc, fmt.Sprintf("warning: Review agent errors (%d) - retrying review", errorCount))
 
 		// Record as no-progress iteration to trigger stagnation detection.
@@ -484,12 +484,12 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 	issueNote := review.FormatIssuesMarkdown(reviewResult.Results)
 	l.lastReviewIssues = issueNote
 
-	// NeedsFix: invoke Claude to fix issues
+	// NeedsFix: invoke executor to fix issues
 	l.log(fmt.Sprintf("Review found %d issues", reviewResult.TotalIssues))
 	l.addNote(rc, fmt.Sprintf("review: [iter %d] Found %d issues:\n%s",
 		l.engine.ReviewIterations, reviewResult.TotalIssues, issueNote))
 
-	return loopBreakToClaudeInvocation
+	return loopBreakToInvocation
 }
 
 // completeAllPhases marks the work item as complete and returns.
@@ -513,9 +513,9 @@ func (l *Loop) completeAllPhases(rc *runContext) loopAction {
 	return loopReturn
 }
 
-// processClaudeStatus processes the status returned by Claude.
+// processStatus processes the status returned by the executor.
 // Returns loopReturn if we should exit, loopContinue otherwise.
-func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) loopAction {
+func (l *Loop) processStatus(rc *runContext, status *parser.ParsedStatus) loopAction {
 	l.log(fmt.Sprintf("Status: %s", status.Status))
 	l.log(fmt.Sprintf("Summary: %s", status.Summary))
 	l.logStatus(string(status.Status), status.Summary, status.FilesChanged)
@@ -702,7 +702,7 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 			}
 			continue
 		}
-		// If action == loopBreakToClaudeInvocation, we fall through to invoke Claude
+		// If action == loopBreakToInvocation, we fall through to invoke executor
 
 		rc.state.Iteration++
 
@@ -756,7 +756,7 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 
 		l.log(fmt.Sprintf("Invoking %s...", l.executorName()))
 
-		output, err := l.invokeClaudePrint(ctx, promptText)
+		output, err := l.invokeExecutor(ctx, promptText)
 		if err != nil {
 			l.log(fmt.Sprintf("Invocation failed: %v", err))
 			l.logErrorf("Invocation failed: %v", err)
@@ -793,16 +793,16 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 			continue
 		}
 
-		if action := l.processClaudeStatus(rc, status); action == loopReturn {
+		if action := l.processStatus(rc, status); action == loopReturn {
 			return rc.result, nil
 		}
 	}
 }
 
-// invokeClaudePrint invokes Claude via the llm.Invoker interface.
+// invokeExecutor invokes the LLM executor via the llm.Invoker interface.
 // It wires loop-specific callbacks (output formatting, token tracking,
 // process stats) into InvokeOptions.
-func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string, error) {
+func (l *Loop) invokeExecutor(ctx context.Context, promptText string) (string, error) {
 	inv := l.invoker
 	if inv == nil {
 		var err error
@@ -1248,7 +1248,7 @@ func getProcessMemory(pid int) int64 {
 	return rss
 }
 
-// SetInvoker sets the llm.Invoker used for Claude invocations.
+// SetInvoker sets the llm.Invoker used for executor invocations.
 func (l *Loop) SetInvoker(inv llm.Invoker) {
 	l.invoker = inv
 }
@@ -1297,8 +1297,8 @@ func (l *Loop) applySettingsToReviewConfig() {
 		if l.permissionSocketPath != "" || l.guardMode {
 			l.reviewConfig.SettingsJSON = l.buildHookSettings()
 		}
+		l.reviewConfig.EnvConfig = l.executorConfig.Claude
 	}
-	l.reviewConfig.EnvConfig = l.executorConfig.Claude
 }
 
 func (l *Loop) applyReviewContext(workItem *domain.WorkItem) {
@@ -1418,7 +1418,7 @@ func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewO
 
 		errorCount := countReviewErrors(reviewResult.Results)
 		if errorCount > 0 {
-			l.log(fmt.Sprintf("Review agent errors (%d) - retrying review without invoking Claude", errorCount))
+			l.log(fmt.Sprintf("Review agent errors (%d) - retrying review without invoking executor", errorCount))
 			if iter+1 >= maxIter {
 				l.log(fmt.Sprintf("Review exceeded max iterations (%d) with agent errors - stopping", maxIter))
 				return result, nil
@@ -1433,7 +1433,7 @@ func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewO
 			return result, nil
 		}
 
-		l.log(fmt.Sprintf("Review found %d issues - invoking Claude to fix", reviewResult.TotalIssues))
+		l.log(fmt.Sprintf("Review found %d issues - invoking executor to fix", reviewResult.TotalIssues))
 
 		if iter+1 >= maxIter {
 			l.log(fmt.Sprintf("Review exceeded max iterations (%d) - stopping", maxIter))
@@ -1485,7 +1485,7 @@ func (l *Loop) checkReviewOnlyStop(roc *reviewOnlyContext) bool {
 	}
 }
 
-// invokeFixAndProcess invokes Claude to fix review issues and processes the response.
+// invokeFixAndProcess invokes executor to fix review issues and processes the response.
 // Returns (earlyReturn, error).
 func (l *Loop) invokeFixAndProcess(roc *reviewOnlyContext, reviewResult *review.RunResult) (bool, error) {
 	issuesMarkdown := review.FormatIssuesMarkdown(reviewResult.Results)
@@ -1501,7 +1501,7 @@ func (l *Loop) invokeFixAndProcess(roc *reviewOnlyContext, reviewResult *review.
 	}
 
 	l.log(fmt.Sprintf("Invoking %s to fix review issues...", l.executorName()))
-	output, err := l.invokeClaudePrint(roc.ctx, promptText)
+	output, err := l.invokeExecutor(roc.ctx, promptText)
 	if err != nil {
 		l.log(fmt.Sprintf("Invocation failed: %v", err))
 		l.logErrorf("Invocation failed: %v", err)
@@ -1595,7 +1595,7 @@ func (l *Loop) autoCommitChanges(files []string, summary string) error {
 	return l.gitRepo.AddAndCommit(files, commitMsg)
 }
 
-// buildReviewFixPrompt creates a prompt for Claude to fix review issues using the template.
+// buildReviewFixPrompt creates a prompt for executor to fix review issues using the template.
 func (l *Loop) buildReviewFixPrompt(baseBranch string, filesChanged []string, issuesMarkdown string, iteration int) (string, error) {
 	if l.promptBuilder != nil {
 		return l.promptBuilder.BuildReviewFirst(baseBranch, filesChanged, issuesMarkdown, iteration, l.gitConfig.AutoCommit)
