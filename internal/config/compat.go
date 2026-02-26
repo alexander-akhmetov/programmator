@@ -2,6 +2,7 @@ package config
 
 import (
 	"log"
+	"strings"
 
 	"github.com/alexander-akhmetov/programmator/internal/llm"
 	"github.com/alexander-akhmetov/programmator/internal/review"
@@ -16,7 +17,7 @@ func (c *Config) ToExecutorConfig() llm.ExecutorConfig {
 			ClaudeConfigDir: c.Claude.ConfigDir,
 			AnthropicAPIKey: c.Claude.AnthropicAPIKey,
 		},
-		ExtraFlags: c.Claude.Flags,
+		ExtraFlags: strings.Fields(c.Claude.Flags),
 	}
 }
 

@@ -64,9 +64,7 @@ type Loop struct {
 	streaming            bool
 	cancelFunc           context.CancelFunc
 	source               source.Source
-	invoker              llm.Invoker
-	permissionSocketPath string
-	guardMode            bool
+	invoker llm.Invoker
 
 	mu            sync.Mutex
 	paused        bool
@@ -816,23 +814,15 @@ func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string
 		l.invoker = inv
 	}
 
-	var settingsJSON string
-	var extraFlags string
+	var extraFlags []string
 	if l.isClaudeExecutor() {
-		if l.permissionSocketPath != "" || l.guardMode {
-			settingsJSON = llm.BuildHookSettings(llm.HookConfig{
-				PermissionSocketPath: l.permissionSocketPath,
-				GuardMode:            l.guardMode,
-			})
-		}
 		extraFlags = l.executorConfig.ExtraFlags
 	}
 
 	opts := llm.InvokeOptions{
-		WorkingDir:   l.workingDir,
-		Streaming:    l.streaming,
-		ExtraFlags:   extraFlags,
-		SettingsJSON: settingsJSON,
+		WorkingDir: l.workingDir,
+		Streaming:  l.streaming,
+		ExtraFlags: extraFlags,
 		Timeout:      l.config.Timeout,
 		OnOutput: func(text string) {
 			l.emit(event.Markdown(text))
@@ -1260,14 +1250,6 @@ func (l *Loop) SetProcessStatsCallback(cb ProcessStatsCallback) {
 	l.onProcessStats = cb
 }
 
-func (l *Loop) SetPermissionSocketPath(path string) {
-	l.permissionSocketPath = path
-}
-
-func (l *Loop) SetGuardMode(enabled bool) {
-	l.guardMode = enabled
-}
-
 // SetEventCallback sets the typed event handler. When set, the loop emits
 // structured events for prog/tool/review/diff messages instead of (or in
 // addition to) the legacy marker-prefixed strings on OutputCallback.
@@ -1282,11 +1264,11 @@ func (l *Loop) emit(e event.Event) {
 	}
 }
 
-// buildHookSettings delegates to llm.BuildHookSettings.
+// buildHookSettings delegates to llm.BuildHookSettings using executorConfig.
 func (l *Loop) buildHookSettings() string {
 	return llm.BuildHookSettings(llm.HookConfig{
-		PermissionSocketPath: l.permissionSocketPath,
-		GuardMode:            l.guardMode,
+		PermissionSocketPath: l.executorConfig.PermissionSocketPath,
+		GuardMode:            l.executorConfig.GuardMode,
 	})
 }
 
@@ -1294,10 +1276,10 @@ func (l *Loop) buildHookSettings() string {
 // into the review config so review agents get the same flags as the main loop.
 func (l *Loop) applySettingsToReviewConfig() {
 	if l.isClaudeExecutor() {
-		if l.executorConfig.ExtraFlags != "" {
-			l.reviewConfig.ClaudeFlags = l.executorConfig.ExtraFlags
+		if len(l.executorConfig.ExtraFlags) > 0 {
+			l.reviewConfig.ClaudeFlags = strings.Join(l.executorConfig.ExtraFlags, " ")
 		}
-		if l.permissionSocketPath != "" || l.guardMode {
+		if l.executorConfig.PermissionSocketPath != "" || l.executorConfig.GuardMode {
 			l.reviewConfig.SettingsJSON = l.buildHookSettings()
 		}
 	}

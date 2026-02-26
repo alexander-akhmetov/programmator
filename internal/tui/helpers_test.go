@@ -11,28 +11,28 @@ import (
 func TestApplySkipPermissions(t *testing.T) {
 	tests := []struct {
 		name     string
-		initial  string
-		expected string
+		initial  []string
+		expected []string
 	}{
 		{
 			name:     "empty flags",
-			initial:  "",
-			expected: "--dangerously-skip-permissions",
+			initial:  nil,
+			expected: []string{"--dangerously-skip-permissions"},
 		},
 		{
 			name:     "existing flags without skip",
-			initial:  "--verbose",
-			expected: "--verbose --dangerously-skip-permissions",
+			initial:  []string{"--verbose"},
+			expected: []string{"--verbose", "--dangerously-skip-permissions"},
 		},
 		{
 			name:     "already has skip flag",
-			initial:  "--dangerously-skip-permissions",
-			expected: "--dangerously-skip-permissions",
+			initial:  []string{"--dangerously-skip-permissions"},
+			expected: []string{"--dangerously-skip-permissions"},
 		},
 		{
 			name:     "already has skip flag with other flags",
-			initial:  "--verbose --dangerously-skip-permissions --other",
-			expected: "--verbose --dangerously-skip-permissions --other",
+			initial:  []string{"--verbose", "--dangerously-skip-permissions", "--other"},
+			expected: []string{"--verbose", "--dangerously-skip-permissions", "--other"},
 		},
 	}
 

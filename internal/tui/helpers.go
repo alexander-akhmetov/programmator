@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
+	"slices"
 
 	"github.com/alexander-akhmetov/programmator/internal/llm"
 )
@@ -12,10 +12,9 @@ import (
 // applySkipPermissions ensures --dangerously-skip-permissions is present in
 // ExtraFlags when the caller requests it (via guard-mode or explicit flag).
 func applySkipPermissions(cfg *llm.ExecutorConfig) {
-	if cfg.ExtraFlags == "" {
-		cfg.ExtraFlags = "--dangerously-skip-permissions"
-	} else if !strings.Contains(cfg.ExtraFlags, "--dangerously-skip-permissions") {
-		cfg.ExtraFlags += " --dangerously-skip-permissions"
+	const flag = "--dangerously-skip-permissions"
+	if !slices.Contains(cfg.ExtraFlags, flag) {
+		cfg.ExtraFlags = append(cfg.ExtraFlags, flag)
 	}
 }
 

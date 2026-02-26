@@ -95,17 +95,27 @@ func TestApplyEnv(t *testing.T) {
 }
 
 func TestApplyEnv_Executor(t *testing.T) {
-	saved := os.Getenv("PROGRAMMATOR_EXECUTOR")
-	defer os.Setenv("PROGRAMMATOR_EXECUTOR", saved)
+	tests := []struct {
+		name     string
+		envValue string
+		want     string
+	}{
+		{"valid executor is applied", "claude", "claude"},
+		{"invalid executor is ignored", "nonexistent", "claude"},
+	}
 
-	os.Setenv("PROGRAMMATOR_EXECUTOR", "custom-executor")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("PROGRAMMATOR_EXECUTOR", tc.envValue)
 
-	cfg, err := loadEmbedded()
-	require.NoError(t, err)
+			cfg, err := loadEmbedded()
+			require.NoError(t, err)
 
-	cfg.applyEnv()
+			cfg.applyEnv()
 
-	assert.Equal(t, "custom-executor", cfg.Executor)
+			assert.Equal(t, tc.want, cfg.Executor)
+		})
+	}
 }
 
 func TestEnvBetweenGlobalAndLocal(t *testing.T) {
@@ -792,4 +802,30 @@ review:
 	cfg, err := parseConfigWithTracking(data)
 	require.NoError(t, err)
 	assert.NotNil(t, cfg)
+}
+
+func TestValidate(t *testing.T) {
+	tests := []struct {
+		name     string
+		executor string
+		wantErr  bool
+	}{
+		{name: "claude is valid", executor: "claude", wantErr: false},
+		{name: "empty is valid", executor: "", wantErr: false},
+		{name: "unknown is invalid", executor: "gpt", wantErr: true},
+		{name: "typo is invalid", executor: "cladue", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{Executor: tc.executor}
+			err := cfg.Validate()
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "unknown executor")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }

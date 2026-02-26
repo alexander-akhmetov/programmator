@@ -43,7 +43,7 @@ func TestToExecutorConfig(t *testing.T) {
 
 	ec := cfg.ToExecutorConfig()
 	assert.Equal(t, "claude", ec.Name)
-	assert.Equal(t, "--verbose", ec.ExtraFlags)
+	assert.Equal(t, []string{"--verbose"}, ec.ExtraFlags)
 	assert.Equal(t, "/custom/dir", ec.Claude.ClaudeConfigDir)
 	assert.Equal(t, "test-key", ec.Claude.AnthropicAPIKey)
 }

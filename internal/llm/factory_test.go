@@ -64,3 +64,18 @@ func TestNewInvoker_EnvConfigPassthrough(t *testing.T) {
 	assert.Equal(t, "/custom/config", ci.Env.ClaudeConfigDir)
 	assert.Equal(t, "sk-test-key", ci.Env.AnthropicAPIKey)
 }
+
+func TestNewInvoker_HookConfigPassthrough(t *testing.T) {
+	cfg := ExecutorConfig{
+		Name:                 "claude",
+		PermissionSocketPath: "/tmp/test.sock",
+		GuardMode:            true,
+	}
+	inv, err := NewInvoker(cfg)
+	require.NoError(t, err)
+
+	ci, ok := inv.(*ClaudeInvoker)
+	require.True(t, ok)
+	assert.Equal(t, "/tmp/test.sock", ci.PermissionSocketPath)
+	assert.True(t, ci.GuardMode)
+}

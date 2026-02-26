@@ -108,6 +108,9 @@ func runClaudePrint(prompt, workingDir string) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
 
 	execCfg := cfg.ToExecutorConfig()
 	if runExecutor != "" {
@@ -121,7 +124,7 @@ func runClaudePrint(prompt, workingDir string) error {
 
 	opts := llm.InvokeOptions{
 		WorkingDir: workingDir,
-		ExtraFlags: strings.Join(buildCommonFlags(), " "),
+		ExtraFlags: buildCommonFlags(),
 		OnOutput: func(text string) {
 			fmt.Print(text)
 		},

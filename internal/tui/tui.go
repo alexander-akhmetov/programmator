@@ -4,6 +4,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -97,7 +98,7 @@ func (t *TUI) SetHideTips(hide bool) {
 
 func (t *TUI) SetExecutorConfig(cfg llm.ExecutorConfig) {
 	t.executorConfig = &cfg
-	t.model.claudeFlags = cfg.ExtraFlags
+	t.model.claudeFlags = strings.Join(cfg.ExtraFlags, " ")
 	t.model.claudeConfigDir = cfg.Claude.ClaudeConfigDir
 }
 
@@ -183,9 +184,9 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 		}
 	})
 	if permServer != nil {
-		l.SetPermissionSocketPath(permServer.SocketPath())
+		t.executorConfig.PermissionSocketPath = permServer.SocketPath()
 	}
-	l.SetGuardMode(t.guardMode)
+	t.executorConfig.GuardMode = t.guardMode
 	l.SetReviewOnly(t.reviewOnly)
 	if t.reviewConfig != nil {
 		l.SetReviewConfig(*t.reviewConfig)

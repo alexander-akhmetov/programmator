@@ -23,7 +23,7 @@ type InvokeOptions struct {
 	Streaming bool
 
 	// ExtraFlags are additional CLI flags appended to the command.
-	ExtraFlags string
+	ExtraFlags []string
 
 	// SettingsJSON is the --settings payload (hook configuration).
 	SettingsJSON string

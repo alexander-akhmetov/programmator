@@ -24,6 +24,12 @@ var defaultsFS embed.FS
 // validModelName matches expected model name patterns (alphanumeric, dots, dashes, colons).
 var validModelName = regexp.MustCompile(`^[a-zA-Z0-9._:-]+$`)
 
+// validExecutors is the set of supported executor names.
+var validExecutors = map[string]bool{
+	"claude": true,
+	"":       true, // empty defaults to "claude"
+}
+
 // ReviewPhase is deprecated. Kept only for migration from old configs.
 // Use ReviewConfig.Agents instead.
 type ReviewPhase struct {
@@ -143,6 +149,15 @@ func (c *Config) LocalDir() string {
 // ConfigDir returns the global config directory.
 func (c *Config) ConfigDir() string {
 	return c.configDir
+}
+
+// Validate checks the configuration for invalid values.
+// Call after Load() to reject bad executor names early.
+func (c *Config) Validate() error {
+	if !validExecutors[c.Executor] {
+		return fmt.Errorf("unknown executor %q (supported: claude)", c.Executor)
+	}
+	return nil
 }
 
 // Load loads all configuration from the default locations.
@@ -338,8 +353,12 @@ func (c *Config) applyEnv() {
 	}
 
 	if v := os.Getenv("PROGRAMMATOR_EXECUTOR"); v != "" {
-		c.Executor = v
-		c.sources = append(c.sources, "env:PROGRAMMATOR_EXECUTOR")
+		if validExecutors[v] {
+			c.Executor = v
+			c.sources = append(c.sources, "env:PROGRAMMATOR_EXECUTOR")
+		} else {
+			log.Printf("warning: ignoring invalid PROGRAMMATOR_EXECUTOR=%q: unknown executor (supported: claude)", v)
+		}
 	}
 
 	if v := os.Getenv("PROGRAMMATOR_CLAUDE_FLAGS"); v != "" {

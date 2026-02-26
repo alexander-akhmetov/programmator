@@ -86,6 +86,9 @@ func runStart(_ *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
 
 	// Apply CLI flag overrides
 	cfg.ApplyCLIFlags(maxIterations, stagnationLimit, timeout)
@@ -106,6 +109,7 @@ func runStart(_ *cobra.Command, args []string) error {
 	timing.Log("runStart: session file written")
 
 	guardMode = resolveGuardMode(guardMode, &execConfig)
+	execConfig.GuardMode = guardMode
 	if skipPermissions {
 		applySkipPermissions(&execConfig)
 	}

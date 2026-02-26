@@ -19,7 +19,7 @@ func TestClaudeInvokerTextMode(t *testing.T) {
 	origPath := os.Getenv("PATH")
 	t.Setenv("PATH", tmpDir+":"+origPath)
 
-	inv := NewClaudeInvoker(EnvConfig{})
+	inv := NewClaudeInvoker(EnvConfig{}, "", false)
 	var collected []string
 	opts := InvokeOptions{
 		OnOutput: func(text string) {
@@ -43,7 +43,7 @@ func TestClaudeInvokerWorkingDir(t *testing.T) {
 	t.Setenv("PATH", tmpDir+":"+origPath)
 
 	workDir := t.TempDir()
-	inv := NewClaudeInvoker(EnvConfig{})
+	inv := NewClaudeInvoker(EnvConfig{}, "", false)
 	res, err := inv.Invoke(context.Background(), "test", InvokeOptions{WorkingDir: workDir})
 	require.NoError(t, err)
 	require.Contains(t, res.Text, workDir)
@@ -64,7 +64,7 @@ echo '{"type":"result","result":"final","modelUsage":{"test-model":{"inputTokens
 	origPath := os.Getenv("PATH")
 	t.Setenv("PATH", tmpDir+":"+origPath)
 
-	inv := NewClaudeInvoker(EnvConfig{})
+	inv := NewClaudeInvoker(EnvConfig{}, "", false)
 
 	var textCollected []string
 	var model string
@@ -103,7 +103,7 @@ func TestClaudeInvokerErrorCapturesStderr(t *testing.T) {
 	origPath := os.Getenv("PATH")
 	t.Setenv("PATH", tmpDir+":"+origPath)
 
-	inv := NewClaudeInvoker(EnvConfig{})
+	inv := NewClaudeInvoker(EnvConfig{}, "", false)
 	_, err = inv.Invoke(context.Background(), "test", InvokeOptions{})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "claude exited")
@@ -118,7 +118,7 @@ func TestClaudeInvokerErrorWithoutStderr(t *testing.T) {
 	origPath := os.Getenv("PATH")
 	t.Setenv("PATH", tmpDir+":"+origPath)
 
-	inv := NewClaudeInvoker(EnvConfig{})
+	inv := NewClaudeInvoker(EnvConfig{}, "", false)
 	_, err = inv.Invoke(context.Background(), "test", InvokeOptions{})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "claude exited")
@@ -133,7 +133,7 @@ func TestClaudeInvokerTimeout(t *testing.T) {
 	origPath := os.Getenv("PATH")
 	t.Setenv("PATH", tmpDir+":"+origPath)
 
-	inv := NewClaudeInvoker(EnvConfig{})
+	inv := NewClaudeInvoker(EnvConfig{}, "", false)
 	res, err := inv.Invoke(context.Background(), "test", InvokeOptions{Timeout: 1})
 	require.NoError(t, err) // timeout returns a blocked status, not an error
 	require.Contains(t, res.Text, protocol.StatusBlockKey)
@@ -153,7 +153,7 @@ echo '{"type":"result","result":""}'
 	origPath := os.Getenv("PATH")
 	t.Setenv("PATH", tmpDir+":"+origPath)
 
-	inv := NewClaudeInvoker(EnvConfig{})
+	inv := NewClaudeInvoker(EnvConfig{}, "", false)
 
 	var toolName string
 	var toolInput any

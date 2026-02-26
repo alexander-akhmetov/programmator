@@ -60,6 +60,9 @@ func runPlanCreate(_ *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
 
 	wd, err := os.Getwd()
 	if err != nil {
@@ -102,6 +105,7 @@ func runPlanCreate(_ *cobra.Command, args []string) error {
 	collector := NewTerminalCollector()
 
 	// Run the plan creation loop
+	execConfig := cfg.ToExecutorConfig()
 	creator := &planCreator{
 		description:    description,
 		workDir:        wd,
@@ -110,8 +114,7 @@ func runPlanCreate(_ *cobra.Command, args []string) error {
 		builder:        builder,
 		collector:      collector,
 		progressLogger: progressLogger,
-		executorConfig: cfg.ToExecutorConfig(),
-		claudeFlags:    cfg.Claude.Flags,
+		executorConfig: execConfig,
 	}
 
 	planPath, err := creator.run()
@@ -156,7 +159,6 @@ type planCreator struct {
 	collector      Collector
 	progressLogger *progress.Logger
 	executorConfig llm.ExecutorConfig
-	claudeFlags    string
 	qa             []prompt.QA
 }
 
@@ -246,7 +248,7 @@ func (p *planCreator) invokeClaude(ctx context.Context, promptText string) (stri
 
 	opts := llm.InvokeOptions{
 		WorkingDir: p.workDir,
-		ExtraFlags: p.claudeFlags,
+		ExtraFlags: p.executorConfig.ExtraFlags,
 		Timeout:    int((5 * time.Minute).Seconds()),
 		OnOutput: func(text string) {
 			if strings.Contains(text, "Reading") || strings.Contains(text, "Searching") {

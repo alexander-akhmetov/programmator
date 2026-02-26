@@ -15,28 +15,41 @@ import (
 
 // ClaudeInvoker invokes the Claude CLI binary.
 type ClaudeInvoker struct {
-	Env EnvConfig
+	Env                  EnvConfig
+	PermissionSocketPath string
+	GuardMode            bool
 }
 
 // NewClaudeInvoker returns an Invoker that shells out to the "claude" binary.
-func NewClaudeInvoker(env EnvConfig) *ClaudeInvoker {
-	return &ClaudeInvoker{Env: env}
+func NewClaudeInvoker(env EnvConfig, permissionSocketPath string, guardMode bool) *ClaudeInvoker {
+	return &ClaudeInvoker{
+		Env:                  env,
+		PermissionSocketPath: permissionSocketPath,
+		GuardMode:            guardMode,
+	}
 }
 
 // Invoke runs claude --print with the given prompt and options.
 func (c *ClaudeInvoker) Invoke(ctx context.Context, prompt string, opts InvokeOptions) (*InvokeResult, error) {
 	args := []string{"--print"}
 
-	if opts.ExtraFlags != "" {
-		args = append(args, strings.Fields(opts.ExtraFlags)...)
+	if len(opts.ExtraFlags) > 0 {
+		args = append(args, opts.ExtraFlags...)
 	}
 
 	if opts.Streaming {
 		args = append(args, "--output-format", "stream-json", "--verbose")
 	}
 
-	if opts.SettingsJSON != "" {
-		args = append(args, "--settings", opts.SettingsJSON)
+	settingsJSON := opts.SettingsJSON
+	if settingsJSON == "" && (c.PermissionSocketPath != "" || c.GuardMode) {
+		settingsJSON = BuildHookSettings(HookConfig{
+			PermissionSocketPath: c.PermissionSocketPath,
+			GuardMode:            c.GuardMode,
+		})
+	}
+	if settingsJSON != "" {
+		args = append(args, "--settings", settingsJSON)
 	}
 
 	invokeCtx := ctx
