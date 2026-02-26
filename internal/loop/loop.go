@@ -55,16 +55,16 @@ type GitWorkflowConfig struct {
 }
 
 type Loop struct {
-	config               safety.Config
-	workingDir           string
-	onOutput             OutputCallback
-	onEvent              EventCallback
-	onStateChange        StateCallback
-	onProcessStats       ProcessStatsCallback
-	streaming            bool
-	cancelFunc           context.CancelFunc
-	source               source.Source
-	invoker llm.Invoker
+	config         safety.Config
+	workingDir     string
+	onOutput       OutputCallback
+	onEvent        EventCallback
+	onStateChange  StateCallback
+	onProcessStats ProcessStatsCallback
+	streaming      bool
+	cancelFunc     context.CancelFunc
+	source         source.Source
+	invoker        llm.Invoker
 
 	mu            sync.Mutex
 	paused        bool
@@ -823,7 +823,7 @@ func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string
 		WorkingDir: l.workingDir,
 		Streaming:  l.streaming,
 		ExtraFlags: extraFlags,
-		Timeout:      l.config.Timeout,
+		Timeout:    l.config.Timeout,
 		OnOutput: func(text string) {
 			l.emit(event.Markdown(text))
 			if l.onOutput != nil && l.onEvent == nil {

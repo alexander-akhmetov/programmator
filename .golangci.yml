@@ -61,6 +61,10 @@ linters:
       - linters:
           - revive
         text: if-return
+      - linters:
+          - revive
+        text: "var-naming: avoid package names"
+        path: internal/(debug|parser)/
 
 formatters:
   enable:
