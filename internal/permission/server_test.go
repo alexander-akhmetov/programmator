@@ -31,6 +31,7 @@ func waitForSocket(t *testing.T, socketPath string) {
 
 func TestServerCreation(t *testing.T) {
 	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
 	server, err := NewServer(tmpDir, nil)
 	require.NoError(t, err)
 	defer server.Close()
@@ -41,6 +42,7 @@ func TestServerCreation(t *testing.T) {
 
 func TestServerAllowFromSettings(t *testing.T) {
 	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
 
 	settingsDir := filepath.Join(tmpDir, ".claude")
 	require.NoError(t, os.MkdirAll(settingsDir, 0755))
@@ -88,6 +90,7 @@ func TestServerAllowFromSettings(t *testing.T) {
 
 func TestServerDenyWhenNotAllowed(t *testing.T) {
 	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
 
 	handlerCalled := false
 	server, err := NewServer(tmpDir, func(_ *Request) HandlerResponse {
@@ -124,6 +127,7 @@ func TestServerDenyWhenNotAllowed(t *testing.T) {
 
 func TestServerSessionPermission(t *testing.T) {
 	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
 
 	callCount := 0
 	server, err := NewServer(tmpDir, func(_ *Request) HandlerResponse {
@@ -171,6 +175,7 @@ func TestServerSessionPermission(t *testing.T) {
 
 func TestServerSessionPermissionWildcard(t *testing.T) {
 	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
 
 	callCount := 0
 	server, err := NewServer(tmpDir, func(_ *Request) HandlerResponse {
@@ -228,6 +233,7 @@ func TestServerSessionPermissionWildcard(t *testing.T) {
 
 func TestServerPreAllowed(t *testing.T) {
 	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
 
 	handlerCalled := false
 	server, err := NewServer(tmpDir, func(_ *Request) HandlerResponse {
