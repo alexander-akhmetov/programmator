@@ -267,14 +267,12 @@ REVIEW_RESULT:
 func (a *ClaudeAgent) invokeClaude(ctx context.Context, workingDir, promptText string) (string, error) {
 	inv := a.invoker
 	if inv == nil {
-		inv = llm.NewClaudeInvoker(a.envConfig)
+		inv = llm.NewClaudeInvoker(a.envConfig, "", false)
 	}
-
-	extraFlags := strings.Join(a.claudeArgs, " ")
 
 	opts := llm.InvokeOptions{
 		WorkingDir:   workingDir,
-		ExtraFlags:   extraFlags,
+		ExtraFlags:   a.claudeArgs,
 		SettingsJSON: a.settingsJSON,
 		Timeout:      int(a.timeout.Seconds()),
 	}

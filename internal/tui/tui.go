@@ -4,6 +4,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/alexander-akhmetov/programmator/internal/domain"
 	"github.com/alexander-akhmetov/programmator/internal/event"
 	gitutil "github.com/alexander-akhmetov/programmator/internal/git"
+	"github.com/alexander-akhmetov/programmator/internal/llm"
 	"github.com/alexander-akhmetov/programmator/internal/loop"
 	"github.com/alexander-akhmetov/programmator/internal/permission"
 	"github.com/alexander-akhmetov/programmator/internal/progress"
@@ -35,6 +37,7 @@ type TUI struct {
 	gitWorkflowConfig      *loop.GitWorkflowConfig
 	codexConfig            *config.CodexConfig
 	ticketCommand          string
+	executorConfig         *llm.ExecutorConfig
 }
 
 // New creates a new TUI with the given safety config.
@@ -91,6 +94,12 @@ func (t *TUI) SetTicketCommand(cmd string) {
 
 func (t *TUI) SetHideTips(hide bool) {
 	t.model.hideTips = hide
+}
+
+func (t *TUI) SetExecutorConfig(cfg llm.ExecutorConfig) {
+	t.executorConfig = &cfg
+	t.model.claudeFlags = strings.Join(cfg.ExtraFlags, " ")
+	t.model.claudeConfigDir = cfg.Claude.ClaudeConfigDir
 }
 
 // Run starts the TUI and the orchestration loop, blocking until done.
@@ -175,9 +184,9 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 		}
 	})
 	if permServer != nil {
-		l.SetPermissionSocketPath(permServer.SocketPath())
+		t.executorConfig.PermissionSocketPath = permServer.SocketPath()
 	}
-	l.SetGuardMode(t.guardMode)
+	t.executorConfig.GuardMode = t.guardMode
 	l.SetReviewOnly(t.reviewOnly)
 	if t.reviewConfig != nil {
 		l.SetReviewConfig(*t.reviewConfig)
@@ -196,6 +205,9 @@ func (t *TUI) Run(ticketID string, workingDir string) (*loop.Result, error) {
 	}
 	if t.ticketCommand != "" {
 		l.SetTicketCommand(t.ticketCommand)
+	}
+	if t.executorConfig != nil {
+		l.SetExecutorConfig(*t.executorConfig)
 	}
 
 	t.model.SetLoop(l)

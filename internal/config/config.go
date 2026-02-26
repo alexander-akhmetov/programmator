@@ -24,6 +24,12 @@ var defaultsFS embed.FS
 // validModelName matches expected model name patterns (alphanumeric, dots, dashes, colons).
 var validModelName = regexp.MustCompile(`^[a-zA-Z0-9._:-]+$`)
 
+// validExecutors is the set of supported executor names.
+var validExecutors = map[string]bool{
+	"claude": true,
+	"":       true, // empty defaults to "claude"
+}
+
 // ReviewPhase is deprecated. Kept only for migration from old configs.
 // Use ReviewConfig.Agents instead.
 type ReviewPhase struct {
@@ -48,6 +54,13 @@ type CodexConfig struct {
 
 	// Set tracking for merge
 	TimeoutMsSet bool `yaml:"-"`
+}
+
+// ClaudeConfig holds Claude executor configuration.
+type ClaudeConfig struct {
+	Flags           string `yaml:"flags"`
+	ConfigDir       string `yaml:"config_dir"`
+	AnthropicAPIKey string `yaml:"anthropic_api_key"`
 }
 
 // ReviewConfig holds review-specific configuration.
@@ -86,10 +99,9 @@ type Config struct {
 	StagnationLimit int `yaml:"stagnation_limit"`
 	Timeout         int `yaml:"timeout"` // seconds
 
-	// Claude settings
-	ClaudeFlags     string `yaml:"claude_flags"`
-	ClaudeConfigDir string `yaml:"claude_config_dir"`
-	AnthropicAPIKey string `yaml:"anthropic_api_key"`
+	// Executor settings
+	Executor string       `yaml:"executor"`
+	Claude   ClaudeConfig `yaml:"claude"`
 
 	// Ticket settings
 	TicketCommand string `yaml:"ticket_command"` // Binary name for the ticket CLI (default: tk)
@@ -137,6 +149,15 @@ func (c *Config) LocalDir() string {
 // ConfigDir returns the global config directory.
 func (c *Config) ConfigDir() string {
 	return c.configDir
+}
+
+// Validate checks the configuration for invalid values.
+// Call after Load() to reject bad executor names early.
+func (c *Config) Validate() error {
+	if !validExecutors[c.Executor] {
+		return fmt.Errorf("unknown executor %q (supported: claude)", c.Executor)
+	}
+	return nil
 }
 
 // Load loads all configuration from the default locations.
@@ -331,18 +352,27 @@ func (c *Config) applyEnv() {
 		}
 	}
 
+	if v := os.Getenv("PROGRAMMATOR_EXECUTOR"); v != "" {
+		if validExecutors[v] {
+			c.Executor = v
+			c.sources = append(c.sources, "env:PROGRAMMATOR_EXECUTOR")
+		} else {
+			log.Printf("warning: ignoring invalid PROGRAMMATOR_EXECUTOR=%q: unknown executor (supported: claude)", v)
+		}
+	}
+
 	if v := os.Getenv("PROGRAMMATOR_CLAUDE_FLAGS"); v != "" {
-		c.ClaudeFlags = v
+		c.Claude.Flags = v
 		c.sources = append(c.sources, "env:PROGRAMMATOR_CLAUDE_FLAGS")
 	}
 
 	if v := os.Getenv("CLAUDE_CONFIG_DIR"); v != "" {
-		c.ClaudeConfigDir = v
+		c.Claude.ConfigDir = v
 		c.sources = append(c.sources, "env:CLAUDE_CONFIG_DIR")
 	}
 
 	if v := os.Getenv("PROGRAMMATOR_ANTHROPIC_API_KEY"); v != "" {
-		c.AnthropicAPIKey = v
+		c.Claude.AnthropicAPIKey = v
 		c.sources = append(c.sources, "env:PROGRAMMATOR_ANTHROPIC_API_KEY")
 	}
 
@@ -483,15 +513,18 @@ func (c *Config) mergeFrom(src *Config) {
 		c.HideTips = src.HideTips
 		c.HideTipsSet = true
 	}
-	if src.ClaudeFlags != "" {
-		c.ClaudeFlags = src.ClaudeFlags
+	if src.Executor != "" {
+		c.Executor = src.Executor
 	}
-	if src.ClaudeConfigDir != "" {
-		c.ClaudeConfigDir = src.ClaudeConfigDir
+	if src.Claude.Flags != "" {
+		c.Claude.Flags = src.Claude.Flags
 	}
-	if src.AnthropicAPIKey != "" {
-		log.Printf("warning: anthropic_api_key loaded from config file — ensure this is a trusted source")
-		c.AnthropicAPIKey = src.AnthropicAPIKey
+	if src.Claude.ConfigDir != "" {
+		c.Claude.ConfigDir = src.Claude.ConfigDir
+	}
+	if src.Claude.AnthropicAPIKey != "" {
+		log.Printf("warning: claude.anthropic_api_key loaded from config file — ensure this is a trusted source")
+		c.Claude.AnthropicAPIKey = src.Claude.AnthropicAPIKey
 	}
 	if src.LogsDir != "" {
 		c.LogsDir = src.LogsDir

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Prerequisites
 
-Requires Go 1.25.6+ (see `go.mod`). Dependencies are vendored (`vendor/`).
+Requires Go 1.26.0+ (see `go.mod`). Dependencies are vendored (`vendor/`).
 
 Plan files work without any external dependencies. Ticket-based workflow requires the external `ticket` CLI.
 
@@ -122,7 +122,8 @@ Unified YAML config with multi-level merge: embedded defaults → `~/.config/pro
 |----------|---------|-------------|
 | `PROGRAMMATOR_MAX_ITERATIONS` | 50 | Loop limit |
 | `PROGRAMMATOR_STAGNATION_LIMIT` | 3 | Exit after N iterations with no file changes |
-| `PROGRAMMATOR_TIMEOUT` | 900 | Seconds per Claude invocation |
+| `PROGRAMMATOR_TIMEOUT` | 900 | Seconds per executor invocation |
+| `PROGRAMMATOR_EXECUTOR` | `claude` | Which executor to use (only "claude" supported) |
 | `PROGRAMMATOR_CLAUDE_FLAGS` | `""` | Flags passed to Claude |
 | `TICKETS_DIR` | `~/.tickets` | Where ticket files live |
 | `CLAUDE_CONFIG_DIR` | - | Custom Claude config directory |

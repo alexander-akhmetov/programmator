@@ -13,9 +13,12 @@ func TestToSafetyConfig(t *testing.T) {
 		MaxIterations:   100,
 		StagnationLimit: 5,
 		Timeout:         600,
-		ClaudeFlags:     "--verbose",
-		ClaudeConfigDir: "/custom/dir",
-		AnthropicAPIKey: "test-key",
+		Executor:        "claude",
+		Claude: ClaudeConfig{
+			Flags:           "--verbose",
+			ConfigDir:       "/custom/dir",
+			AnthropicAPIKey: "test-key",
+		},
 		Review: ReviewConfig{
 			MaxIterations: 10,
 		},
@@ -25,16 +28,32 @@ func TestToSafetyConfig(t *testing.T) {
 	assert.Equal(t, 100, sc.MaxIterations)
 	assert.Equal(t, 5, sc.StagnationLimit)
 	assert.Equal(t, 600, sc.Timeout)
-	assert.Equal(t, "--verbose", sc.ClaudeFlags)
-	assert.Equal(t, "/custom/dir", sc.ClaudeConfigDir)
-	assert.Equal(t, "test-key", sc.AnthropicAPIKey)
 	assert.Equal(t, 10, sc.MaxReviewIterations)
+}
+
+func TestToExecutorConfig(t *testing.T) {
+	cfg := &Config{
+		Executor: "claude",
+		Claude: ClaudeConfig{
+			Flags:           "--verbose",
+			ConfigDir:       "/custom/dir",
+			AnthropicAPIKey: "test-key",
+		},
+	}
+
+	ec := cfg.ToExecutorConfig()
+	assert.Equal(t, "claude", ec.Name)
+	assert.Equal(t, []string{"--verbose"}, ec.ExtraFlags)
+	assert.Equal(t, "/custom/dir", ec.Claude.ClaudeConfigDir)
+	assert.Equal(t, "test-key", ec.Claude.AnthropicAPIKey)
 }
 
 func TestToReviewConfig_WithAgents(t *testing.T) {
 	cfg := &Config{
-		Timeout:     600,
-		ClaudeFlags: "--verbose",
+		Timeout: 600,
+		Claude: ClaudeConfig{
+			Flags: "--verbose",
+		},
 		Review: ReviewConfig{
 			MaxIterations: 5,
 			Parallel:      true,
@@ -58,8 +77,7 @@ func TestToReviewConfig_WithAgents(t *testing.T) {
 
 func TestToReviewConfig_MigrateFromPhases(t *testing.T) {
 	cfg := &Config{
-		Timeout:     300,
-		ClaudeFlags: "",
+		Timeout: 300,
 		Review: ReviewConfig{
 			MaxIterations: 3,
 			Phases: []ReviewPhase{
@@ -114,8 +132,7 @@ func TestToReviewConfig_AgentsTakePrecedenceOverPhases(t *testing.T) {
 
 func TestToReviewConfig_NoAgentsNoPhases(t *testing.T) {
 	cfg := &Config{
-		Timeout:     300,
-		ClaudeFlags: "",
+		Timeout: 300,
 		Review: ReviewConfig{
 			MaxIterations: 3,
 		},
@@ -156,5 +173,5 @@ func TestToSafetyConfig_ZeroValues(t *testing.T) {
 	assert.Equal(t, 0, sc.MaxIterations)
 	assert.Equal(t, 0, sc.StagnationLimit)
 	assert.Equal(t, 0, sc.Timeout)
-	assert.Equal(t, "", sc.ClaudeFlags)
+	assert.Equal(t, 0, sc.MaxReviewIterations)
 }

@@ -31,9 +31,6 @@ type Config struct {
 	MaxIterations       int
 	StagnationLimit     int
 	Timeout             int
-	ClaudeFlags         string
-	ClaudeConfigDir     string
-	AnthropicAPIKey     string
 	MaxReviewIterations int
 }
 
@@ -42,7 +39,6 @@ func ConfigFromEnv() Config {
 		MaxIterations:       DefaultMaxIterations,
 		StagnationLimit:     DefaultStagnationLimit,
 		Timeout:             DefaultTimeout,
-		ClaudeFlags:         "",
 		MaxReviewIterations: DefaultMaxReviewIterations,
 	}
 
@@ -62,14 +58,6 @@ func ConfigFromEnv() Config {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Timeout = n
 		}
-	}
-
-	if v := os.Getenv("PROGRAMMATOR_CLAUDE_FLAGS"); v != "" {
-		cfg.ClaudeFlags = v
-	}
-
-	if v := os.Getenv("CLAUDE_CONFIG_DIR"); v != "" {
-		cfg.ClaudeConfigDir = v
 	}
 
 	if v := os.Getenv("PROGRAMMATOR_MAX_REVIEW_ITERATIONS"); v != "" {

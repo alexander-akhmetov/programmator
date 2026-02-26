@@ -5,52 +5,52 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/alexander-akhmetov/programmator/internal/safety"
+	"github.com/alexander-akhmetov/programmator/internal/llm"
 )
 
 func TestApplySkipPermissions(t *testing.T) {
 	tests := []struct {
 		name     string
-		initial  string
-		expected string
+		initial  []string
+		expected []string
 	}{
 		{
 			name:     "empty flags",
-			initial:  "",
-			expected: "--dangerously-skip-permissions",
+			initial:  nil,
+			expected: []string{"--dangerously-skip-permissions"},
 		},
 		{
 			name:     "existing flags without skip",
-			initial:  "--verbose",
-			expected: "--verbose --dangerously-skip-permissions",
+			initial:  []string{"--verbose"},
+			expected: []string{"--verbose", "--dangerously-skip-permissions"},
 		},
 		{
 			name:     "already has skip flag",
-			initial:  "--dangerously-skip-permissions",
-			expected: "--dangerously-skip-permissions",
+			initial:  []string{"--dangerously-skip-permissions"},
+			expected: []string{"--dangerously-skip-permissions"},
 		},
 		{
 			name:     "already has skip flag with other flags",
-			initial:  "--verbose --dangerously-skip-permissions --other",
-			expected: "--verbose --dangerously-skip-permissions --other",
+			initial:  []string{"--verbose", "--dangerously-skip-permissions", "--other"},
+			expected: []string{"--verbose", "--dangerously-skip-permissions", "--other"},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := safety.Config{ClaudeFlags: tc.initial}
+			cfg := llm.ExecutorConfig{ExtraFlags: tc.initial}
 			applySkipPermissions(&cfg)
-			assert.Equal(t, tc.expected, cfg.ClaudeFlags)
+			assert.Equal(t, tc.expected, cfg.ExtraFlags)
 		})
 	}
 }
 
 func TestResolveGuardMode(t *testing.T) {
 	t.Run("disabled guard mode returns false", func(t *testing.T) {
-		cfg := safety.Config{}
+		cfg := llm.ExecutorConfig{}
 		result := resolveGuardMode(false, &cfg)
 		assert.False(t, result)
-		assert.Empty(t, cfg.ClaudeFlags)
+		assert.Empty(t, cfg.ExtraFlags)
 	})
 
 	// Note: cannot test dcg found/not found without mocking exec.LookPath,

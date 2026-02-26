@@ -1570,7 +1570,7 @@ func TestRunPhaselessTicket_BlockedHandled(t *testing.T) {
 
 func TestBuildHookSettings_PermissionOnly(t *testing.T) {
 	l := New(safety.Config{}, "", nil, nil, false)
-	l.SetPermissionSocketPath("/tmp/test.sock")
+	l.SetExecutorConfig(llm.ExecutorConfig{PermissionSocketPath: "/tmp/test.sock"})
 
 	settings := l.buildHookSettings()
 
@@ -1582,7 +1582,7 @@ func TestBuildHookSettings_PermissionOnly(t *testing.T) {
 
 func TestBuildHookSettings_GuardOnly(t *testing.T) {
 	l := New(safety.Config{}, "", nil, nil, false)
-	l.SetGuardMode(true)
+	l.SetExecutorConfig(llm.ExecutorConfig{GuardMode: true})
 
 	settings := l.buildHookSettings()
 
@@ -1595,8 +1595,10 @@ func TestBuildHookSettings_GuardOnly(t *testing.T) {
 
 func TestBuildHookSettings_BothCombined(t *testing.T) {
 	l := New(safety.Config{}, "", nil, nil, false)
-	l.SetPermissionSocketPath("/tmp/test.sock")
-	l.SetGuardMode(true)
+	l.SetExecutorConfig(llm.ExecutorConfig{
+		PermissionSocketPath: "/tmp/test.sock",
+		GuardMode:            true,
+	})
 
 	settings := l.buildHookSettings()
 
@@ -1607,13 +1609,13 @@ func TestBuildHookSettings_BothCombined(t *testing.T) {
 	require.Contains(t, settings, fmt.Sprintf("DCG_CONFIG='%s/.config/dcg/config.toml' dcg", home))
 }
 
-func TestSetGuardMode(t *testing.T) {
+func TestSetGuardMode_ViaExecutorConfig(t *testing.T) {
 	l := New(safety.Config{}, "", nil, nil, false)
 
-	require.False(t, l.guardMode)
+	require.False(t, l.executorConfig.GuardMode)
 
-	l.SetGuardMode(true)
-	require.True(t, l.guardMode)
+	l.SetExecutorConfig(llm.ExecutorConfig{GuardMode: true})
+	require.True(t, l.executorConfig.GuardMode)
 }
 
 // Fix 1 test: iteration_limit:1 allows Claude one fix attempt

@@ -67,18 +67,22 @@ func runConfigShow(_ *cobra.Command, _ []string) error {
 	fmt.Printf("  ticket_command: %s\n", cfg.TicketCommand)
 	fmt.Println()
 
+	fmt.Println("## Executor Settings")
+	fmt.Printf("  executor: %s\n", cfg.Executor)
+	fmt.Println()
+
 	fmt.Println("## Claude Settings")
-	if cfg.ClaudeFlags != "" {
-		fmt.Printf("  claude_flags:     %s\n", cfg.ClaudeFlags)
+	if cfg.Claude.Flags != "" {
+		fmt.Printf("  flags:            %s\n", cfg.Claude.Flags)
 	} else {
-		fmt.Printf("  claude_flags:     (none)\n")
+		fmt.Printf("  flags:            (none)\n")
 	}
-	if cfg.ClaudeConfigDir != "" {
-		fmt.Printf("  claude_config_dir: %s\n", cfg.ClaudeConfigDir)
+	if cfg.Claude.ConfigDir != "" {
+		fmt.Printf("  config_dir:       %s\n", cfg.Claude.ConfigDir)
 	} else {
-		fmt.Printf("  claude_config_dir: (default)\n")
+		fmt.Printf("  config_dir:       (default)\n")
 	}
-	if cfg.AnthropicAPIKey != "" {
+	if cfg.Claude.AnthropicAPIKey != "" {
 		fmt.Printf("  anthropic_api_key: (set)\n")
 	} else {
 		fmt.Printf("  anthropic_api_key: (not set)\n")

@@ -85,12 +85,16 @@ func runReview(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
 
 	safetyConfig := cfg.ToSafetyConfig()
+	execConfig := cfg.ToExecutorConfig()
 
-	reviewGuardMode = resolveGuardMode(reviewGuardMode, &safetyConfig)
+	reviewGuardMode = resolveGuardMode(reviewGuardMode, &execConfig)
 	if reviewSkipPermissions {
-		applySkipPermissions(&safetyConfig)
+		applySkipPermissions(&execConfig)
 	}
 
 	reviewConfig := cfg.ToReviewConfig()
@@ -118,7 +122,7 @@ func runReview(_ *cobra.Command, _ []string) error {
 	}, nil, true)
 	reviewLoop.SetReviewConfig(reviewConfig)
 	reviewLoop.SetReviewOnly(true)
-	reviewLoop.SetGuardMode(reviewGuardMode)
+	execConfig.GuardMode = reviewGuardMode
 	if progressLogger != nil {
 		reviewLoop.SetProgressLogger(progressLogger)
 	}
@@ -128,6 +132,7 @@ func runReview(_ *cobra.Command, _ []string) error {
 	}
 	reviewLoop.SetPromptBuilder(promptBuilder)
 	reviewLoop.SetCodexConfig(cfg.Codex)
+	reviewLoop.SetExecutorConfig(execConfig)
 
 	// Run review-only loop
 	result, err := reviewLoop.RunReviewOnly(reviewBaseBranch, filesChanged)

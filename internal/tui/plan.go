@@ -60,6 +60,9 @@ func runPlanCreate(_ *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
 
 	wd, err := os.Getwd()
 	if err != nil {
@@ -102,6 +105,7 @@ func runPlanCreate(_ *cobra.Command, args []string) error {
 	collector := NewTerminalCollector()
 
 	// Run the plan creation loop
+	execConfig := cfg.ToExecutorConfig()
 	creator := &planCreator{
 		description:    description,
 		workDir:        wd,
@@ -110,7 +114,7 @@ func runPlanCreate(_ *cobra.Command, args []string) error {
 		builder:        builder,
 		collector:      collector,
 		progressLogger: progressLogger,
-		claudeFlags:    cfg.ClaudeFlags,
+		executorConfig: execConfig,
 	}
 
 	planPath, err := creator.run()
@@ -154,7 +158,7 @@ type planCreator struct {
 	builder        *prompt.Builder
 	collector      Collector
 	progressLogger *progress.Logger
-	claudeFlags    string
+	executorConfig llm.ExecutorConfig
 	qa             []prompt.QA
 }
 
@@ -175,7 +179,7 @@ func (p *planCreator) run() (string, error) {
 		// Invoke Claude
 		output, err := p.invokeClaude(ctx, promptText)
 		if err != nil {
-			return "", fmt.Errorf("invoke Claude: %w", err)
+			return "", fmt.Errorf("invoke executor: %w", err)
 		}
 
 		// Check for plan ready signal
@@ -237,11 +241,14 @@ func (p *planCreator) run() (string, error) {
 }
 
 func (p *planCreator) invokeClaude(ctx context.Context, promptText string) (string, error) {
-	inv := llm.NewClaudeInvoker(llm.EnvConfig{})
+	inv, err := llm.NewInvoker(p.executorConfig)
+	if err != nil {
+		return "", fmt.Errorf("create invoker: %w", err)
+	}
 
 	opts := llm.InvokeOptions{
 		WorkingDir: p.workDir,
-		ExtraFlags: p.claudeFlags,
+		ExtraFlags: p.executorConfig.ExtraFlags,
 		Timeout:    int((5 * time.Minute).Seconds()),
 		OnOutput: func(text string) {
 			if strings.Contains(text, "Reading") || strings.Contains(text, "Searching") {
