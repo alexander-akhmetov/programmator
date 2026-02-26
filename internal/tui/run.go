@@ -124,7 +124,7 @@ func runClaudePrint(prompt, workingDir string) error {
 
 	opts := llm.InvokeOptions{
 		WorkingDir: workingDir,
-		ExtraFlags: buildCommonFlags(),
+		ExtraFlags: append(execCfg.ExtraFlags, buildCommonFlags()...),
 		OnOutput: func(text string) {
 			fmt.Print(text)
 		},
@@ -141,9 +141,11 @@ func runClaudePrint(prompt, workingDir string) error {
 func runClaudeTUI(prompt, workingDir string) error {
 	executorName := runExecutor
 	if executorName == "" {
-		if cfg, err := config.Load(); err == nil {
-			executorName = cfg.Executor
+		cfg, err := config.Load()
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
 		}
+		executorName = cfg.Executor
 	}
 	if executorName != "" && executorName != "claude" {
 		return runClaudePrint(prompt, workingDir)

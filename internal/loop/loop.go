@@ -814,15 +814,10 @@ func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string
 		l.invoker = inv
 	}
 
-	var extraFlags []string
-	if l.isClaudeExecutor() {
-		extraFlags = l.executorConfig.ExtraFlags
-	}
-
 	opts := llm.InvokeOptions{
 		WorkingDir: l.workingDir,
 		Streaming:  l.streaming,
-		ExtraFlags: extraFlags,
+		ExtraFlags: l.executorConfig.ExtraFlags,
 		Timeout:    l.config.Timeout,
 		OnOutput: func(text string) {
 			l.emit(event.Markdown(text))
@@ -1282,8 +1277,8 @@ func (l *Loop) applySettingsToReviewConfig() {
 		if l.executorConfig.PermissionSocketPath != "" || l.executorConfig.GuardMode {
 			l.reviewConfig.SettingsJSON = l.buildHookSettings()
 		}
+		l.reviewConfig.EnvConfig = l.executorConfig.Claude
 	}
-	l.reviewConfig.EnvConfig = l.executorConfig.Claude
 }
 
 func (l *Loop) applyReviewContext(workItem *domain.WorkItem) {
