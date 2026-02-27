@@ -315,6 +315,11 @@ func TestNormalizePhase(t *testing.T) {
 		{"strips Step N:", "Step 3: Testing", "testing"},
 		{"no prefix", "just a task", "just a task"},
 		{"case insensitive prefix", "phase 1: Setup", "setup"},
+		{
+			name:  "normalizes escaped newlines and real newlines",
+			input: "Phase 2: Implement `Load()` and unescape `\\n` to `\n`",
+			want:  "implement `load()` and unescape `\\n` to `\\n`",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -322,6 +327,12 @@ func TestNormalizePhase(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestNormalizePhase_EscapeVariantEquivalence(t *testing.T) {
+	fromTicket := "Phase 2: Implement `Load()` in `internal/cli/history.go` to read file entries, split lines, unescape `\\\\n` to `\\n`, and cap to `max`."
+	fromYAML := "Phase 2: Implement `Load()` in `internal/cli/history.go` to read file entries, split lines, unescape `\\n` to `\n`, and cap to `max`."
+	assert.Equal(t, normalizePhase(fromTicket), normalizePhase(fromYAML))
 }
 
 func TestUpdatePhase(t *testing.T) {
@@ -385,6 +396,20 @@ func TestUpdatePhase(t *testing.T) {
 		data, err := os.ReadFile(path)
 		require.NoError(t, err)
 		assert.Contains(t, string(data), "- [x] Setup")
+	})
+
+	t.Run("matches escaped newline phase from yaml-decoded status", func(t *testing.T) {
+		phaseInTicket := "Phase 2: Implement `Load()` in `internal/cli/history.go` to read file entries, split lines, unescape `\\\\n` to `\\n`, and cap to `max`."
+		phaseFromStatus := "Phase 2: Implement `Load()` in `internal/cli/history.go` to read file entries, split lines, unescape `\\n` to `\n`, and cap to `max`."
+		content := "## Design\n- [ ] " + phaseInTicket + "\n"
+		client, path := setup(t, content)
+
+		err := client.UpdatePhase("t-1234", phaseFromStatus)
+		require.NoError(t, err)
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "- [x] "+phaseInTicket)
 	})
 }
 

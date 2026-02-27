@@ -294,6 +294,22 @@ func TestMarkTaskComplete_WithPrefixes(t *testing.T) {
 	assert.True(t, plan.Tasks[1].Completed)
 }
 
+func TestMarkTaskComplete_EscapedNewlineVariants(t *testing.T) {
+	plan := &Plan{
+		Tasks: []Task{
+			{
+				Name:      "Phase 2: Implement `Load()` in `internal/cli/history.go` to read file entries, split lines, unescape `\\\\n` to `\\n`, and cap to `max`.",
+				Completed: false,
+			},
+		},
+	}
+
+	phaseFromStatus := "Phase 2: Implement `Load()` in `internal/cli/history.go` to read file entries, split lines, unescape `\\n` to `\n`, and cap to `max`."
+	err := plan.MarkTaskComplete(phaseFromStatus)
+	require.NoError(t, err)
+	assert.True(t, plan.Tasks[0].Completed)
+}
+
 func TestPlanID(t *testing.T) {
 	tests := []struct {
 		filePath string

@@ -42,10 +42,19 @@ type Plan struct {
 }
 
 var (
-	titleRegex           = regexp.MustCompile(`(?m)^#\s+(?:Plan:\s*)?(.+)$`)
-	taskRegex            = regexp.MustCompile(`(?m)^-\s+\[([ xX])\]\s+(.+)$`)
-	validationRegex      = regexp.MustCompile("(?m)^-\\s+`([^`]+)`\\s*$")
-	normalizePrefixRegex = regexp.MustCompile(`^(task|step|phase)\s*\d+[:.]\s*`)
+	titleRegex                  = regexp.MustCompile(`(?m)^#\s+(?:Plan:\s*)?(.+)$`)
+	taskRegex                   = regexp.MustCompile(`(?m)^-\s+\[([ xX])\]\s+(.+)$`)
+	validationRegex             = regexp.MustCompile("(?m)^-\\s+`([^`]+)`\\s*$")
+	normalizePrefixRegex        = regexp.MustCompile(`^(task|step|phase)\s*\d+[:.]\s*`)
+	escapeSequenceCanonicalizer = strings.NewReplacer(
+		`\\n`, `\n`,
+		`\\r`, `\r`,
+		`\\t`, `\t`,
+		"\r\n", "\n",
+		"\r", "\n",
+		"\n", `\n`,
+		"\t", `\t`,
+	)
 )
 
 // ParseFile reads and parses a plan file from disk.
@@ -207,6 +216,8 @@ func normalizeTaskName(s string) string {
 	s = strings.TrimSpace(s)
 	// Remove common prefixes like "Task 1:", "Step 2:", "Phase 1:", etc.
 	s = normalizePrefixRegex.ReplaceAllString(s, "")
+	s = escapeSequenceCanonicalizer.Replace(s)
+	s = strings.Join(strings.Fields(s), " ")
 	return s
 }
 

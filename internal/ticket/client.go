@@ -206,10 +206,22 @@ func (c *CLIClient) findTicketFile(id string) (string, error) {
 
 var normalizePrefixRegex = regexp.MustCompile(`^(phase|step)\s*\d+[:.]\s*`)
 
+var escapeSequenceCanonicalizer = strings.NewReplacer(
+	`\\n`, `\n`,
+	`\\r`, `\r`,
+	`\\t`, `\t`,
+	"\r\n", "\n",
+	"\r", "\n",
+	"\n", `\n`,
+	"\t", `\t`,
+)
+
 func normalizePhase(s string) string {
 	s = strings.ToLower(s)
 	s = strings.TrimSpace(s)
 	s = normalizePrefixRegex.ReplaceAllString(s, "")
+	s = escapeSequenceCanonicalizer.Replace(s)
+	s = strings.Join(strings.Fields(s), " ")
 	return s
 }
 
