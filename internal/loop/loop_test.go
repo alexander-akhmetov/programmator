@@ -173,6 +173,123 @@ func TestLoopLogEvent(t *testing.T) {
 	require.Equal(t, "test event message", received[0].Text)
 }
 
+func TestLogStartBanner(t *testing.T) {
+	tests := []struct {
+		name       string
+		srcType    string
+		itemID     string
+		workItem   *domain.WorkItem
+		wantSubs   []string // substrings that must appear in the banner
+		rejectSubs []string // substrings that must NOT appear
+	}{
+		{
+			name:    "plan with mixed phases",
+			srcType: protocol.SourceTypePlan,
+			itemID:  "./plan.md",
+			workItem: &domain.WorkItem{
+				Title: "Feature Name",
+				Phases: []domain.Phase{
+					{Name: "Investigation", Completed: true},
+					{Name: "Implementation", Completed: false},
+					{Name: "Testing", Completed: false},
+				},
+			},
+			wantSubs: []string{
+				"[programmator]",
+				"Starting plan ./plan.md: Feature Name",
+				"Tasks (3):",
+				"✓ Investigation",
+				"→ Implementation",
+				"○ Testing",
+			},
+		},
+		{
+			name:    "ticket with phases",
+			srcType: protocol.SourceTypeTicket,
+			itemID:  "pro-123",
+			workItem: &domain.WorkItem{
+				Title: "Fix bug",
+				Phases: []domain.Phase{
+					{Name: "Investigate", Completed: false},
+				},
+			},
+			wantSubs: []string{
+				"Starting ticket pro-123: Fix bug",
+				"Phases (1):",
+				"→ Investigate",
+			},
+		},
+		{
+			name:    "no phases",
+			srcType: protocol.SourceTypePlan,
+			itemID:  "./simple.md",
+			workItem: &domain.WorkItem{
+				Title: "Simple Task",
+			},
+			wantSubs: []string{
+				"Starting plan ./simple.md: Simple Task",
+			},
+			rejectSubs: []string{"Tasks", "Phases"},
+		},
+		{
+			name:    "duplicate phase names marks only first as current",
+			srcType: protocol.SourceTypePlan,
+			itemID:  "./dup.md",
+			workItem: &domain.WorkItem{
+				Title: "Dup phases",
+				Phases: []domain.Phase{
+					{Name: "Run tests", Completed: true},
+					{Name: "Run tests", Completed: false},
+					{Name: "Run tests", Completed: false},
+				},
+			},
+			wantSubs: []string{
+				"✓ Run tests",
+				"→ Run tests",
+				"○ Run tests",
+			},
+		},
+		{
+			name:    "all phases completed",
+			srcType: protocol.SourceTypeTicket,
+			itemID:  "pro-done",
+			workItem: &domain.WorkItem{
+				Title: "Done ticket",
+				Phases: []domain.Phase{
+					{Name: "Step 1", Completed: true},
+					{Name: "Step 2", Completed: true},
+				},
+			},
+			wantSubs: []string{
+				"Phases (2):",
+				"✓ Step 1",
+				"✓ Step 2",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var received []event.Event
+			l := New(safety.Config{}, "", nil, false)
+			l.SetEventCallback(func(e event.Event) {
+				received = append(received, e)
+			})
+
+			l.logStartBanner(tc.srcType, tc.itemID, tc.workItem)
+
+			require.Len(t, received, 1)
+			require.Equal(t, event.KindIterationSeparator, received[0].Kind)
+			for _, sub := range tc.wantSubs {
+				require.Contains(t, received[0].Text, sub)
+			}
+			for _, sub := range tc.rejectSubs {
+				require.NotContains(t, received[0].Text, sub)
+			}
+		})
+	}
+}
+
 // TestLoopLogNoCallback verifies that log() does not panic when no callback is set.
 func TestLoopLogNoCallback(t *testing.T) {
 	_ = t // test passes if no panic occurs; named param allows future assertions
