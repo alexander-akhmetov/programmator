@@ -20,7 +20,7 @@ func TestLoadEmbedded(t *testing.T) {
 	assert.Equal(t, "", cfg.Claude.Flags)
 	assert.Equal(t, 3, cfg.Review.MaxIterations)
 	assert.True(t, cfg.Review.Parallel)
-	assert.Len(t, cfg.Review.Agents, 8)
+	assert.Len(t, cfg.Review.Agents, 9)
 }
 
 func TestLoadWithDirs_GlobalOnly(t *testing.T) {

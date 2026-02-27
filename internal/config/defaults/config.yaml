@@ -42,44 +42,40 @@ review:
   parallel: true # Run agents in parallel
 
   agents:
-    - name: error-handling
+    - name: bug-shallow
       focus:
-        - error handling
-        - resource management
+        - obvious bugs visible in diff only
+    - name: bug-deep
+      focus:
+        - bugs in introduced code requiring context
+        - security
+        - resource leaks
         - concurrency
-        - race conditions
-    - name: logic
+    - name: architect
       focus:
-        - logic errors
-        - edge cases
-        - off-by-one
-        - incorrect conditionals
-        - nil handling
-    - name: security
-      focus:
-        - input validation
-        - secrets
-        - injection
-    - name: implementation
-      focus:
-        - requirement coverage
-        - wiring
-        - completeness
-    - name: testing
-      focus:
-        - test coverage
-        - fake tests
-        - edge cases
+        - architectural fit
+        - better approaches
+        - coupling
     - name: simplification
       focus:
         - over-engineering
-        - unnecessary abstractions
-    - name: linter
+        - unnecessary complexity
+    - name: silent-failures
       focus:
-        - lint errors
-        - formatting
-        - static analysis
+        - silent failures
+        - swallowed errors
+        - inadequate logging
     - name: claudemd
       focus:
         - CLAUDE.md compliance
-        - project conventions
+    - name: type-design
+      focus:
+        - type/interface design quality
+    - name: comments
+      focus:
+        - comment accuracy and value
+    - name: tests-and-linters
+      focus:
+        - test failures
+        - lint errors
+        - formatting
