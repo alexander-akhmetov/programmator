@@ -101,6 +101,12 @@ review:
       prompt_file: ".programmator/prompts/review/code-review.md"
 ```
 
+And in `.programmator/prompts/review/code-review.md`:
+
+``` markdown
+Do a good code review please.
+```
+
 ### Code with pi, review with Claude Opus
 
 ```yaml
