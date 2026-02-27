@@ -76,13 +76,7 @@ func (m Model) renderSidebarHeader(width int) string {
 	var b strings.Builder
 
 	b.WriteString(titleStyle.Render("⚡ PROGRAMMATOR"))
-	b.WriteString("\n")
-
-	if strings.Contains(m.claudeFlags, "--dangerously-skip-permissions") {
-		b.WriteString(dangerStyle.Render("⚠ SKIP PERMISSIONS"))
-		b.WriteString("\n")
-	}
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 
 	stateIndicator := m.getStateIndicator()
 

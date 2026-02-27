@@ -17,11 +17,10 @@ import (
 )
 
 var (
-	runWorkingDir      string
-	runSkipPermissions bool
-	runNonInteractive  bool
-	runMaxTurns        int
-	runExecutor        string
+	runWorkingDir     string
+	runNonInteractive bool
+	runMaxTurns       int
+	runExecutor       string
 )
 
 var runCmd = &cobra.Command{
@@ -41,7 +40,6 @@ Examples:
 
 func init() {
 	runCmd.Flags().StringVarP(&runWorkingDir, "dir", "d", "", "Working directory for Claude (default: current directory)")
-	runCmd.Flags().BoolVar(&runSkipPermissions, "dangerously-skip-permissions", false, "Skip interactive permission dialogs (grants all permissions)")
 	runCmd.Flags().BoolVar(&runNonInteractive, "print", false, "Non-interactive mode: print output directly without TUI")
 	runCmd.Flags().IntVar(&runMaxTurns, "max-turns", 0, "Maximum agentic turns (0 = unlimited)")
 	runCmd.Flags().StringVar(&runExecutor, "executor", "", "Executor to use (default: claude)")
@@ -91,9 +89,6 @@ func runRun(_ *cobra.Command, args []string) error {
 // buildCommonFlags returns CLI flags shared by both print and TUI modes.
 func buildCommonFlags() []string {
 	var flags []string
-	if runSkipPermissions {
-		flags = append(flags, "--dangerously-skip-permissions")
-	}
 	if runMaxTurns > 0 {
 		flags = append(flags, "--max-turns", fmt.Sprintf("%d", runMaxTurns))
 	}
@@ -148,8 +143,8 @@ func runClaudeTUI(prompt, workingDir string) error {
 		return runClaudePrint(prompt, workingDir)
 	}
 
-	// Build Claude command
-	args := buildCommonFlags()
+	// Build Claude command — always skip permissions (dcg is the sole safety layer)
+	args := append([]string{"--dangerously-skip-permissions"}, buildCommonFlags()...)
 	args = append(args, "-p", prompt)
 
 	cmd := exec.Command("claude", args...)

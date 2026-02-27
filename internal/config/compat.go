@@ -2,6 +2,7 @@ package config
 
 import (
 	"log"
+	"slices"
 	"strings"
 
 	"github.com/alexander-akhmetov/programmator/internal/llm"
@@ -10,15 +11,26 @@ import (
 )
 
 // ToExecutorConfig converts the unified Config to an llm.ExecutorConfig.
+// Always injects --dangerously-skip-permissions because the permission system
+// has been removed; dcg is the sole safety layer.
 func (c *Config) ToExecutorConfig() llm.ExecutorConfig {
+	flags := strings.Fields(c.Claude.Flags)
+	flags = ensureFlag(flags, "--dangerously-skip-permissions")
 	return llm.ExecutorConfig{
 		Name: c.Executor,
 		Claude: llm.EnvConfig{
 			ClaudeConfigDir: c.Claude.ConfigDir,
 			AnthropicAPIKey: c.Claude.AnthropicAPIKey,
 		},
-		ExtraFlags: strings.Fields(c.Claude.Flags),
+		ExtraFlags: flags,
 	}
+}
+
+func ensureFlag(flags []string, flag string) []string {
+	if slices.Contains(flags, flag) {
+		return flags
+	}
+	return append(flags, flag)
 }
 
 // ToSafetyConfig converts the unified Config to a safety.Config.
@@ -34,11 +46,12 @@ func (c *Config) ToSafetyConfig() safety.Config {
 // ToReviewConfig converts the unified Config to a review.Config.
 func (c *Config) ToReviewConfig() review.Config {
 	agents := c.resolveReviewAgents()
+	reviewFlags := ensureFlag(strings.Fields(c.Claude.Flags), "--dangerously-skip-permissions")
 	return review.Config{
 		MaxIterations: c.Review.MaxIterations,
 		Parallel:      c.Review.Parallel,
 		Timeout:       c.Timeout,
-		ClaudeFlags:   c.Claude.Flags,
+		ClaudeFlags:   strings.Join(reviewFlags, " "),
 		Agents:        agents,
 		EnvConfig: llm.EnvConfig{
 			ClaudeConfigDir: c.Claude.ConfigDir,

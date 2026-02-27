@@ -43,7 +43,7 @@ func TestToExecutorConfig(t *testing.T) {
 
 	ec := cfg.ToExecutorConfig()
 	assert.Equal(t, "claude", ec.Name)
-	assert.Equal(t, []string{"--verbose"}, ec.ExtraFlags)
+	assert.Equal(t, []string{"--verbose", "--dangerously-skip-permissions"}, ec.ExtraFlags)
 	assert.Equal(t, "/custom/dir", ec.Claude.ClaudeConfigDir)
 	assert.Equal(t, "test-key", ec.Claude.AnthropicAPIKey)
 }
@@ -69,7 +69,7 @@ func TestToReviewConfig_WithAgents(t *testing.T) {
 	rc := cfg.ToReviewConfig()
 	assert.Equal(t, 5, rc.MaxIterations)
 	assert.Equal(t, 600, rc.Timeout)
-	assert.Equal(t, "--verbose", rc.ClaudeFlags)
+	assert.Equal(t, "--verbose --dangerously-skip-permissions", rc.ClaudeFlags)
 	assert.True(t, rc.Parallel)
 	require.Len(t, rc.Agents, 2)
 	assert.Equal(t, "quality", rc.Agents[0].Name)
@@ -172,4 +172,30 @@ func TestToSafetyConfig_ZeroValues(t *testing.T) {
 	assert.Equal(t, 0, sc.StagnationLimit)
 	assert.Equal(t, 0, sc.Timeout)
 	assert.Equal(t, 0, sc.MaxReviewIterations)
+}
+
+func TestToExecutorConfig_AlwaysSkipPermissions(t *testing.T) {
+	t.Run("injects flag when absent", func(t *testing.T) {
+		cfg := &Config{}
+		ec := cfg.ToExecutorConfig()
+		assert.Contains(t, ec.ExtraFlags, "--dangerously-skip-permissions")
+	})
+
+	t.Run("does not duplicate when already present", func(t *testing.T) {
+		cfg := &Config{Claude: ClaudeConfig{Flags: "--dangerously-skip-permissions"}}
+		ec := cfg.ToExecutorConfig()
+		count := 0
+		for _, f := range ec.ExtraFlags {
+			if f == "--dangerously-skip-permissions" {
+				count++
+			}
+		}
+		assert.Equal(t, 1, count)
+	})
+}
+
+func TestToReviewConfig_AlwaysSkipPermissions(t *testing.T) {
+	cfg := &Config{}
+	rc := cfg.ToReviewConfig()
+	assert.Contains(t, rc.ClaudeFlags, "--dangerously-skip-permissions")
 }
