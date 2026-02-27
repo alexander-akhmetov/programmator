@@ -24,7 +24,7 @@ func GetDefaultPrompt(agentName string) string {
 		return prompts.TypeDesignPrompt
 	case "comments":
 		return prompts.CommentsPrompt
-	case "linter":
+	case "tests-and-linters":
 		return prompts.LinterPrompt
 	case "simplification-validator":
 		return prompts.SimplificationValidatorPrompt

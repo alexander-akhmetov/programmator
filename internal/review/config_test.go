@@ -26,7 +26,7 @@ func TestDefaultConfig(t *testing.T) {
 	require.Contains(t, names, "claudemd")
 	require.Contains(t, names, "type-design")
 	require.Contains(t, names, "comments")
-	require.Contains(t, names, "linter")
+	require.Contains(t, names, "tests-and-linters")
 }
 
 func TestDefaultAgents(t *testing.T) {

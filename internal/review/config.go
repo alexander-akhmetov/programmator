@@ -46,6 +46,6 @@ func DefaultAgents() []AgentConfig {
 		{Name: "claudemd", Focus: []string{"CLAUDE.md compliance"}},
 		{Name: "type-design", Focus: []string{"type/interface design quality"}},
 		{Name: "comments", Focus: []string{"comment accuracy and value"}},
-		{Name: "linter", Focus: []string{"lint errors", "formatting"}},
+		{Name: "tests-and-linters", Focus: []string{"test failures", "lint errors", "formatting"}},
 	}
 }
