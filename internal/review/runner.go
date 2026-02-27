@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -174,6 +176,33 @@ func (r *Runner) runAgentsSequential(ctx context.Context, agents []AgentConfig, 
 	}
 
 	return results, nil
+}
+
+func (r *Runner) resolveAgentConfigs(agents []AgentConfig, workingDir string) ([]AgentConfig, error) {
+	resolved := make([]AgentConfig, 0, len(agents))
+
+	for _, cfg := range agents {
+		if cfg.Prompt != "" && cfg.PromptFile != "" {
+			return nil, fmt.Errorf("agent %s: prompt and prompt_file are mutually exclusive", cfg.Name)
+		}
+		if cfg.PromptFile != "" {
+			path := cfg.PromptFile
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(workingDir, path)
+			}
+
+			data, err := os.ReadFile(path) //nolint:gosec // prompt file path is user-configured
+			if err != nil {
+				return nil, fmt.Errorf("agent %s: read prompt_file %q: %w", cfg.Name, cfg.PromptFile, err)
+			}
+			cfg.Prompt = string(data)
+			cfg.PromptFile = ""
+		}
+
+		resolved = append(resolved, cfg)
+	}
+
+	return resolved, nil
 }
 
 // getOrCreateAgent gets a cached agent or creates a new one.
@@ -384,13 +413,18 @@ func (r *Runner) RunIteration(ctx context.Context, workingDir string, filesChang
 
 	r.log("Running review iteration")
 
+	resolvedAgents, err := r.resolveAgentConfigs(r.config.Agents, workingDir)
+	if err != nil {
+		result.Duration = time.Since(start)
+		return result, err
+	}
+
 	var passResults []*Result
-	var err error
 
 	if r.config.Parallel {
-		passResults, err = r.runAgentsParallel(ctx, r.config.Agents, workingDir, filesChanged)
+		passResults, err = r.runAgentsParallel(ctx, resolvedAgents, workingDir, filesChanged)
 	} else {
-		passResults, err = r.runAgentsSequential(ctx, r.config.Agents, workingDir, filesChanged)
+		passResults, err = r.runAgentsSequential(ctx, resolvedAgents, workingDir, filesChanged)
 	}
 
 	if err != nil {
@@ -401,28 +435,30 @@ func (r *Runner) RunIteration(ctx context.Context, workingDir string, filesChang
 	// Assign stable IDs to issues for tracking across iterations
 	assignIssueIDs(passResults)
 
-	// Always validate simplification results
-	for i, res := range passResults {
-		if res.AgentName == "simplification" && len(res.Issues) > 0 {
-			validated, validateErr := r.ValidateSimplifications(ctx, workingDir, res)
-			if validateErr == nil {
-				passResults[i] = validated
-				assignIssueIDs([]*Result{passResults[i]})
+	if r.config.ValidateSimplifications {
+		for i, res := range passResults {
+			if res.AgentName == "simplification" && len(res.Issues) > 0 {
+				validated, validateErr := r.ValidateSimplifications(ctx, workingDir, res)
+				if validateErr == nil {
+					passResults[i] = validated
+					assignIssueIDs([]*Result{passResults[i]})
+				}
 			}
 		}
 	}
 
-	// Always validate all issues (excluding simplification)
-	totalNonSimp := 0
-	for _, res := range passResults {
-		if res.AgentName != "simplification" {
-			totalNonSimp += len(res.Issues)
+	if r.config.ValidateIssues {
+		totalNonSimp := 0
+		for _, res := range passResults {
+			if res.AgentName != "simplification" {
+				totalNonSimp += len(res.Issues)
+			}
 		}
-	}
-	if totalNonSimp > 0 {
-		validated, validateErr := r.ValidateIssues(ctx, workingDir, passResults)
-		if validateErr == nil {
-			passResults = validated
+		if totalNonSimp > 0 {
+			validated, validateErr := r.ValidateIssues(ctx, workingDir, passResults)
+			if validateErr == nil {
+				passResults = validated
+			}
 		}
 	}
 

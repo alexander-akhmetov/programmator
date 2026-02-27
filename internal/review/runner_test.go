@@ -569,9 +569,10 @@ func TestRunner_RunIteration(t *testing.T) {
 
 	t.Run("always validates issues", func(t *testing.T) {
 		cfg := Config{
-			MaxIterations: 3,
-			Parallel:      false,
-			Agents:        []AgentConfig{{Name: "quality"}},
+			MaxIterations:  3,
+			Parallel:       false,
+			Agents:         []AgentConfig{{Name: "quality"}},
+			ValidateIssues: true,
 		}
 		runner := NewRunner(cfg)
 
@@ -612,9 +613,10 @@ func TestRunner_RunIteration(t *testing.T) {
 
 	t.Run("filters using generated IDs and verdicts", func(t *testing.T) {
 		cfg := Config{
-			MaxIterations: 3,
-			Parallel:      false,
-			Agents:        []AgentConfig{{Name: "quality"}},
+			MaxIterations:  3,
+			Parallel:       false,
+			Agents:         []AgentConfig{{Name: "quality"}},
+			ValidateIssues: true,
 		}
 		runner := NewRunner(cfg)
 
@@ -679,8 +681,10 @@ func TestRunner_RunIteration(t *testing.T) {
 
 	t.Run("both simplification and issue validation run", func(t *testing.T) {
 		cfg := Config{
-			MaxIterations: 3,
-			Parallel:      false,
+			MaxIterations:           3,
+			Parallel:                false,
+			ValidateIssues:          true,
+			ValidateSimplifications: true,
 			Agents: []AgentConfig{
 				{Name: "quality"},
 				{Name: "simplification"},
@@ -788,9 +792,10 @@ func TestRunner_RunIteration(t *testing.T) {
 func TestRunner_RunIteration_ValidatorsAlwaysRun(t *testing.T) {
 	t.Run("validators run on every iteration call", func(t *testing.T) {
 		cfg := Config{
-			MaxIterations: 3,
-			Parallel:      false,
-			Agents:        []AgentConfig{{Name: "quality"}},
+			MaxIterations:  3,
+			Parallel:       false,
+			Agents:         []AgentConfig{{Name: "quality"}},
+			ValidateIssues: true,
 		}
 		runner := NewRunner(cfg)
 
@@ -835,9 +840,10 @@ func TestRunner_RunIteration_ValidatorsAlwaysRun(t *testing.T) {
 
 	t.Run("validator failure falls back to raw agent results in RunIteration", func(t *testing.T) {
 		cfg := Config{
-			MaxIterations: 3,
-			Parallel:      false,
-			Agents:        []AgentConfig{{Name: "quality"}},
+			MaxIterations:  3,
+			Parallel:       false,
+			Agents:         []AgentConfig{{Name: "quality"}},
+			ValidateIssues: true,
 		}
 		runner := NewRunner(cfg)
 

@@ -1109,8 +1109,9 @@ func (l *Loop) emit(e event.Event) {
 }
 
 // applySettingsToReviewConfig copies config settings into the review config.
+// ExecutorConfig is already set by ToReviewConfig() via toReviewExecutorConfig(),
+// which handles review-specific executor overrides. Do not overwrite it.
 func (l *Loop) applySettingsToReviewConfig() {
-	l.reviewConfig.ExecutorConfig = l.executorConfig
 }
 
 func (l *Loop) applyReviewContext(workItem *domain.WorkItem) {

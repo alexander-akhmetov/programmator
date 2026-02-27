@@ -82,15 +82,16 @@ A plan file is a markdown file with checkbox tasks:
 - **Validation Commands**: Run after each task completion (optional)
 - **Tasks**: Checkbox items (`- [ ]` / `- [x]`) anywhere in the file
 
-Create plans interactively — the executor analyzes your codebase and asks clarifying questions:
-
-```bash
-programmator plan create "Add authentication to the API"
-```
-
 ## Review
 
-After all tasks complete, programmator automatically runs a multi-agent code review. 9 agents run in parallel — each focused on a specific area (bug detection, architecture, simplification, silent failures, CLAUDE.md compliance, type design, comments, and tests/linting). Issues found are auto-fixed and re-reviewed, up to 3 iterations.
+After all tasks complete, programmator automatically runs a multi-agent code review. By default 9 agents run in parallel (bug-shallow, bug-deep, architect, simplification, silent-failures, claudemd, type-design, comments, tests-and-linters). Issues found are auto-fixed and re-reviewed, up to 3 iterations.
+
+Review configuration is flexible:
+- Use the default 9 agents
+- Select a subset with `review.include` / `review.exclude`
+- Override prompts/focus for default agents with `review.overrides`
+- Replace defaults entirely with a custom `review.agents` list
+- Use a different executor/model for review via `review.executor`
 
 You can also run review standalone on any branch:
 
@@ -106,10 +107,7 @@ programmator start ./plan.md              # execute a plan
 programmator start ./plan.md --auto-commit # with git workflow (branch + commits)
 programmator start pro-1a2b               # execute a ticket
 programmator review                       # review-only mode on current branch
-programmator run "explain this codebase"  # run Claude with a custom prompt
-programmator plan create "description"    # interactive plan creation
-programmator status                       # show active sessions
-programmator logs --follow                # tail the active log
+programmator run "explain this codebase"  # run configured coding agent with a custom prompt
 programmator config show                  # show resolved config
 ```
 
@@ -137,9 +135,8 @@ Programmator uses a unified YAML config with multi-level merge (highest priority
 
 1. [Embedded defaults](internal/config/defaults/config.yaml) (built into binary)
 2. Global config (`~/.config/programmator/config.yaml`)
-3. Environment variables
-4. Local config (`.programmator/config.yaml` in project directory)
-5. CLI flags
+3. Local config (`.programmator/config.yaml` in project directory)
+4. CLI flags
 
 See resolved values with `programmator config show`.
 
@@ -167,9 +164,58 @@ See resolved values with `programmator config show`.
 | `git.branch_prefix` | `""` | Prefix for auto-created branches (default: `programmator/`) |
 | `review.max_iterations` | `3` | Maximum review fix iterations |
 | `review.parallel` | `true` | Run review agents in parallel |
-| `review.agents` | see [defaults](internal/config/defaults/config.yaml) | Flat list of review agents with names and focus areas |
+| `review.executor.name` | `""` | Optional review executor override (`claude` / `pi`, empty = inherit top-level) |
+| `review.executor.claude.flags` | `""` | Review-only Claude flags (for example `--model opus`) |
+| `review.executor.pi.*` | `""` | Review-only PI settings (`flags`, `config_dir`, `provider`, `model`, `api_key`) |
+| `review.include` | `[]` | Subset of built-in review agents (empty = all defaults) |
+| `review.exclude` | `[]` | Remove specific default review agents |
+| `review.overrides` | `[]` | Override default agents by name (focus/prompt/prompt_file) |
+| `review.agents` | `[]` | Explicit custom review agents; when non-empty replaces defaults |
+| `review.validators.issue` | `true` | Run cross-agent false-positive validator |
+| `review.validators.simplification` | `true` | Run simplification value validator |
 
 </details>
+
+### Review Configuration Examples
+
+1. **Coding with PI, review with Claude Opus + one custom reviewer**
+```yaml
+executor: pi
+pi:
+  provider: anthropic
+  model: sonnet
+
+review:
+  executor:
+    name: claude
+    claude:
+      flags: "--model opus"
+  agents:
+    - name: custom-review
+      focus:
+        - bug risks
+        - architecture
+      prompt_file: ".programmator/prompts/review/custom-review.md"
+```
+
+2. **Default 9 reviewers, override one prompt**
+```yaml
+review:
+  overrides:
+    - name: bug-deep
+      prompt_file: ".programmator/prompts/review/bug-deep.md"
+```
+
+3. **Use only 5 default reviewers**
+```yaml
+review:
+  include:
+    - bug-shallow
+    - bug-deep
+    - architect
+    - tests-and-linters
+    - claudemd
+```
 
 <details>
 <summary>Environment variables</summary>
@@ -193,7 +239,7 @@ Prompts are customizable via Go `text/template` files. Override any prompt by pl
 - `~/.config/programmator/prompts/` (global)
 - `.programmator/prompts/` (per-project)
 
-Available templates: `phased.md`, `phaseless.md`, `review_first.md`, `plan_create.md`. See [prompt template docs](docs/prompt_templates.md) for variables and examples.
+Available templates: `phased.md`, `phaseless.md`, `review_first.md`. See [prompt template docs](docs/prompt_templates.md) for variables and examples.
 
 </details>
 
@@ -218,7 +264,7 @@ Programmator ships a Claude Code plugin with commands for converting plans betwe
 
 ## Documentation
 
-- [Orchestration flow](docs/orchestration.md) — detailed walkthrough of execution, review, and plan creation
+- [Orchestration flow](docs/orchestration.md) — detailed walkthrough of execution and review
 - [Prompt templates](docs/prompt_templates.md) — override chain, template variables, customization
 - [E2E tests](docs/e2e_tests.md) — manual integration tests
 
@@ -233,7 +279,6 @@ golangci-lint run             # Lint
 # E2E test prep (creates toy projects in /tmp)
 make e2e-prep                 # Plan-based run
 make e2e-review               # Review mode
-make e2e-plan                 # Interactive plan creation
 ```
 
 ## Releasing

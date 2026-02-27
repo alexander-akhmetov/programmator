@@ -8,10 +8,7 @@ A plain-language walkthrough of how programmator runs coding agents.
 |---------|--------------|
 | `programmator start <ticket-or-plan>` | Run task phases, then review |
 | `programmator review` | Run review only (no task phases) |
-| `programmator run <prompt>` | Run Claude with a custom prompt (no plan/ticket) |
-| `programmator plan create <desc>` | Interactive plan creation |
-| `programmator status` | Show active sessions |
-| `programmator logs [source-id]` | View execution logs (`--follow` to tail) |
+| `programmator run <prompt>` | Run configured coding agent with a custom prompt (no plan/ticket) |
 | `programmator config show` | Show resolved configuration |
 
 ---
@@ -65,10 +62,10 @@ Same status protocol but `phase_completed: null`.
 
 Review runs automatically after all task phases complete. It uses a single loop with a flat list of agents.
 
-1. Run all configured agents in parallel (default 8: error-handling, logic, security, implementation, testing, simplification, linter, claudemd).
+1. Run all configured agents in parallel (default 9: bug-shallow, bug-deep, architect, simplification, silent-failures, claudemd, type-design, comments, tests-and-linters).
 2. Each agent runs the configured executor with the agent prompt, focus areas, and changed files.
 3. Agents return structured issues (severity, file, line, description, fix suggestion).
-4. Validators run automatically:
+4. Optional validators run after primary agents (enabled by default):
    - **simplification-validator**: Filters low-value simplification suggestions.
    - **issue-validator**: Filters false positives from all other agents.
 5. If issues remain, build a fix prompt using `review_first.md` and invoke the executor to fix them.
@@ -85,19 +82,21 @@ Claude receives the full issue list from all agents and is asked to fix everythi
 ### Review Agent Prompts
 
 Each agent runs with its own embedded prompt from `internal/review/prompts/` by default.
-You can override an agent prompt by setting `review.agents[].prompt` in config.
-The prompt text is used directly.
+You can override an agent prompt by setting either:
+- `review.overrides[].prompt` / `review.agents[].prompt` (inline text)
+- `review.overrides[].prompt_file` / `review.agents[].prompt_file` (file path)
 
 | Agent | Prompt | Focus |
 |-------|--------|-------|
-| error-handling | `quality.md` | Bugs, logic errors, race conditions, error handling, simplicity |
-| logic | `quality.md` | Second quality pass for coverage |
-| security | `security.md` | Injection, crypto, auth, data protection |
-| implementation | `implementation.md` | Requirement coverage, wiring, completeness |
-| testing | `testing.md` | Missing tests, fake tests, edge cases |
+| bug-shallow | `bug_shallow.md` | Obvious diff-visible bugs only |
+| bug-deep | `bug_deep.md` | Context-aware bugs, security, leaks, concurrency |
+| architect | `architect.md` | Architectural fit and coupling |
 | simplification | `simplification.md` | Over-engineering, unnecessary abstractions |
-| linter | `linter.md` | Auto-detect project type, run linters, report findings |
-| claudemd | `claudemd.md` | CLAUDE.md accuracy and completeness |
+| silent-failures | `silent_failures.md` | Swallowed errors, inadequate logging |
+| claudemd | `claudemd.md` | CLAUDE.md compliance |
+| type-design | `type_design.md` | Type/interface design quality |
+| comments | `comments.md` | Comment accuracy and value |
+| tests-and-linters | `linter.md` | Test failures, lint errors, formatting |
 
 ---
 
@@ -114,28 +113,6 @@ Runs the same review loop but without task phases. It operates on `git diff <bas
    - Re-run review to verify.
 4. Print summary (passed/failed, issues, duration).
 5. Exit code 0 (passed) or 1 (failed) for CI.
-
----
-
-## 4. Plan Creation (`programmator plan create`)
-
-Interactive loop where Claude asks clarifying questions before generating a plan.
-
-1. Invoke the executor with plan_create.md.
-   - Variables: {{.Description}}, {{.PreviousAnswers}}
-2. Claude analyzes codebase, then either:
-   - Asks a question:
-     - <<<PROGRAMMATOR:QUESTION>>>
-     - {"question": "...", "options": [...]}
-     - <<<PROGRAMMATOR:END>>>
-   - Outputs the plan:
-     - <<<PROGRAMMATOR:PLAN_READY>>>
-     - # Plan: Title
-     - ## Tasks
-     - - [ ] Task 1
-     - <<<PROGRAMMATOR:END>>>
-3. If it's a question, show it to the user (fzf/numbered menu), append the answer to PreviousAnswers, and return to step 1.
-4. If it's a plan, write it to the plans/ directory.
 
 ---
 
@@ -166,23 +143,35 @@ PROGRAMMATOR_STATUS:
 
 ## Configuration
 
-Default agents and iteration limits are in `internal/config/defaults/config.yaml`
-(mirrored in `internal/review/config.go` for env-only defaults). Override them via YAML config:
+Default agents and iteration limits are in `internal/config/defaults/config.yaml`.
+Common review configuration patterns:
 
 ```yaml
 # ~/.config/programmator/config.yaml or .programmator/config.yaml
 review:
   max_iterations: 3
   parallel: true
-  agents:
-    - name: error-handling
-    - name: logic
-    - name: security
-    - name: implementation
-    - name: testing
-    - name: simplification
-    - name: linter
-    - name: claudemd
+  executor:
+    name: claude
+    claude:
+      flags: "--model opus"
+
+  # default mode (when review.agents is empty):
+  include: [bug-shallow, bug-deep, architect, tests-and-linters, claudemd]
+  exclude: [tests-and-linters]
+  overrides:
+    - name: bug-deep
+      prompt_file: ".programmator/prompts/review/bug-deep.md"
+
+  # custom mode (non-empty review.agents replaces defaults):
+  # agents:
+  #   - name: custom-review
+  #     focus: [bugs, architecture]
+  #     prompt_file: ".programmator/prompts/review/custom.md"
+
+  validators:
+    issue: true
+    simplification: true
 ```
 
 Prompt templates can be overridden per-project (`.programmator/prompts/`) or globally (`~/.config/programmator/prompts/`). See [prompt_templates.md](prompt_templates.md).

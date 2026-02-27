@@ -136,10 +136,15 @@ func TestGetChangedFilesWithBranch(t *testing.T) {
 	assert.Contains(t, files, "new_file.go")
 }
 
-func TestReviewCmdNotRegistered(t *testing.T) {
+func TestReviewCmdRegistered(t *testing.T) {
+	found := false
 	for _, cmd := range rootCmd.Commands() {
-		assert.NotEqual(t, "review", cmd.Use, "standalone review command should not be registered")
+		if cmd.Use == "review" {
+			found = true
+			break
+		}
 	}
+	assert.True(t, found, "standalone review command should be registered")
 }
 
 func TestPrintReviewSummary(t *testing.T) {
