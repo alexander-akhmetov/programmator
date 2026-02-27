@@ -78,7 +78,9 @@ func (r *Runner) SetAgentFactory(factory AgentFactory) {
 	r.agentFactory = factory
 }
 
-// defaultAgentFactory creates ClaudeAgent instances.
+// defaultAgentFactory creates agent instances based on executor type.
+// Currently only Claude is supported; the Executor field on AgentConfig
+// is reserved for future executor backends.
 func (r *Runner) defaultAgentFactory(agentCfg AgentConfig, defaultPrompt string) Agent {
 	prompt := defaultPrompt
 	if agentCfg.Prompt != "" {
@@ -194,7 +196,7 @@ func (r *Runner) getOrCreateAgent(cfg AgentConfig) Agent {
 		return agent
 	}
 
-	defaultPrompt := GetDefaultPrompt(cfg.Name)
+	defaultPrompt := GetDefaultPromptForAgent(cfg)
 	agent := r.agentFactory(cfg, defaultPrompt)
 	r.agents[cfg.Name] = agent
 

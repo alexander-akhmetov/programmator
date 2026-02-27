@@ -81,8 +81,9 @@ type Config struct {
 	Timeout         int `yaml:"timeout"` // seconds
 
 	// Executor settings
-	Executor string       `yaml:"executor"`
-	Claude   ClaudeConfig `yaml:"claude"`
+	Executor     string       `yaml:"executor"`
+	PlanExecutor string       `yaml:"plan_executor"` // executor override for plan creation (empty = use global Executor)
+	Claude       ClaudeConfig `yaml:"claude"`
 
 	// Ticket settings
 	TicketCommand string `yaml:"ticket_command"` // Binary name for the ticket CLI (default: tk)
@@ -124,6 +125,14 @@ func (c *Config) LocalDir() string {
 // ConfigDir returns the global config directory.
 func (c *Config) ConfigDir() string {
 	return c.configDir
+}
+
+// PlanExecutorOrDefault returns PlanExecutor if set, otherwise falls back to Executor.
+func (c *Config) PlanExecutorOrDefault() string {
+	if c.PlanExecutor != "" {
+		return c.PlanExecutor
+	}
+	return c.Executor
 }
 
 // Validate checks the configuration for invalid values.
@@ -399,6 +408,9 @@ func (c *Config) mergeFrom(src *Config) {
 	}
 	if src.Executor != "" {
 		c.Executor = src.Executor
+	}
+	if src.PlanExecutor != "" {
+		c.PlanExecutor = src.PlanExecutor
 	}
 	if src.Claude.Flags != "" {
 		c.Claude.Flags = src.Claude.Flags

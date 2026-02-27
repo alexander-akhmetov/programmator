@@ -147,6 +147,26 @@ func TestToReviewConfig_NoAgentsNoPhases(t *testing.T) {
 	assert.Empty(t, rc.Agents)
 }
 
+func TestPlanExecutorOrDefault(t *testing.T) {
+	tests := []struct {
+		name         string
+		executor     string
+		planExecutor string
+		want         string
+	}{
+		{"returns PlanExecutor when set", "claude", "codex", "codex"},
+		{"falls back to Executor when PlanExecutor is empty", "claude", "", "claude"},
+		{"returns empty when both are empty", "", "", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{Executor: tc.executor, PlanExecutor: tc.planExecutor}
+			assert.Equal(t, tc.want, cfg.PlanExecutorOrDefault())
+		})
+	}
+}
+
+
 func TestToSafetyConfig_ZeroValues(t *testing.T) {
 	cfg := &Config{}
 	sc := cfg.ToSafetyConfig()
