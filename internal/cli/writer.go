@@ -80,8 +80,8 @@ type Writer struct {
 	midLine     bool
 	pendingLine string
 
-	pid            int
-	executorName   string
+	pid             int
+	executorName    string
 	claudeConfigDir string
 
 	useTea    bool
