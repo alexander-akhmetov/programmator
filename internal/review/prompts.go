@@ -8,20 +8,24 @@ import (
 // Falls back to a generic prompt if no specific prompt is available.
 func GetDefaultPrompt(agentName string) string {
 	switch agentName {
-	case "error-handling", "logic":
-		return prompts.QualityPrompt
-	case "security":
-		return prompts.SecurityPrompt
-	case "linter":
-		return prompts.LinterPrompt
-	case "implementation":
-		return prompts.ImplementationPrompt
-	case "testing":
-		return prompts.TestingPrompt
+	case "bug-shallow":
+		return prompts.BugShallowPrompt
+	case "bug-deep":
+		return prompts.BugDeepPrompt
+	case "architect":
+		return prompts.ArchitectPrompt
 	case "simplification":
 		return prompts.SimplificationPrompt
+	case "silent-failures":
+		return prompts.SilentFailuresPrompt
 	case "claudemd":
 		return prompts.ClaudeMDPrompt
+	case "type-design":
+		return prompts.TypeDesignPrompt
+	case "comments":
+		return prompts.CommentsPrompt
+	case "tests-and-linters":
+		return prompts.LinterPrompt
 	case "simplification-validator":
 		return prompts.SimplificationValidatorPrompt
 	case "issue-validator":

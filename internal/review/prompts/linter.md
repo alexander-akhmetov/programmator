@@ -1,40 +1,18 @@
-# Linter Check
+# Linter and Test Check
 
-You are a linter check agent. Your job is to detect and run appropriate linters for the project.
+Detect and run appropriate linting tools and tests if they are present and configured for the project.
 
 ## What to Do
 
-1. **Detect Project Type**
-   - Check for `go.mod` (Go project)
-   - Check for `package.json` (Node.js project)
-   - Check for `pyproject.toml`, `setup.py`, or `requirements.txt` (Python project)
-   - Check for `Cargo.toml` (Rust project)
-
-2. **Run Appropriate Linters**
-
-   For **Go** projects:
-   - Run `golangci-lint run ./...` if available, otherwise `go vet ./...`
-   - Run `gofmt -l .` to check formatting
-
-   For **Node.js** projects:
-   - Run `npm run lint` or `npx eslint .` if eslint is configured
-
-   For **Python** projects:
-   - Run `ruff check .` if available, otherwise `flake8 .`
-
-   For **Rust** projects:
-   - Run `cargo clippy`
-
-3. **Report Issues**
-   - Report any linter errors or warnings as issues
-   - Include the file, line number, and description
-   - Use severity "high" for errors, "medium" for warnings
+1. Check for project configuration files (`go.mod`, `package.json`, `Cargo.toml`, `pyproject.toml`, `Makefile`, etc.)
+2. Run the project's configured linters (e.g., `make lint`, `golangci-lint run ./...`, `npm run lint`, `cargo clippy`)
+3. Run the project's test suite (e.g., `go test ./...`, `npm test`, `cargo test`, `pytest`)
+4. Report any linter errors, warnings, or test failures as issues with file, line number, and description
+5. Use severity "critical" for test failures, "high" for linter errors, "medium" for warnings
 
 ## Important
 
-- Only run linters that are available and configured for the project
-- If a linter is not available, skip it (don't report as an error)
-- Focus on actual lint issues, not on linter execution problems
-- If all linters pass with no issues, report an empty issues list
+- Only run tools that are available and configured
+- If a tool is not available, skip it
+- If all checks pass, report an empty issues list
 - Report problems only - no positive observations
-

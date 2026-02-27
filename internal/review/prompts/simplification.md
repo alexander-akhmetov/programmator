@@ -63,5 +63,13 @@ For each finding:
 - Simplification: what simpler code would look like
 - Effort: trivial/small/medium/large
 
+## What NOT to Flag
+
+- Minor style preferences
+- "Nice to have" refactors with marginal benefit
+- Suggestions that would require significant rework for small gains
+- Anything that's a matter of taste rather than clear simplification
+- Code that accumulates state for valid reasons (e.g., building a complex result)
+
 Only flag complexity that genuinely hurts maintainability.
 Report problems only - no positive observations.

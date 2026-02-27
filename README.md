@@ -90,7 +90,7 @@ programmator plan create "Add authentication to the API"
 
 ## Review
 
-After all tasks complete, programmator automatically runs a multi-agent code review. 8 agents run in parallel — each focused on a specific area (quality, security, implementation, testing, simplification, linting, and CLAUDE.md compliance). Issues found are auto-fixed and re-reviewed, up to 3 iterations.
+After all tasks complete, programmator automatically runs a multi-agent code review. 9 agents run in parallel — each focused on a specific area (bug detection, architecture, simplification, silent failures, CLAUDE.md compliance, type design, comments, and tests/linting). Issues found are auto-fixed and re-reviewed, up to 3 iterations.
 
 You can also run review standalone on any branch:
 
