@@ -60,11 +60,3 @@ func maybeFgBold(tty bool, color int, text string) string {
 	}
 	return text
 }
-
-// maybeFg returns colored text in TTY mode, plain text otherwise.
-func maybeFg(tty bool, color int, text string) string {
-	if tty {
-		return fg(color, text)
-	}
-	return text
-}
