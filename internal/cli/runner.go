@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/alexander-akhmetov/programmator/internal/domain"
@@ -40,12 +41,23 @@ func Run(ctx context.Context, sourceID, workingDir string, cfg RunConfig) (*loop
 	}
 
 	w := NewWriter(out, cfg.IsTTY, cfg.TermWidth, cfg.TermHeight)
+	var footerMu sync.RWMutex
+	var latestState *safety.State
+	var latestItem *domain.WorkItem
 
 	l := loop.New(
 		cfg.SafetyConfig,
 		workingDir,
 		func(state *safety.State, workItem *domain.WorkItem, _ []string) {
-			w.UpdateFooter(state, workItem, cfg.SafetyConfig)
+			stateSnap := snapshotFooterState(state)
+			itemSnap := snapshotFooterWorkItem(workItem)
+
+			footerMu.Lock()
+			latestState = stateSnap
+			latestItem = itemSnap
+			footerMu.Unlock()
+
+			w.UpdateFooter(stateSnap, itemSnap, cfg.SafetyConfig)
 		},
 		true,
 	)
@@ -55,6 +67,15 @@ func Run(ctx context.Context, sourceID, workingDir string, cfg RunConfig) (*loop
 	})
 	l.SetProcessStatsCallback(func(pid int, memoryKB int64) {
 		w.SetProcessStats(pid, memoryKB)
+
+		footerMu.RLock()
+		stateSnap := latestState
+		itemSnap := latestItem
+		footerMu.RUnlock()
+
+		if stateSnap != nil || itemSnap != nil {
+			w.UpdateFooter(stateSnap, itemSnap, cfg.SafetyConfig)
+		}
 	})
 
 	l.SetReviewConfig(cfg.ReviewConfig)
@@ -120,6 +141,41 @@ func printRunSummary(w *Writer, result *loop.Result) {
 	fmt.Fprintf(w.out, "%s %s  %s %s  %s %s\n",
 		w.style(colorDim, "Iterations:"), w.style(colorWhite, fmt.Sprintf("%d", result.Iterations)),
 		w.style(colorDim, "Files:"), w.style(colorWhite, fmt.Sprintf("%d", len(result.TotalFilesChanged))),
-		w.style(colorDim, "Duration:"), w.style(colorLime, formatElapsed(result.Duration)),
+		w.style(colorDim, "Duration:"), w.style(colorWhite, formatElapsed(result.Duration)),
 	)
+}
+
+// snapshotFooterState captures the state fields used in the footer to avoid
+// concurrent access while process-stats callbacks refresh every second.
+func snapshotFooterState(state *safety.State) *safety.State {
+	if state == nil {
+		return nil
+	}
+
+	setCopy := make(map[string]struct{}, len(state.TotalFilesChanged))
+	for k := range state.TotalFilesChanged {
+		setCopy[k] = struct{}{}
+	}
+
+	return &safety.State{
+		Iteration:            state.Iteration,
+		ConsecutiveNoChanges: state.ConsecutiveNoChanges,
+		TotalFilesChanged:    setCopy,
+		StartTime:            state.StartTime,
+	}
+}
+
+// snapshotFooterWorkItem captures footer-relevant work item fields.
+func snapshotFooterWorkItem(item *domain.WorkItem) *domain.WorkItem {
+	if item == nil {
+		return nil
+	}
+
+	phases := make([]domain.Phase, len(item.Phases))
+	copy(phases, item.Phases)
+
+	return &domain.WorkItem{
+		ID:     item.ID,
+		Phases: phases,
+	}
 }

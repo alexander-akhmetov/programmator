@@ -1004,21 +1004,23 @@ func TestUpdateFooter_ElapsedTimer(t *testing.T) {
 		assert.Regexp(t, `1m 1[67]s`, stripped, "expected elapsed ~1m16s in footer")
 	})
 
-	t.Run("TTY footer uses lime color for elapsed", func(t *testing.T) {
+	t.Run("TTY footer uses white color for elapsed", func(t *testing.T) {
 		var buf bytes.Buffer
 		w := newTestWriterTTY(&buf)
 
 		state := safety.NewState()
 		state.StartTime = time.Now().Add(-45 * time.Second)
 		state.Iteration = 1
-		item := &domain.WorkItem{ID: "lime-test"}
+		item := &domain.WorkItem{ID: "white-test"}
 		cfg := safety.Config{MaxIterations: 10, StagnationLimit: 3}
 
 		w.UpdateFooter(state, item, cfg)
 
 		output := buf.String()
-		// Lime color 154 should appear as ANSI escape \033[38;5;154m
-		assert.Contains(t, output, "\033[38;5;154m")
+		// Elapsed should no longer use lime (154).
+		assert.NotContains(t, output, "\033[38;5;154m")
+		// White color 255 should be present in the footer.
+		assert.Contains(t, output, "\033[38;5;255m")
 	})
 
 	t.Run("non-TTY footer omits elapsed", func(t *testing.T) {

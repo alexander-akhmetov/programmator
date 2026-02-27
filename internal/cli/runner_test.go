@@ -3,9 +3,11 @@ package cli
 import (
 	"bytes"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/alexander-akhmetov/programmator/internal/domain"
 	"github.com/alexander-akhmetov/programmator/internal/loop"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
 )
@@ -69,4 +71,43 @@ func TestRunConfig_Defaults(t *testing.T) {
 	assert.Equal(t, 10, cfg.SafetyConfig.MaxIterations)
 	assert.Nil(t, cfg.Out)
 	assert.False(t, cfg.IsTTY)
+}
+
+func TestSnapshotFooterState(t *testing.T) {
+	original := &safety.State{
+		Iteration:            3,
+		ConsecutiveNoChanges: 1,
+		TotalFilesChanged: map[string]struct{}{
+			"a.go": {},
+		},
+		StartTime: time.Now().Add(-10 * time.Second),
+	}
+
+	snap := snapshotFooterState(original)
+	assert.NotNil(t, snap)
+	assert.Equal(t, original.Iteration, snap.Iteration)
+	assert.Equal(t, original.ConsecutiveNoChanges, snap.ConsecutiveNoChanges)
+	assert.Equal(t, original.StartTime, snap.StartTime)
+	assert.Len(t, snap.TotalFilesChanged, 1)
+
+	original.TotalFilesChanged["b.go"] = struct{}{}
+	assert.Len(t, snap.TotalFilesChanged, 1, "snapshot map must be independent from original")
+}
+
+func TestSnapshotFooterWorkItem(t *testing.T) {
+	original := &domain.WorkItem{
+		ID: "i-123",
+		Phases: []domain.Phase{
+			{Name: "one", Completed: true},
+			{Name: "two", Completed: false},
+		},
+	}
+
+	snap := snapshotFooterWorkItem(original)
+	assert.NotNil(t, snap)
+	assert.Equal(t, "i-123", snap.ID)
+	assert.Equal(t, original.Phases, snap.Phases)
+
+	original.Phases[0].Name = "changed"
+	assert.Equal(t, "one", snap.Phases[0].Name, "snapshot phases must be independent from original")
 }
