@@ -120,6 +120,6 @@ func printRunSummary(w *Writer, result *loop.Result) {
 	fmt.Fprintf(w.out, "%s %s  %s %s  %s %s\n",
 		w.style(colorDim, "Iterations:"), w.style(colorWhite, fmt.Sprintf("%d", result.Iterations)),
 		w.style(colorDim, "Files:"), w.style(colorWhite, fmt.Sprintf("%d", len(result.TotalFilesChanged))),
-		w.style(colorDim, "Duration:"), w.style(colorWhite, formatDuration(result.Duration)),
+		w.style(colorDim, "Duration:"), w.style(colorLime, formatElapsed(result.Duration)),
 	)
 }

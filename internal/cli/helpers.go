@@ -19,14 +19,19 @@ func resolveWorkingDir(dir string) (string, error) {
 	return wd, nil
 }
 
-func formatDuration(d time.Duration) string {
-	h := int(d.Hours())
-	m := int(d.Minutes()) % 60
-	s := int(d.Seconds()) % 60
-	if h > 0 {
-		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
+func formatElapsed(d time.Duration) string {
+	total := int(d.Seconds())
+	if total < 60 {
+		return fmt.Sprintf("%ds", total)
 	}
-	return fmt.Sprintf("%02d:%02d", m, s)
+	m := total / 60
+	s := total % 60
+	if m < 60 {
+		return fmt.Sprintf("%dm %ds", m, s)
+	}
+	h := m / 60
+	m %= 60
+	return fmt.Sprintf("%dh %dm", h, m)
 }
 
 func formatMemory(kb int64) string {
