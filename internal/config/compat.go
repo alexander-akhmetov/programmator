@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -30,8 +31,12 @@ func buildExecutorConfig(name string, claudeCfg ClaudeConfig, piCfg PiConfig) ll
 		}
 		cfg.ExtraFlags = strings.Fields(piCfg.Flags)
 	default: // "claude" or ""
+		configDir := claudeCfg.ConfigDir
+		if envDir := os.Getenv("CLAUDE_CONFIG_DIR"); envDir != "" {
+			configDir = envDir
+		}
 		cfg.Claude = llm.EnvConfig{
-			ClaudeConfigDir: claudeCfg.ConfigDir,
+			ClaudeConfigDir: configDir,
 			AnthropicAPIKey: claudeCfg.AnthropicAPIKey,
 		}
 		flags := strings.Fields(claudeCfg.Flags)

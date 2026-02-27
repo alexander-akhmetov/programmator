@@ -27,6 +27,7 @@ func TestToSafetyConfig(t *testing.T) {
 }
 
 func TestToExecutorConfig_Claude(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	cfg := &Config{
 		Executor: "claude",
 		Claude: ClaudeConfig{
@@ -41,6 +42,27 @@ func TestToExecutorConfig_Claude(t *testing.T) {
 	assert.Equal(t, []string{"--verbose", "--dangerously-skip-permissions"}, ec.ExtraFlags)
 	assert.Equal(t, "/custom/dir", ec.Claude.ClaudeConfigDir)
 	assert.Equal(t, "test-key", ec.Claude.AnthropicAPIKey)
+}
+
+func TestToExecutorConfig_Claude_EnvOverridesConfig(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "/from/env")
+	cfg := &Config{
+		Executor: "claude",
+		Claude: ClaudeConfig{
+			ConfigDir: "/from/yaml",
+		},
+	}
+
+	ec := cfg.ToExecutorConfig()
+	assert.Equal(t, "/from/env", ec.Claude.ClaudeConfigDir)
+}
+
+func TestToExecutorConfig_Claude_EnvFallback(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "/from/env")
+	cfg := &Config{Executor: "claude"}
+
+	ec := cfg.ToExecutorConfig()
+	assert.Equal(t, "/from/env", ec.Claude.ClaudeConfigDir)
 }
 
 func TestToExecutorConfig_Pi(t *testing.T) {
@@ -86,6 +108,7 @@ func TestToExecutorConfig_AlwaysSkipPermissions(t *testing.T) {
 }
 
 func TestToReviewConfig_WithCustomAgents(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	cfg := &Config{
 		Executor: "claude",
 		Timeout:  600,
