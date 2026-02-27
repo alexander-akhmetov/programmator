@@ -305,6 +305,43 @@ claude:
 	assert.Equal(t, "/custom/dir", cfg.Claude.ConfigDir)
 }
 
+func TestApplyEnvOverrides_ClaudeConfigDir(t *testing.T) {
+	for _, key := range []string{"CLAUDE_CONFIG_DIR"} {
+		saved := os.Getenv(key)
+		t.Cleanup(func() { os.Setenv(key, saved) })
+		os.Unsetenv(key)
+	}
+
+	t.Run("env var populates empty config", func(t *testing.T) {
+		t.Setenv("CLAUDE_CONFIG_DIR", "/env/dir")
+
+		globalDir := t.TempDir()
+		cfg, err := LoadWithDirs(globalDir, "")
+		require.NoError(t, err)
+
+		assert.Equal(t, "/env/dir", cfg.Claude.ConfigDir)
+		assert.Contains(t, cfg.Sources(), "env:CLAUDE_CONFIG_DIR")
+	})
+
+	t.Run("YAML takes precedence over env var", func(t *testing.T) {
+		t.Setenv("CLAUDE_CONFIG_DIR", "/env/dir")
+
+		globalDir := t.TempDir()
+		configContent := `
+claude:
+  config_dir: "/yaml/dir"
+`
+		err := os.WriteFile(filepath.Join(globalDir, "config.yaml"), []byte(configContent), 0o600)
+		require.NoError(t, err)
+
+		cfg, err := LoadWithDirs(globalDir, "")
+		require.NoError(t, err)
+
+		assert.Equal(t, "/yaml/dir", cfg.Claude.ConfigDir)
+		assert.NotContains(t, cfg.Sources(), "env:CLAUDE_CONFIG_DIR")
+	})
+}
+
 func TestLoadWithDirs_PiConfig(t *testing.T) {
 	globalDir := t.TempDir()
 

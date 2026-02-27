@@ -210,6 +210,7 @@ func LoadWithDirs(globalDir, localDir string) (*Config, error) {
 
 	cfg.configDir = globalDir
 	cfg.localDir = localDir
+	cfg.applyEnvOverrides()
 
 	prompts, err := LoadPrompts(globalDir, localDir)
 	if err != nil {
@@ -372,6 +373,17 @@ func applyReviewExecutorOverlay(dst *ReviewExecutorConfig, src *ReviewExecutorCo
 	if src.Pi.APIKey != "" {
 		log.Printf("warning: review.executor.pi.api_key loaded from config file — ensure this is a trusted source")
 		dst.Pi.APIKey = src.Pi.APIKey
+	}
+}
+
+// applyEnvOverrides reads environment variables and applies them as config
+// overrides. Env vars sit between YAML files and CLI flags in precedence:
+// embedded → global file → local file → env → CLI flags.
+// YAML values take precedence: env is only used when YAML didn't set the field.
+func (c *Config) applyEnvOverrides() {
+	if v := os.Getenv("CLAUDE_CONFIG_DIR"); v != "" && c.Claude.ConfigDir == "" {
+		c.Claude.ConfigDir = v
+		c.sources = append(c.sources, "env:CLAUDE_CONFIG_DIR")
 	}
 }
 
