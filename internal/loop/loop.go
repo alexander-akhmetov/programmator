@@ -1005,8 +1005,7 @@ func (l *Loop) log(message string) {
 }
 
 func (l *Loop) logIterationSeparator(iteration, maxIterations int) {
-	separator := fmt.Sprintf("\n\n---\n\n### 🔄 Iteration %d/%d\n\n", iteration, maxIterations)
-	l.emit(event.IterationSeparator(separator))
+	l.emit(event.IterationSeparator(fmt.Sprintf("ITER\t%d\t%d", iteration, maxIterations)))
 }
 
 func (l *Loop) logStartBanner(srcType, workItemID string, workItem *domain.WorkItem) {

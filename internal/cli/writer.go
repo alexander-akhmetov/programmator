@@ -157,7 +157,11 @@ func (w *Writer) WriteEvent(ev event.Event) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	ev.Text = sanitizeTerminalText(ev.Text)
+	// Iteration separator text is internally generated; skip sanitization
+	// to preserve the tab-delimited protocol (sanitize replaces \t).
+	if ev.Kind != event.KindIterationSeparator {
+		ev.Text = sanitizeTerminalText(ev.Text)
+	}
 	w.ensureTeaLocked()
 
 	if w.teaActive {
@@ -491,10 +495,80 @@ func (w *Writer) formatMarkdown(text string) string {
 }
 
 func (w *Writer) formatIterSep(text string) string {
-	if w.colorEnabled() {
-		return bold(text)
+	if strings.HasPrefix(text, "ITER\t") {
+		parts := strings.SplitN(text, "\t", 3)
+		if len(parts) == 3 {
+			return w.formatIterationHeader(parts[1], parts[2])
+		}
 	}
-	return text
+	return w.formatStartBanner(text)
+}
+
+func (w *Writer) formatIterationHeader(iter, maxIter string) string {
+	line := strings.Repeat("─", 36)
+	if w.colorEnabled() {
+		return dim(line) + "\n  " + dim("Iteration ") + fgBold(colorWhite, iter) + dim("/"+maxIter)
+	}
+	return "── Iteration " + iter + "/" + maxIter + " ──"
+}
+
+func (w *Writer) formatStartBanner(text string) string {
+	if !w.colorEnabled() {
+		return text
+	}
+
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case trimmed == "":
+			// Preserve empty lines.
+		case strings.HasPrefix(trimmed, "──"):
+			lines[i] = dim(line)
+		case trimmed == "[programmator]":
+			lines[i] = fgBold(colorOrange, trimmed)
+		case strings.HasPrefix(line, "Starting "):
+			lines[i] = w.colorizeStartingLine(line)
+		case strings.Contains(trimmed, "✓"):
+			before, after, _ := strings.Cut(line, "✓")
+			lines[i] = dim(before) + fg(colorGreen, "✓") + dim(after)
+		case strings.Contains(trimmed, "→"):
+			before, after, _ := strings.Cut(line, "→")
+			name := strings.TrimSpace(after)
+			lines[i] = dim(before) + fgBold(colorOrange, "→") + " " + fgBold(colorWhite, name)
+		case strings.Contains(trimmed, "○"):
+			lines[i] = dim(line)
+		case strings.HasSuffix(trimmed, ":"):
+			lines[i] = dim(line)
+		default:
+			lines[i] = bold(line)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (w *Writer) colorizeStartingLine(line string) string {
+	if !w.colorEnabled() {
+		return line
+	}
+
+	// Parse "Starting <type> <id>: <title>"
+	const prefix = "Starting "
+	if !strings.HasPrefix(line, prefix) {
+		return bold(line)
+	}
+
+	rest := line[len(prefix):]
+	srcType, remainder, found := strings.Cut(rest, " ")
+	if !found {
+		return bold(line)
+	}
+
+	id, title, hasTitle := strings.Cut(remainder, ": ")
+	if !hasTitle {
+		return dim("Starting "+srcType+" ") + fgBold(colorMagenta, remainder)
+	}
+	return dim("Starting "+srcType+" ") + fgBold(colorMagenta, id) + dim(": ") + fgBold(colorWhite, title)
 }
 
 // style wraps text with 256-color foreground in TTY mode, plain otherwise.

@@ -75,8 +75,8 @@ func TestWriteEvent(t *testing.T) {
 		},
 		{
 			name:     "iteration separator",
-			event:    event.IterationSeparator("--- Iteration 3 ---"),
-			contains: []string{"Iteration 3"},
+			event:    event.IterationSeparator("ITER\t3\t10"),
+			contains: []string{"Iteration", "3", "/10"},
 		},
 	}
 
@@ -578,6 +578,411 @@ func TestWriterTeaMode_ClearFooterFlushesPendingStreaming(t *testing.T) {
 
 	output := stripANSISequences(buf.String())
 	assert.Contains(t, output, "partial-line")
+}
+
+func TestFormatIterationHeader(t *testing.T) {
+	tests := []struct {
+		name     string
+		isTTY    bool
+		iter     string
+		maxIter  string
+		contains []string
+		excludes []string
+	}{
+		{
+			name:    "TTY renders colored iteration header",
+			isTTY:   true,
+			iter:    "3",
+			maxIter: "10",
+			contains: []string{
+				"─",         // horizontal line
+				"Iteration", // label
+				"3",         // iteration number
+				"/10",       // max iterations
+				"\033[",     // ANSI escape present
+			},
+		},
+		{
+			name:    "TTY uses dim for horizontal line",
+			isTTY:   true,
+			iter:    "1",
+			maxIter: "50",
+			contains: []string{
+				"\033[2m", // dim escape for the line
+			},
+		},
+		{
+			name:    "TTY uses bold white for iteration number",
+			isTTY:   true,
+			iter:    "7",
+			maxIter: "20",
+			contains: []string{
+				fmt.Sprintf("\033[1;38;5;%dm7\033[0m", colorWhite), // bold white "7"
+			},
+		},
+		{
+			name:    "non-TTY renders plain text header",
+			isTTY:   false,
+			iter:    "2",
+			maxIter: "50",
+			contains: []string{
+				"──",             // plain horizontal markers
+				"Iteration 2/50", // plain text iteration info
+			},
+			excludes: []string{
+				"\033[", // no ANSI escapes
+			},
+		},
+		{
+			name:    "non-TTY with single-digit iterations",
+			isTTY:   false,
+			iter:    "1",
+			maxIter: "5",
+			contains: []string{
+				"Iteration 1/5",
+			},
+			excludes: []string{
+				"\033[",
+			},
+		},
+		{
+			name:    "TTY horizontal line is 36 chars",
+			isTTY:   true,
+			iter:    "1",
+			maxIter: "10",
+			contains: []string{
+				strings.Repeat("─", 36),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			var w *Writer
+			if tt.isTTY {
+				w = newTestWriterTTY(&buf)
+			} else {
+				w = newTestWriter(&buf)
+			}
+
+			result := w.formatIterationHeader(tt.iter, tt.maxIter)
+
+			for _, s := range tt.contains {
+				assert.Contains(t, result, s, "expected %q in output", s)
+			}
+			for _, s := range tt.excludes {
+				assert.NotContains(t, result, s, "unexpected %q in output", s)
+			}
+		})
+	}
+}
+
+func TestFormatIterSep_DispatchesIterPrefix(t *testing.T) {
+	tests := []struct {
+		name     string
+		isTTY    bool
+		input    string
+		contains []string
+		excludes []string
+	}{
+		{
+			name:     "ITER prefix dispatches to formatIterationHeader (non-TTY)",
+			isTTY:    false,
+			input:    "ITER\t3\t10",
+			contains: []string{"Iteration 3/10"},
+		},
+		{
+			name:     "ITER prefix dispatches to formatIterationHeader (TTY)",
+			isTTY:    true,
+			input:    "ITER\t1\t50",
+			contains: []string{"Iteration", "1", "/50", "\033["},
+		},
+		{
+			name:     "non-ITER text dispatches to formatStartBanner (non-TTY)",
+			isTTY:    false,
+			input:    "──────\n[programmator]\nStarting plan i-123: Title\n──────",
+			contains: []string{"[programmator]", "Starting plan i-123: Title"},
+		},
+		{
+			name:     "non-ITER text dispatches to formatStartBanner (TTY)",
+			isTTY:    true,
+			input:    "──────\n[programmator]\nStarting plan i-123: Title\n──────",
+			contains: []string{"[programmator]", "i-123"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			var w *Writer
+			if tt.isTTY {
+				w = newTestWriterTTY(&buf)
+			} else {
+				w = newTestWriter(&buf)
+			}
+
+			result := w.formatIterSep(tt.input)
+
+			for _, s := range tt.contains {
+				assert.Contains(t, result, s)
+			}
+			for _, s := range tt.excludes {
+				assert.NotContains(t, result, s)
+			}
+		})
+	}
+}
+
+func TestFormatStartBanner(t *testing.T) {
+	// Build a realistic banner matching logStartBanner output.
+	banner := strings.Join([]string{
+		"──────────────────────────────────────────",
+		"[programmator]",
+		"",
+		"Starting plan i-123: Fix the bug",
+		" Tasks (3):",
+		"   ✓ Phase 1",
+		"   → Phase 2",
+		"   ○ Phase 3",
+		"──────────────────────────────────────────",
+	}, "\n")
+
+	t.Run("non-TTY returns text unchanged", func(t *testing.T) {
+		var buf bytes.Buffer
+		w := newTestWriter(&buf)
+
+		result := w.formatStartBanner(banner)
+
+		assert.Equal(t, banner, result)
+		assert.NotContains(t, result, "\033[")
+	})
+
+	t.Run("TTY colorizes separator lines as dim", func(t *testing.T) {
+		var buf bytes.Buffer
+		w := newTestWriterTTY(&buf)
+
+		result := w.formatStartBanner(banner)
+		lines := strings.Split(result, "\n")
+
+		// First and last lines are separators — should be dim.
+		assert.Contains(t, lines[0], "\033[2m", "first separator should be dim")
+		assert.Contains(t, lines[len(lines)-1], "\033[2m", "last separator should be dim")
+	})
+
+	t.Run("TTY colorizes [programmator] as orange bold", func(t *testing.T) {
+		var buf bytes.Buffer
+		w := newTestWriterTTY(&buf)
+
+		result := w.formatStartBanner(banner)
+		lines := strings.Split(result, "\n")
+
+		// [programmator] line should use orange bold (color 208).
+		assert.Contains(t, lines[1], fmt.Sprintf("\033[1;38;5;%dm", colorOrange))
+		assert.Contains(t, lines[1], "[programmator]")
+	})
+
+	t.Run("TTY colorizes Starting line with dim type, magenta ID, bold white title", func(t *testing.T) {
+		var buf bytes.Buffer
+		w := newTestWriterTTY(&buf)
+
+		result := w.formatStartBanner(banner)
+		lines := strings.Split(result, "\n")
+
+		startLine := lines[3] // "Starting plan i-123: Fix the bug"
+		// ID in magenta bold.
+		assert.Contains(t, startLine, fmt.Sprintf("\033[1;38;5;%dm", colorMagenta))
+		assert.Contains(t, startLine, "i-123")
+		// Title in bold white.
+		assert.Contains(t, startLine, fmt.Sprintf("\033[1;38;5;%dm", colorWhite))
+		assert.Contains(t, startLine, "Fix the bug")
+	})
+
+	t.Run("TTY colorizes done phase with green checkmark and dim name", func(t *testing.T) {
+		var buf bytes.Buffer
+		w := newTestWriterTTY(&buf)
+
+		result := w.formatStartBanner(banner)
+		lines := strings.Split(result, "\n")
+
+		doneLine := lines[5] // "   ✓ Phase 1"
+		// Green checkmark.
+		assert.Contains(t, doneLine, fmt.Sprintf("\033[38;5;%dm", colorGreen))
+		assert.Contains(t, doneLine, "✓")
+		// Phase name in dim.
+		assert.Contains(t, doneLine, "\033[2m")
+		assert.Contains(t, doneLine, "Phase 1")
+	})
+
+	t.Run("TTY colorizes current phase with orange bold arrow and bold white name", func(t *testing.T) {
+		var buf bytes.Buffer
+		w := newTestWriterTTY(&buf)
+
+		result := w.formatStartBanner(banner)
+		lines := strings.Split(result, "\n")
+
+		currentLine := lines[6] // "   → Phase 2"
+		// Orange bold arrow.
+		assert.Contains(t, currentLine, fmt.Sprintf("\033[1;38;5;%dm", colorOrange))
+		assert.Contains(t, currentLine, "→")
+		// Phase name in bold white.
+		assert.Contains(t, currentLine, fmt.Sprintf("\033[1;38;5;%dm", colorWhite))
+		assert.Contains(t, currentLine, "Phase 2")
+	})
+
+	t.Run("TTY colorizes pending phase as all dim", func(t *testing.T) {
+		var buf bytes.Buffer
+		w := newTestWriterTTY(&buf)
+
+		result := w.formatStartBanner(banner)
+		lines := strings.Split(result, "\n")
+
+		pendingLine := lines[7] // "   ○ Phase 3"
+		assert.Contains(t, pendingLine, "\033[2m")
+		assert.Contains(t, pendingLine, "○")
+		assert.Contains(t, pendingLine, "Phase 3")
+		// Should NOT contain bold or bright colors.
+		assert.NotContains(t, pendingLine, fmt.Sprintf("\033[1;38;5;%dm", colorWhite))
+	})
+
+	t.Run("TTY colorizes Phases/Tasks label as dim", func(t *testing.T) {
+		var buf bytes.Buffer
+		w := newTestWriterTTY(&buf)
+
+		result := w.formatStartBanner(banner)
+		lines := strings.Split(result, "\n")
+
+		labelLine := lines[4] // " Tasks (3):"
+		assert.Contains(t, labelLine, "\033[2m")
+		assert.Contains(t, labelLine, "Tasks (3):")
+	})
+
+	t.Run("TTY preserves empty lines", func(t *testing.T) {
+		var buf bytes.Buffer
+		w := newTestWriterTTY(&buf)
+
+		result := w.formatStartBanner(banner)
+		lines := strings.Split(result, "\n")
+
+		// Line index 2 should remain empty.
+		assert.Equal(t, "", lines[2])
+	})
+
+	t.Run("TTY with ticket source type", func(t *testing.T) {
+		ticketBanner := strings.Join([]string{
+			"──────────────────────────────────────────",
+			"[programmator]",
+			"",
+			"Starting ticket pro-abc: Some Title",
+			" Phases (1):",
+			"   → Phase 1",
+			"──────────────────────────────────────────",
+		}, "\n")
+
+		var buf bytes.Buffer
+		w := newTestWriterTTY(&buf)
+
+		result := w.formatStartBanner(ticketBanner)
+
+		assert.Contains(t, result, "pro-abc")
+		assert.Contains(t, result, "Some Title")
+		assert.Contains(t, result, fmt.Sprintf("\033[1;38;5;%dm", colorMagenta))
+	})
+}
+
+func TestColorizeStartingLine(t *testing.T) {
+	tests := []struct {
+		name     string
+		isTTY    bool
+		line     string
+		contains []string
+		excludes []string
+	}{
+		{
+			name:  "TTY applies dim to source type",
+			isTTY: true,
+			line:  "Starting plan i-123: Fix the bug",
+			contains: []string{
+				"\033[2m", // dim present (for "Starting plan")
+				"plan",
+			},
+		},
+		{
+			name:  "TTY applies magenta bold to ID",
+			isTTY: true,
+			line:  "Starting plan i-123: Fix the bug",
+			contains: []string{
+				fmt.Sprintf("\033[1;38;5;%dmi-123\033[0m", colorMagenta),
+			},
+		},
+		{
+			name:  "TTY applies bold white to title",
+			isTTY: true,
+			line:  "Starting plan i-123: Fix the bug",
+			contains: []string{
+				fmt.Sprintf("\033[1;38;5;%dmFix the bug\033[0m", colorWhite),
+			},
+		},
+		{
+			name:  "TTY with ticket type",
+			isTTY: true,
+			line:  "Starting ticket pro-abc: Some Title",
+			contains: []string{
+				fmt.Sprintf("\033[1;38;5;%dmpro-abc\033[0m", colorMagenta),
+				fmt.Sprintf("\033[1;38;5;%dmSome Title\033[0m", colorWhite),
+			},
+		},
+		{
+			name:  "non-TTY returns line unchanged",
+			isTTY: false,
+			line:  "Starting plan i-123: Fix the bug",
+			contains: []string{
+				"Starting plan i-123: Fix the bug",
+			},
+			excludes: []string{
+				"\033[",
+			},
+		},
+		{
+			name:  "TTY with no colon falls back gracefully",
+			isTTY: true,
+			line:  "Starting plan i-123",
+			contains: []string{
+				"Starting",
+				"i-123",
+			},
+		},
+		{
+			name:  "TTY with title containing colons",
+			isTTY: true,
+			line:  "Starting plan i-123: Fix: the colon bug",
+			contains: []string{
+				fmt.Sprintf("\033[1;38;5;%dmi-123\033[0m", colorMagenta),
+				"Fix: the colon bug",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			var w *Writer
+			if tt.isTTY {
+				w = newTestWriterTTY(&buf)
+			} else {
+				w = newTestWriter(&buf)
+			}
+
+			result := w.colorizeStartingLine(tt.line)
+
+			for _, s := range tt.contains {
+				assert.Contains(t, result, s, "expected %q in output", s)
+			}
+			for _, s := range tt.excludes {
+				assert.NotContains(t, result, s, "unexpected %q in output", s)
+			}
+		})
+	}
 }
 
 func stripANSISlice(lines []string) []string {
