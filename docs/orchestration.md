@@ -18,11 +18,11 @@ A plain-language walkthrough of how programmator runs coding agents.
 
 ## 1. Task Execution (`programmator start`)
 
-1. Load config, detect source (ticket or plan), and start the TUI.
+1. Load config, detect source (ticket or plan), and start the CLI.
 2. Loop until done or a safety exit triggers:
    - Read the work item and pick the first unchecked phase.
    - Choose a prompt template (phased.md with phases, phaseless.md without).
-   - Call `claude --print <prompt>`.
+   - Invoke the configured executor with the prompt.
    - Parse PROGRAMMATOR_STATUS from the output.
    - Mark the phase complete and record changed files.
     - Auto-commit if --auto-commit is enabled.
