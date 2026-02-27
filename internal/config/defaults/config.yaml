@@ -10,13 +10,21 @@ stagnation_limit: 3 # Exit after N consecutive iterations with no file changes
 timeout: 900 # Seconds per Claude invocation
 
 # Executor settings
-executor: claude # Which coding agent to use (only "claude" supported for now)
+executor: claude # Which coding agent to use ("claude" or "pi")
 
 # Claude executor settings
 claude:
   flags: "" # Additional flags passed to claude command
   config_dir: "" # Custom Claude config directory (empty = default)
   anthropic_api_key: "" # Anthropic API key to pass to Claude (filters inherited ANTHROPIC_API_KEY)
+
+# Pi coding agent settings
+pi:
+  flags: "" # Additional flags passed to pi command
+  config_dir: "" # Custom PI_CODING_AGENT_DIR (empty = default)
+  provider: "" # LLM provider (e.g. "anthropic", "openai")
+  model: "" # Model name (e.g. "sonnet", "gpt-4o")
+  api_key: "" # API key for the configured provider
 
 # Ticket settings
 ticket_command: "tk" # Binary name for the ticket CLI (tk or ticket)

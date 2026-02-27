@@ -1,6 +1,6 @@
 # Prompt Templates
 
-Programmator renders prompts from Go `text/template` files and sends them to Claude Code. You can override any template globally or per project.
+Programmator renders prompts from Go `text/template` files and sends them to the configured coding agent. You can override any template globally or per project.
 
 ## Templates
 
@@ -134,4 +134,3 @@ The prompt text is used directly; it is not loaded from a file.
 | simplification | [simplification.md](../internal/review/prompts/simplification.md) | Over-engineering, unnecessary abstractions |
 | linter | [linter.md](../internal/review/prompts/linter.md) | Auto-detect project type, run linters, report findings |
 | claudemd | [claudemd.md](../internal/review/prompts/claudemd.md) | CLAUDE.md accuracy and completeness |
-| codex | [codex.md](../internal/review/prompts/codex.md) | OpenAI Codex cross-check |

@@ -72,7 +72,7 @@ func (r *Runner) SetAgentFactory(factory AgentFactory) {
 	r.agentFactory = factory
 }
 
-// defaultAgentFactory creates a Claude-based agent from the given config.
+// defaultAgentFactory creates an agent from the given config using the configured executor.
 func (r *Runner) defaultAgentFactory(agentCfg AgentConfig, defaultPrompt string) Agent {
 	prompt := defaultPrompt
 	if agentCfg.Prompt != "" {
@@ -83,10 +83,7 @@ func (r *Runner) defaultAgentFactory(agentCfg AgentConfig, defaultPrompt string)
 	if r.config.Timeout > 0 {
 		opts = append(opts, WithTimeout(time.Duration(r.config.Timeout)*time.Second))
 	}
-	if r.config.ClaudeFlags != "" {
-		opts = append(opts, WithClaudeArgs(strings.Fields(r.config.ClaudeFlags)))
-	}
-	opts = append(opts, WithEnvConfig(r.config.EnvConfig))
+	opts = append(opts, WithExecutorConfig(r.config.ExecutorConfig))
 	return NewClaudeAgent(agentCfg.Name, agentCfg.Focus, prompt, opts...)
 }
 

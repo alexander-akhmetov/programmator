@@ -232,6 +232,32 @@ func TestApplyOverlay_ClaudeConfig(t *testing.T) {
 	assert.Equal(t, "base-key", base.Claude.AnthropicAPIKey)
 }
 
+func TestApplyOverlay_PiConfig(t *testing.T) {
+	base := &Config{
+		Pi: PiConfig{
+			Flags:     "--verbose",
+			ConfigDir: "/base/pi",
+			Provider:  "anthropic",
+			Model:     "sonnet",
+			APIKey:    "base-key",
+		},
+	}
+
+	overlay := &configOverlay{
+		Pi: PiConfig{
+			Provider: "openai",
+			Model:    "gpt-4o",
+		},
+	}
+
+	base.applyOverlay(overlay)
+	assert.Equal(t, "--verbose", base.Pi.Flags)    // unchanged
+	assert.Equal(t, "/base/pi", base.Pi.ConfigDir) // unchanged
+	assert.Equal(t, "openai", base.Pi.Provider)    // overridden
+	assert.Equal(t, "gpt-4o", base.Pi.Model)       // overridden
+	assert.Equal(t, "base-key", base.Pi.APIKey)    // unchanged
+}
+
 func TestApplyOverlay_PointerFields(t *testing.T) {
 	base := &Config{
 		MaxIterations:   50,
@@ -277,6 +303,30 @@ claude:
 	assert.Equal(t, "/custom/dir", cfg.Claude.ConfigDir)
 }
 
+func TestLoadWithDirs_PiConfig(t *testing.T) {
+	globalDir := t.TempDir()
+
+	configContent := `
+executor: pi
+pi:
+  flags: "--verbose"
+  config_dir: "/custom/pi"
+  provider: "anthropic"
+  model: "sonnet"
+`
+	err := os.WriteFile(filepath.Join(globalDir, "config.yaml"), []byte(configContent), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := LoadWithDirs(globalDir, "")
+	require.NoError(t, err)
+
+	assert.Equal(t, "pi", cfg.Executor)
+	assert.Equal(t, "--verbose", cfg.Pi.Flags)
+	assert.Equal(t, "/custom/pi", cfg.Pi.ConfigDir)
+	assert.Equal(t, "anthropic", cfg.Pi.Provider)
+	assert.Equal(t, "sonnet", cfg.Pi.Model)
+}
+
 func TestValidate(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -284,6 +334,7 @@ func TestValidate(t *testing.T) {
 		wantErr  bool
 	}{
 		{name: "claude is valid", executor: "claude", wantErr: false},
+		{name: "pi is valid", executor: "pi", wantErr: false},
 		{name: "empty is valid", executor: "", wantErr: false},
 		{name: "unknown is invalid", executor: "gpt", wantErr: true},
 		{name: "typo is invalid", executor: "cladue", wantErr: true},

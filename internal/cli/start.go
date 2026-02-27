@@ -32,7 +32,7 @@ var startCmd = &cobra.Command{
 
 The loop will:
 1. Read the ticket/plan and identify the current phase
-2. Invoke Claude Code with a structured prompt
+2. Invoke the configured coding agent with a structured prompt
 3. Parse the response for status updates
 4. Loop until all phases are complete or safety limits are reached
 
@@ -43,7 +43,7 @@ In non-TTY mode (pipes, CI), output is plain text without ANSI escapes.`,
 }
 
 func init() {
-	startCmd.Flags().StringVarP(&startWorkingDir, "dir", "d", "", "Working directory for Claude (default: current directory)")
+	startCmd.Flags().StringVarP(&startWorkingDir, "dir", "d", "", "Working directory (default: current directory)")
 	startCmd.Flags().IntVarP(&startMaxIterations, "max-iterations", "n", 0, "Maximum iterations")
 	startCmd.Flags().IntVar(&startStagnationLimit, "stagnation-limit", 0, "Stagnation limit")
 	startCmd.Flags().IntVar(&startTimeout, "timeout", 0, "Timeout per Claude invocation in seconds")

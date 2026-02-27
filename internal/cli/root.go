@@ -23,10 +23,10 @@ func SetVersionInfo(v, c, d string) {
 
 var rootCmd = &cobra.Command{
 	Use:   "programmator",
-	Short: "Ticket-driven autonomous Claude Code loop orchestrator",
-	Long: `Programmator reads a ticket, identifies the current phase, invokes Claude Code
-with a structured prompt, parses the response, and loops until all phases are
-complete or safety limits are reached.`,
+	Short: "Ticket-driven autonomous coding agent loop orchestrator",
+	Long: `Programmator reads a ticket, identifies the current phase, invokes the configured
+coding agent with a structured prompt, parses the response, and loops until all
+phases are complete or safety limits are reached.`,
 	SilenceUsage: true,
 }
 
