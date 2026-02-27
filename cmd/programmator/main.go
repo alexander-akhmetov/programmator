@@ -5,7 +5,7 @@ import (
 	"os"
 	"runtime/debug"
 
-	"github.com/alexander-akhmetov/programmator/internal/tui"
+	"github.com/alexander-akhmetov/programmator/internal/cli"
 )
 
 // Version information set via ldflags at build time.
@@ -17,8 +17,8 @@ var (
 
 func main() {
 	fillVersionFromBuildInfo()
-	tui.SetVersionInfo(version, commit, date)
-	if err := tui.Execute(); err != nil {
+	cli.SetVersionInfo(version, commit, date)
+	if err := cli.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
