@@ -40,14 +40,9 @@ func (c *Config) ToReviewConfig() review.Config {
 		Timeout:       c.Timeout,
 		ClaudeFlags:   c.Claude.Flags,
 		Agents:        agents,
-		Codex: review.CodexSettings{
-			Command:         c.Codex.Command,
-			Model:           c.Codex.Model,
-			ReasoningEffort: c.Codex.ReasoningEffort,
-			TimeoutMs:       c.Codex.TimeoutMs,
-			Sandbox:         c.Codex.Sandbox,
-			ProjectDoc:      c.Codex.ProjectDoc,
-			ErrorPatterns:   c.Codex.ErrorPatterns,
+		EnvConfig: llm.EnvConfig{
+			ClaudeConfigDir: c.Claude.ConfigDir,
+			AnthropicAPIKey: c.Claude.AnthropicAPIKey,
 		},
 	}
 }

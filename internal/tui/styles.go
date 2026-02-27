@@ -35,10 +35,6 @@ var (
 			Foreground(lipgloss.Color("#e67e22")).
 			Bold(true)
 
-	pausedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("208")).
-			Bold(true)
-
 	runningStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("42"))
 
@@ -70,10 +66,6 @@ var (
 
 	reviewStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("117"))
-
-	guardStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("42")).
-			Bold(true)
 
 	tipStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("243")).

@@ -24,8 +24,6 @@ go run ./cmd/programmator start <ticket-id>      # ticket
 go run ./cmd/programmator start ./plan.md        # plan file
 go run ./cmd/programmator start ./plan.md --auto-commit  # with auto git workflow
 go run ./cmd/programmator status
-go run ./cmd/programmator logs <ticket-id>
-go run ./cmd/programmator logs --follow           # tail active log
 go run ./cmd/programmator plan create "description"  # interactive plan creation
 go run ./cmd/programmator config show             # show resolved config
 
@@ -59,7 +57,7 @@ main.go (entry) → Loop.Run() → [for each iteration]:
 
 ### Key Components
 
-- **internal/loop/loop.go**: Main orchestration. Manages iteration state, invokes Claude via `llm.Invoker`, handles streaming JSON output. Supports pause/resume, process memory monitoring, auto-commit after phases, and progress logging.
+- **internal/loop/loop.go**: Main orchestration. Manages iteration state, invokes Claude via `llm.Invoker`, handles streaming JSON output. Supports process memory monitoring and auto-commit after phases.
 - **internal/llm/**: Claude CLI invocation layer. Defines `Invoker` interface, streaming JSON parser, environment filtering (strips `ANTHROPIC_API_KEY`), and hook support.
 - **internal/domain/**: Core model types (`WorkItem`, `Phase`).
 - **internal/protocol/**: Cross-package constants — status values (`CONTINUE`, `DONE`, `BLOCKED`, `REVIEW_PASS`, `REVIEW_FAIL`), signal markers for plan creation, and source type identifiers.
@@ -70,13 +68,11 @@ main.go (entry) → Loop.Run() → [for each iteration]:
 - **internal/prompt/builder.go**: Builds prompts using Go `text/template` with named variables. Loads templates from embedded defaults, global, or local override files.
 - **internal/parser/parser.go**: Extracts and parses `PROGRAMMATOR_STATUS` YAML block from Claude output. Status values: CONTINUE, DONE, BLOCKED. Also parses `<<<PROGRAMMATOR:QUESTION>>>` and `<<<PROGRAMMATOR:PLAN_READY>>>` signals for interactive plan creation.
 - **internal/review/**: Code review pipeline. Runs parallel review agents, collects structured issues, validates findings, and builds fix prompts.
-- **internal/codex/**: Codex review agent integration (calls external `codex` CLI for cross-checks).
 - **internal/event/**: Typed event system for communication between loop, TUI, and other components.
 - **internal/safety/safety.go**: Exit conditions: max iterations, stagnation (no file changes), repeated errors.
 - **internal/tui/**: Bubbletea-based TUI with status panel, markdown rendering via glamour, real-time token usage display, and all CLI command definitions.
 - **internal/config/**: Unified YAML configuration with multi-level merge (embedded defaults → global → env vars → local → CLI flags). Includes prompt template loading with fallback chain.
 - **internal/dirs/**: XDG Base Directory Specification paths. Central source of truth for `ConfigDir()`, `StateDir()`, `LogsDir()`.
-- **internal/progress/**: Persistent run logging. `Logger` writes timestamped entries to `$XDG_STATE_HOME/programmator/logs/`. Includes file locking (`flock_unix.go`) for active session detection.
 - **internal/git/repo.go**: Git operations wrapper (`Repo` struct) for branch creation, checkout, add, commit, and file moves. Used by auto-commit workflow.
 
 ### Status Protocol

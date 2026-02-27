@@ -15,18 +15,12 @@ import (
 
 // ClaudeInvoker invokes the Claude CLI binary.
 type ClaudeInvoker struct {
-	Env                  EnvConfig
-	PermissionSocketPath string
-	GuardMode            bool
+	Env EnvConfig
 }
 
 // NewClaudeInvoker returns an Invoker that shells out to the "claude" binary.
-func NewClaudeInvoker(env EnvConfig, permissionSocketPath string, guardMode bool) *ClaudeInvoker {
-	return &ClaudeInvoker{
-		Env:                  env,
-		PermissionSocketPath: permissionSocketPath,
-		GuardMode:            guardMode,
-	}
+func NewClaudeInvoker(env EnvConfig) *ClaudeInvoker {
+	return &ClaudeInvoker{Env: env}
 }
 
 // Invoke runs claude --print with the given prompt and options.
@@ -39,17 +33,6 @@ func (c *ClaudeInvoker) Invoke(ctx context.Context, prompt string, opts InvokeOp
 
 	if opts.Streaming {
 		args = append(args, "--output-format", "stream-json", "--verbose")
-	}
-
-	settingsJSON := opts.SettingsJSON
-	if settingsJSON == "" && (c.PermissionSocketPath != "" || c.GuardMode) {
-		settingsJSON = BuildHookSettings(HookConfig{
-			PermissionSocketPath: c.PermissionSocketPath,
-			GuardMode:            c.GuardMode,
-		})
-	}
-	if settingsJSON != "" {
-		args = append(args, "--settings", settingsJSON)
 	}
 
 	invokeCtx := ctx

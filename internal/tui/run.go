@@ -14,13 +14,11 @@ import (
 
 	"github.com/alexander-akhmetov/programmator/internal/config"
 	"github.com/alexander-akhmetov/programmator/internal/llm"
-	"github.com/alexander-akhmetov/programmator/internal/permission"
 )
 
 var (
 	runWorkingDir      string
 	runSkipPermissions bool
-	runAllowPatterns   []string
 	runNonInteractive  bool
 	runMaxTurns        int
 	runExecutor        string
@@ -44,7 +42,6 @@ Examples:
 func init() {
 	runCmd.Flags().StringVarP(&runWorkingDir, "dir", "d", "", "Working directory for Claude (default: current directory)")
 	runCmd.Flags().BoolVar(&runSkipPermissions, "dangerously-skip-permissions", false, "Skip interactive permission dialogs (grants all permissions)")
-	runCmd.Flags().StringArrayVar(&runAllowPatterns, "allow", nil, "Pre-allow permission patterns (e.g., 'Bash(git:*)', 'Read')")
 	runCmd.Flags().BoolVar(&runNonInteractive, "print", false, "Non-interactive mode: print output directly without TUI")
 	runCmd.Flags().IntVar(&runMaxTurns, "max-turns", 0, "Maximum agentic turns (0 = unlimited)")
 	runCmd.Flags().StringVar(&runExecutor, "executor", "", "Executor to use (default: claude)")
@@ -151,45 +148,8 @@ func runClaudeTUI(prompt, workingDir string) error {
 		return runClaudePrint(prompt, workingDir)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	var permServer *permission.Server
-	if !runSkipPermissions {
-		var err error
-		permServer, err = permission.NewServer(workingDir, func(_ *permission.Request) permission.HandlerResponse {
-			// For now, in run mode we auto-deny unknown permissions
-			// TODO: Add interactive permission dialog for run mode
-			return permission.HandlerResponse{Decision: permission.DecisionDeny}
-		})
-		if err != nil {
-			return fmt.Errorf("failed to start permission server: %w", err)
-		}
-		defer permServer.Close()
-
-		if len(runAllowPatterns) > 0 {
-			permServer.SetPreAllowed(runAllowPatterns)
-		}
-
-		go func() {
-			if err := permServer.Serve(ctx); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: permission server error: %v\n", err)
-			}
-		}()
-	}
-
 	// Build Claude command
 	args := buildCommonFlags()
-
-	if !runSkipPermissions && permServer != nil {
-		hookSettings := llm.BuildHookSettings(llm.HookConfig{
-			PermissionSocketPath: permServer.SocketPath(),
-		})
-		if hookSettings != "" {
-			args = append(args, "--settings", hookSettings)
-		}
-	}
-
 	args = append(args, "-p", prompt)
 
 	cmd := exec.Command("claude", args...)

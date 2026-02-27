@@ -19,21 +19,8 @@ type Config struct {
 	Timeout       int           `yaml:"-"` // seconds per agent invocation, inherited from main config
 	Agents        []AgentConfig `yaml:"agents,omitempty"`
 	ClaudeFlags   string        `yaml:"-"` // inherited from main config, not user-configured
-	SettingsJSON  string        `yaml:"-"` // pre-computed --settings JSON for guard mode
 	EnvConfig     llm.EnvConfig `yaml:"-"` // Claude subprocess environment (config dir, API key)
 	TicketContext string        `yaml:"-"` // full ticket/plan content for reviewer context
-	Codex         CodexSettings `yaml:"-"` // codex agent settings, injected from main config
-}
-
-// CodexSettings holds codex-specific settings passed to the CodexAgent.
-type CodexSettings struct {
-	Command         string
-	Model           string
-	ReasoningEffort string
-	TimeoutMs       int
-	Sandbox         string
-	ProjectDoc      string
-	ErrorPatterns   []string
 }
 
 // AgentConfig defines a single review agent configuration.
@@ -63,7 +50,6 @@ func DefaultAgents() []AgentConfig {
 		{Name: "simplification", Focus: []string{"over-engineering", "unnecessary abstractions"}},
 		{Name: "linter", Focus: []string{"lint errors", "formatting", "static analysis"}},
 		{Name: "claudemd", Focus: []string{"CLAUDE.md compliance", "project conventions"}},
-		{Name: "codex", Focus: []string{"bugs", "security", "race conditions", "missing error handling", "resource leaks"}},
 	}
 }
 

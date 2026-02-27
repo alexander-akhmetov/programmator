@@ -39,7 +39,6 @@ func init() {
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(reviewCmd)
 	rootCmd.AddCommand(statusCmd)
-	rootCmd.AddCommand(logsCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(planCmd)
 }

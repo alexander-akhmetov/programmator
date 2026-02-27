@@ -25,9 +25,6 @@ type InvokeOptions struct {
 	// ExtraFlags are additional CLI flags appended to the command.
 	ExtraFlags []string
 
-	// SettingsJSON is the --settings payload (hook configuration).
-	SettingsJSON string
-
 	// Timeout overrides the default invocation timeout (seconds).
 	// Zero means no explicit timeout (caller's context is respected).
 	Timeout int

@@ -78,12 +78,8 @@ func (r *Runner) SetAgentFactory(factory AgentFactory) {
 	r.agentFactory = factory
 }
 
-// defaultAgentFactory creates ClaudeAgent or CodexAgent instances.
+// defaultAgentFactory creates ClaudeAgent instances.
 func (r *Runner) defaultAgentFactory(agentCfg AgentConfig, defaultPrompt string) Agent {
-	if agentCfg.Name == "codex" {
-		return r.createCodexAgent(agentCfg, defaultPrompt)
-	}
-
 	prompt := defaultPrompt
 	if agentCfg.Prompt != "" {
 		prompt = agentCfg.Prompt
@@ -96,37 +92,8 @@ func (r *Runner) defaultAgentFactory(agentCfg AgentConfig, defaultPrompt string)
 	if r.config.ClaudeFlags != "" {
 		opts = append(opts, WithClaudeArgs(strings.Fields(r.config.ClaudeFlags)))
 	}
-	if r.config.SettingsJSON != "" {
-		opts = append(opts, WithSettingsJSON(r.config.SettingsJSON))
-	}
 	opts = append(opts, WithEnvConfig(r.config.EnvConfig))
 	return NewClaudeAgent(agentCfg.Name, agentCfg.Focus, prompt, opts...)
-}
-
-// createCodexAgent creates a CodexAgent from config.
-func (r *Runner) createCodexAgent(agentCfg AgentConfig, defaultPrompt string) Agent {
-	prompt := defaultPrompt
-	if agentCfg.Prompt != "" {
-		prompt = agentCfg.Prompt
-	}
-
-	cfg := CodexAgentConfig{
-		Command:         r.config.Codex.Command,
-		Model:           r.config.Codex.Model,
-		ReasoningEffort: r.config.Codex.ReasoningEffort,
-		TimeoutMs:       r.config.Codex.TimeoutMs,
-		Sandbox:         r.config.Codex.Sandbox,
-		ProjectDoc:      r.config.Codex.ProjectDoc,
-		ErrorPatterns:   r.config.Codex.ErrorPatterns,
-		Prompt:          prompt,
-		Focus:           agentCfg.Focus,
-	}
-
-	if r.onOutput != nil {
-		cfg.OutputHandler = r.onOutput
-	}
-
-	return NewCodexAgent(cfg)
 }
 
 func addTicketContext(prompt, ticketContext string) string {

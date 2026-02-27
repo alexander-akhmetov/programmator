@@ -24,26 +24,12 @@ claude:
 # Ticket settings
 ticket_command: "tk" # Binary name for the ticket CLI (tk or ticket)
 
-# Progress log settings
-logs_dir: "" # Directory for progress logs (default: ~/.programmator/logs)
-
 # Git workflow settings
 git:
   auto_commit: false # Auto-commit after each phase completion
   move_completed_plans: false # Move completed plans to completed/ directory
   completed_plans_dir: "" # Directory for completed plans (default: plans/completed)
   branch_prefix: "" # Prefix for auto-created branches (default: programmator/)
-
-# Codex review settings (used by the codex review agent)
-codex:
-  command: "codex"
-  model: "gpt-5.2-codex"
-  reasoning_effort: "xhigh"
-  timeout_ms: 3600000
-  sandbox: "read-only"
-  error_patterns:
-    - "Rate limit"
-    - "quota exceeded"
 
 # Review settings
 review:
@@ -92,10 +78,3 @@ review:
       focus:
         - CLAUDE.md compliance
         - project conventions
-    - name: codex
-      focus:
-        - bugs
-        - security
-        - race conditions
-        - missing error handling
-        - resource leaks

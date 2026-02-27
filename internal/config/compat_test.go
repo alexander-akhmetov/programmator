@@ -52,7 +52,9 @@ func TestToReviewConfig_WithAgents(t *testing.T) {
 	cfg := &Config{
 		Timeout: 600,
 		Claude: ClaudeConfig{
-			Flags: "--verbose",
+			Flags:           "--verbose",
+			ConfigDir:       "/custom/config",
+			AnthropicAPIKey: "test-api-key",
 		},
 		Review: ReviewConfig{
 			MaxIterations: 5,
@@ -73,6 +75,8 @@ func TestToReviewConfig_WithAgents(t *testing.T) {
 	assert.Equal(t, "quality", rc.Agents[0].Name)
 	assert.Equal(t, "custom.md", rc.Agents[0].Prompt)
 	assert.Equal(t, "security", rc.Agents[1].Name)
+	assert.Equal(t, "/custom/config", rc.EnvConfig.ClaudeConfigDir)
+	assert.Equal(t, "test-api-key", rc.EnvConfig.AnthropicAPIKey)
 }
 
 func TestToReviewConfig_MigrateFromPhases(t *testing.T) {
@@ -141,30 +145,6 @@ func TestToReviewConfig_NoAgentsNoPhases(t *testing.T) {
 	rc := cfg.ToReviewConfig()
 	assert.Equal(t, 3, rc.MaxIterations)
 	assert.Empty(t, rc.Agents)
-}
-
-func TestToReviewConfig_CodexSettings(t *testing.T) {
-	cfg := &Config{
-		Codex: CodexConfig{
-			Command:         "codex",
-			Model:           "gpt-5.2-codex",
-			ReasoningEffort: "xhigh",
-			TimeoutMs:       3600000,
-			Sandbox:         "read-only",
-			ErrorPatterns:   []string{"Rate limit"},
-		},
-		Review: ReviewConfig{
-			MaxIterations: 5,
-		},
-	}
-
-	rc := cfg.ToReviewConfig()
-	assert.Equal(t, "codex", rc.Codex.Command)
-	assert.Equal(t, "gpt-5.2-codex", rc.Codex.Model)
-	assert.Equal(t, "xhigh", rc.Codex.ReasoningEffort)
-	assert.Equal(t, 3600000, rc.Codex.TimeoutMs)
-	assert.Equal(t, "read-only", rc.Codex.Sandbox)
-	assert.Equal(t, []string{"Rate limit"}, rc.Codex.ErrorPatterns)
 }
 
 func TestToSafetyConfig_ZeroValues(t *testing.T) {

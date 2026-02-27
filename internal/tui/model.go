@@ -11,7 +11,6 @@ import (
 	"github.com/alexander-akhmetov/programmator/internal/domain"
 	"github.com/alexander-akhmetov/programmator/internal/event"
 	"github.com/alexander-akhmetov/programmator/internal/loop"
-	"github.com/alexander-akhmetov/programmator/internal/permission"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
 )
 
@@ -19,40 +18,37 @@ type runState int
 
 const (
 	stateRunning runState = iota
-	statePaused
 	stateStopped
 	stateComplete
 )
 
 // Model is the bubbletea model for the TUI.
 type Model struct {
-	workItem         *domain.WorkItem
-	state            *safety.State
-	config           safety.Config
-	filesChanged     []string
-	logs             []string
-	events           []event.Event
-	logViewport      viewport.Model
-	spinner          spinner.Model
-	width            int
-	height           int
-	runState         runState
-	loop             *loop.Loop
-	ready            bool
-	result           *loop.Result
-	err              error
-	renderer         *glamour.TermRenderer
-	workingDir       string
-	gitBranch        string
-	gitDirty         bool
-	claudePID        int
-	claudeMemKB      int64
-	guardMode        bool
-	permissionDialog *PermissionDialog
-	tipIndex         int
-	hideTips         bool
-	claudeFlags      string
-	claudeConfigDir  string
+	workItem        *domain.WorkItem
+	state           *safety.State
+	config          safety.Config
+	filesChanged    []string
+	logs            []string
+	events          []event.Event
+	logViewport     viewport.Model
+	spinner         spinner.Model
+	width           int
+	height          int
+	runState        runState
+	loop            *loop.Loop
+	ready           bool
+	result          *loop.Result
+	err             error
+	renderer        *glamour.TermRenderer
+	workingDir      string
+	gitBranch       string
+	gitDirty        bool
+	claudePID       int
+	claudeMemKB     int64
+	tipIndex        int
+	hideTips        bool
+	claudeFlags     string
+	claudeConfigDir string
 }
 
 // NewModel creates a new Model with the given safety config.
@@ -103,12 +99,6 @@ type ProcessStatsMsg struct {
 // EventMsg carries a typed event from the loop.
 type EventMsg struct {
 	Event event.Event
-}
-
-// PermissionRequestMsg carries a permission request from the loop.
-type PermissionRequestMsg struct {
-	Request      *permission.Request
-	ResponseChan chan<- permission.HandlerResponse
 }
 
 type rendererReadyMsg struct {
