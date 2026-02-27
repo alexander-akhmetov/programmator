@@ -18,7 +18,7 @@ func BuildEnv(cfg EnvConfig) []string {
 	environ := os.Environ()
 	env := make([]string, 0, len(environ))
 	for _, e := range environ {
-		if !strings.HasPrefix(e, "ANTHROPIC_API_KEY=") {
+		if !strings.HasPrefix(e, "ANTHROPIC_API_KEY=") && !strings.HasPrefix(e, "CLAUDE_CONFIG_DIR=") {
 			env = append(env, e)
 		}
 	}
