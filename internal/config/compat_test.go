@@ -69,14 +69,14 @@ func TestToReviewConfig_WithAgents(t *testing.T) {
 	rc := cfg.ToReviewConfig()
 	assert.Equal(t, 5, rc.MaxIterations)
 	assert.Equal(t, 600, rc.Timeout)
-	assert.Equal(t, "--verbose --dangerously-skip-permissions", rc.ClaudeFlags)
 	assert.True(t, rc.Parallel)
 	require.Len(t, rc.Agents, 2)
 	assert.Equal(t, "quality", rc.Agents[0].Name)
 	assert.Equal(t, "custom.md", rc.Agents[0].Prompt)
 	assert.Equal(t, "security", rc.Agents[1].Name)
-	assert.Equal(t, "/custom/config", rc.EnvConfig.ClaudeConfigDir)
-	assert.Equal(t, "test-api-key", rc.EnvConfig.AnthropicAPIKey)
+	assert.Equal(t, "/custom/config", rc.ExecutorConfig.Claude.ClaudeConfigDir)
+	assert.Equal(t, "test-api-key", rc.ExecutorConfig.Claude.AnthropicAPIKey)
+	assert.Contains(t, rc.ExecutorConfig.ExtraFlags, "--dangerously-skip-permissions")
 }
 
 func TestToReviewConfig_NoAgentsNoPhases(t *testing.T) {
@@ -99,6 +99,28 @@ func TestToSafetyConfig_ZeroValues(t *testing.T) {
 	assert.Equal(t, 0, sc.StagnationLimit)
 	assert.Equal(t, 0, sc.Timeout)
 	assert.Equal(t, 0, sc.MaxReviewIterations)
+}
+
+func TestToExecutorConfig_Pi(t *testing.T) {
+	cfg := &Config{
+		Executor: "pi",
+		Pi: PiConfig{
+			Flags:     "--verbose",
+			ConfigDir: "/custom/pi",
+			Provider:  "anthropic",
+			Model:     "sonnet",
+			APIKey:    "pi-key",
+		},
+	}
+
+	ec := cfg.ToExecutorConfig()
+	assert.Equal(t, "pi", ec.Name)
+	assert.Equal(t, "/custom/pi", ec.Pi.ConfigDir)
+	assert.Equal(t, "anthropic", ec.Pi.Provider)
+	assert.Equal(t, "sonnet", ec.Pi.Model)
+	assert.Equal(t, "pi-key", ec.Pi.APIKey)
+	assert.Equal(t, []string{"--verbose"}, ec.ExtraFlags)
+	assert.NotContains(t, ec.ExtraFlags, "--dangerously-skip-permissions")
 }
 
 func TestToExecutorConfig_AlwaysSkipPermissions(t *testing.T) {
@@ -124,5 +146,5 @@ func TestToExecutorConfig_AlwaysSkipPermissions(t *testing.T) {
 func TestToReviewConfig_AlwaysSkipPermissions(t *testing.T) {
 	cfg := &Config{}
 	rc := cfg.ToReviewConfig()
-	assert.Contains(t, rc.ClaudeFlags, "--dangerously-skip-permissions")
+	assert.Contains(t, rc.ExecutorConfig.ExtraFlags, "--dangerously-skip-permissions")
 }

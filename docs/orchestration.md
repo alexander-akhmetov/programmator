@@ -1,6 +1,6 @@
 # Orchestration Flow
 
-A plain-language walkthrough of how programmator runs Claude Code.
+A plain-language walkthrough of how programmator runs coding agents.
 
 ## Commands
 
@@ -65,13 +65,13 @@ Same status protocol but `phase_completed: null`.
 
 Review runs automatically after all task phases complete. It uses a single loop with a flat list of agents.
 
-1. Run all configured agents in parallel (default 9: error-handling, logic, security, implementation, testing, simplification, linter, claudemd, codex).
-2. Each agent runs `claude --print <agent prompt>` with focus areas and changed files.
+1. Run all configured agents in parallel (default 8: error-handling, logic, security, implementation, testing, simplification, linter, claudemd).
+2. Each agent runs the configured executor with the agent prompt, focus areas, and changed files.
 3. Agents return structured issues (severity, file, line, description, fix suggestion).
 4. Validators run automatically:
    - **simplification-validator**: Filters low-value simplification suggestions.
    - **issue-validator**: Filters false positives from all other agents.
-5. If issues remain, build a fix prompt using `review_first.md` and invoke Claude to fix them.
+5. If issues remain, build a fix prompt using `review_first.md` and invoke the executor to fix them.
 6. Auto-commit fixes if enabled.
 7. Re-run the review (back to step 1) up to `review.max_iterations` times.
 8. If no issues remain, review passes.
@@ -98,7 +98,6 @@ The prompt text is used directly.
 | simplification | `simplification.md` | Over-engineering, unnecessary abstractions |
 | linter | `linter.md` | Auto-detect project type, run linters, report findings |
 | claudemd | `claudemd.md` | CLAUDE.md accuracy and completeness |
-| codex | `codex.md` | OpenAI Codex cross-check (skips if codex binary unavailable) |
 
 ---
 
@@ -122,7 +121,7 @@ Runs the same review loop but without task phases. It operates on `git diff <bas
 
 Interactive loop where Claude asks clarifying questions before generating a plan.
 
-1. Invoke Claude with plan_create.md.
+1. Invoke the executor with plan_create.md.
    - Variables: {{.Description}}, {{.PreviousAnswers}}
 2. Claude analyzes codebase, then either:
    - Asks a question:
@@ -184,7 +183,6 @@ review:
     - name: simplification
     - name: linter
     - name: claudemd
-    - name: codex
 ```
 
 Prompt templates can be overridden per-project (`.programmator/prompts/`) or globally (`~/.config/programmator/prompts/`). See [prompt_templates.md](prompt_templates.md).

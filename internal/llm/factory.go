@@ -4,9 +4,10 @@ import "fmt"
 
 // ExecutorConfig selects and configures the LLM executor implementation.
 type ExecutorConfig struct {
-	Name       string    // "claude" (only supported value for now)
-	Claude     EnvConfig // passed to ClaudeInvoker when Name is "claude"
-	ExtraFlags []string  // additional CLI flags for the executor
+	Name       string      // "claude", "pi", or "" (defaults to "claude")
+	Claude     EnvConfig   // passed to ClaudeInvoker when Name is "claude"
+	Pi         PiEnvConfig // passed to PiInvoker when Name is "pi"
+	ExtraFlags []string    // additional CLI flags for the executor
 }
 
 // NewInvoker creates an Invoker based on the executor name in cfg.
@@ -15,7 +16,9 @@ func NewInvoker(cfg ExecutorConfig) (Invoker, error) {
 	switch cfg.Name {
 	case "claude", "":
 		return NewClaudeInvoker(cfg.Claude), nil
+	case "pi":
+		return NewPiInvoker(cfg.Pi), nil
 	default:
-		return nil, fmt.Errorf("unknown executor: %q (supported: claude)", cfg.Name)
+		return nil, fmt.Errorf("unknown executor: %q (supported: claude, pi)", cfg.Name)
 	}
 }

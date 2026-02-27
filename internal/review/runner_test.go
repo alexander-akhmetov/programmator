@@ -97,43 +97,30 @@ func TestClaudeAgent(t *testing.T) {
 			nil,
 			"prompt",
 			WithTimeout(10*time.Minute),
-			WithClaudeArgs([]string{"--verbose"}),
-			WithEnvConfig(llm.EnvConfig{
-				ClaudeConfigDir: "/custom/config",
-				AnthropicAPIKey: "test-key",
+			WithExecutorConfig(llm.ExecutorConfig{
+				Name: "claude",
+				Claude: llm.EnvConfig{
+					ClaudeConfigDir: "/custom/config",
+					AnthropicAPIKey: "test-key",
+				},
+				ExtraFlags: []string{"--verbose"},
 			}),
 		)
 
 		require.Equal(t, 10*time.Minute, agent.timeout)
-		require.Equal(t, []string{"--verbose"}, agent.claudeArgs)
-		require.Equal(t, "/custom/config", agent.envConfig.ClaudeConfigDir)
-		require.Equal(t, "test-key", agent.envConfig.AnthropicAPIKey)
+		require.Equal(t, []string{"--verbose"}, agent.executorConfig.ExtraFlags)
+		require.Equal(t, "/custom/config", agent.executorConfig.Claude.ClaudeConfigDir)
+		require.Equal(t, "test-key", agent.executorConfig.Claude.AnthropicAPIKey)
 	})
 }
 
-func TestDefaultAgentFactory_PassesClaudeFlagsAndSettings(t *testing.T) {
+func TestDefaultAgentFactory_PassesExecutorConfig(t *testing.T) {
 	cfg := Config{
 		MaxIterations: 3,
 		Timeout:       120,
-		ClaudeFlags:   "--dangerously-skip-permissions",
-	}
-
-	runner := NewRunner(cfg)
-	agent := runner.defaultAgentFactory(AgentConfig{Name: "test", Focus: []string{"bugs"}}, "default prompt")
-
-	claudeAgent, ok := agent.(*ClaudeAgent)
-	require.True(t, ok)
-	require.Equal(t, []string{"--dangerously-skip-permissions"}, claudeAgent.claudeArgs)
-	require.Equal(t, 120*time.Second, claudeAgent.timeout)
-}
-
-func TestDefaultAgentFactory_PassesEnvConfig(t *testing.T) {
-	cfg := Config{
-		MaxIterations: 3,
-		Timeout:       120,
-		EnvConfig: llm.EnvConfig{
-			ClaudeConfigDir: "/custom/claude/config",
-			AnthropicAPIKey: "test-key",
+		ExecutorConfig: llm.ExecutorConfig{
+			Name:       "claude",
+			ExtraFlags: []string{"--dangerously-skip-permissions"},
 		},
 	}
 
@@ -142,11 +129,33 @@ func TestDefaultAgentFactory_PassesEnvConfig(t *testing.T) {
 
 	claudeAgent, ok := agent.(*ClaudeAgent)
 	require.True(t, ok)
-	require.Equal(t, "/custom/claude/config", claudeAgent.envConfig.ClaudeConfigDir)
-	require.Equal(t, "test-key", claudeAgent.envConfig.AnthropicAPIKey)
+	require.Equal(t, []string{"--dangerously-skip-permissions"}, claudeAgent.executorConfig.ExtraFlags)
+	require.Equal(t, 120*time.Second, claudeAgent.timeout)
 }
 
-func TestDefaultAgentFactory_EmptyEnvConfig(t *testing.T) {
+func TestDefaultAgentFactory_PassesEnvConfig(t *testing.T) {
+	cfg := Config{
+		MaxIterations: 3,
+		Timeout:       120,
+		ExecutorConfig: llm.ExecutorConfig{
+			Name: "claude",
+			Claude: llm.EnvConfig{
+				ClaudeConfigDir: "/custom/claude/config",
+				AnthropicAPIKey: "test-key",
+			},
+		},
+	}
+
+	runner := NewRunner(cfg)
+	agent := runner.defaultAgentFactory(AgentConfig{Name: "test", Focus: []string{"bugs"}}, "default prompt")
+
+	claudeAgent, ok := agent.(*ClaudeAgent)
+	require.True(t, ok)
+	require.Equal(t, "/custom/claude/config", claudeAgent.executorConfig.Claude.ClaudeConfigDir)
+	require.Equal(t, "test-key", claudeAgent.executorConfig.Claude.AnthropicAPIKey)
+}
+
+func TestDefaultAgentFactory_EmptyExecutorConfig(t *testing.T) {
 	cfg := Config{
 		MaxIterations: 3,
 	}
@@ -156,7 +165,7 @@ func TestDefaultAgentFactory_EmptyEnvConfig(t *testing.T) {
 
 	claudeAgent, ok := agent.(*ClaudeAgent)
 	require.True(t, ok)
-	require.Equal(t, llm.EnvConfig{}, claudeAgent.envConfig)
+	require.Equal(t, llm.ExecutorConfig{}, claudeAgent.executorConfig)
 }
 
 func TestDefaultAgentFactory_AlwaysCreatesClaude(t *testing.T) {

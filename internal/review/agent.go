@@ -113,38 +113,30 @@ type Agent interface {
 	Review(ctx context.Context, workingDir string, filesChanged []string) (*Result, error)
 }
 
-// ClaudeAgent implements ReviewAgent using Claude Code.
+// ClaudeAgent implements ReviewAgent using an LLM executor.
 type ClaudeAgent struct {
-	name       string
-	focus      []string
-	prompt     string
-	timeout    time.Duration
-	claudeArgs []string
-	envConfig  llm.EnvConfig
-	invoker    llm.Invoker
+	name           string
+	focus          []string
+	prompt         string
+	timeout        time.Duration
+	executorConfig llm.ExecutorConfig
+	invoker        llm.Invoker
 }
 
 // ClaudeAgentOption is a functional option for ClaudeAgent.
 type ClaudeAgentOption func(*ClaudeAgent)
 
-// WithTimeout sets the timeout for Claude invocations.
+// WithTimeout sets the timeout for agent invocations.
 func WithTimeout(d time.Duration) ClaudeAgentOption {
 	return func(a *ClaudeAgent) {
 		a.timeout = d
 	}
 }
 
-// WithClaudeArgs sets additional Claude CLI arguments.
-func WithClaudeArgs(args []string) ClaudeAgentOption {
+// WithExecutorConfig sets the executor configuration for the agent.
+func WithExecutorConfig(cfg llm.ExecutorConfig) ClaudeAgentOption {
 	return func(a *ClaudeAgent) {
-		a.claudeArgs = args
-	}
-}
-
-// WithEnvConfig sets the Claude subprocess environment configuration.
-func WithEnvConfig(cfg llm.EnvConfig) ClaudeAgentOption {
-	return func(a *ClaudeAgent) {
-		a.envConfig = cfg
+		a.executorConfig = cfg
 	}
 }
 
@@ -255,22 +247,26 @@ REVIEW_RESULT:
 	return b.String()
 }
 
-// invokeClaude runs Claude with the given prompt via llm.Invoker.
+// invokeClaude runs the configured executor with the given prompt via llm.Invoker.
 func (a *ClaudeAgent) invokeClaude(ctx context.Context, workingDir, promptText string) (string, error) {
 	inv := a.invoker
 	if inv == nil {
-		inv = llm.NewClaudeInvoker(a.envConfig)
+		var err error
+		inv, err = llm.NewInvoker(a.executorConfig)
+		if err != nil {
+			return "", fmt.Errorf("create invoker: %w", err)
+		}
 	}
 
 	opts := llm.InvokeOptions{
 		WorkingDir: workingDir,
-		ExtraFlags: a.claudeArgs,
+		ExtraFlags: a.executorConfig.ExtraFlags,
 		Timeout:    int(a.timeout.Seconds()),
 	}
 
 	res, err := inv.Invoke(ctx, promptText, opts)
 	if err != nil {
-		return "", fmt.Errorf("claude invocation failed: %w", err)
+		return "", fmt.Errorf("executor invocation failed: %w", err)
 	}
 	return res.Text, nil
 }

@@ -32,7 +32,7 @@ var startCmd = &cobra.Command{
 
 The loop will:
 1. Read the ticket/plan and identify the current phase
-2. Invoke Claude Code with a structured prompt
+2. Invoke the configured coding agent with a structured prompt
 3. Parse the response for status updates
 4. Loop until all phases are complete or safety limits are reached
 

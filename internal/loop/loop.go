@@ -143,11 +143,6 @@ func (l *Loop) SetExecutorConfig(cfg llm.ExecutorConfig) {
 	l.executorConfig = cfg
 }
 
-// isClaudeExecutor returns true when the configured executor is Claude (or default).
-func (l *Loop) isClaudeExecutor() bool {
-	return l.executorConfig.Name == "claude" || l.executorConfig.Name == ""
-}
-
 // executorName returns a display name for the configured executor.
 func (l *Loop) executorName() string {
 	if l.executorConfig.Name == "" {
@@ -1115,12 +1110,7 @@ func (l *Loop) emit(e event.Event) {
 
 // applySettingsToReviewConfig copies config settings into the review config.
 func (l *Loop) applySettingsToReviewConfig() {
-	if l.isClaudeExecutor() {
-		if len(l.executorConfig.ExtraFlags) > 0 {
-			l.reviewConfig.ClaudeFlags = strings.Join(l.executorConfig.ExtraFlags, " ")
-		}
-		l.reviewConfig.EnvConfig = l.executorConfig.Claude
-	}
+	l.reviewConfig.ExecutorConfig = l.executorConfig
 }
 
 func (l *Loop) applyReviewContext(workItem *domain.WorkItem) {

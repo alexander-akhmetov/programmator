@@ -21,6 +21,7 @@ var defaultsFS embed.FS
 // validExecutors is the set of supported executor names.
 var validExecutors = map[string]bool{
 	"claude": true,
+	"pi":     true,
 	"":       true, // empty defaults to "claude"
 }
 
@@ -29,6 +30,15 @@ type ClaudeConfig struct {
 	Flags           string `yaml:"flags"`
 	ConfigDir       string `yaml:"config_dir"`
 	AnthropicAPIKey string `yaml:"anthropic_api_key"`
+}
+
+// PiConfig holds pi coding agent executor configuration.
+type PiConfig struct {
+	Flags     string `yaml:"flags"`
+	ConfigDir string `yaml:"config_dir"`
+	Provider  string `yaml:"provider"`
+	Model     string `yaml:"model"`
+	APIKey    string `yaml:"api_key"`
 }
 
 // ReviewConfig holds review-specific configuration.
@@ -54,6 +64,7 @@ type Config struct {
 
 	Executor      string       `yaml:"executor"`
 	Claude        ClaudeConfig `yaml:"claude"`
+	Pi            PiConfig     `yaml:"pi"`
 	TicketCommand string       `yaml:"ticket_command"`
 
 	Git    GitConfig    `yaml:"git"`
@@ -76,6 +87,7 @@ type configOverlay struct {
 	Timeout         *int         `yaml:"timeout"`
 	Executor        string       `yaml:"executor"`
 	Claude          ClaudeConfig `yaml:"claude"`
+	Pi              PiConfig     `yaml:"pi"`
 	TicketCommand   string       `yaml:"ticket_command"`
 
 	Git    gitOverlay    `yaml:"git"`
@@ -113,7 +125,7 @@ func (c *Config) ConfigDir() string {
 // Validate checks the configuration for invalid values.
 func (c *Config) Validate() error {
 	if !validExecutors[c.Executor] {
-		return fmt.Errorf("unknown executor %q (supported: claude)", c.Executor)
+		return fmt.Errorf("unknown executor %q (supported: claude, pi)", c.Executor)
 	}
 	return nil
 }
@@ -232,6 +244,24 @@ func (c *Config) applyOverlay(o *configOverlay) {
 		log.Printf("warning: claude.anthropic_api_key loaded from config file — ensure this is a trusted source")
 		c.Claude.AnthropicAPIKey = o.Claude.AnthropicAPIKey
 	}
+	// Pi
+	if o.Pi.Flags != "" {
+		c.Pi.Flags = o.Pi.Flags
+	}
+	if o.Pi.ConfigDir != "" {
+		c.Pi.ConfigDir = o.Pi.ConfigDir
+	}
+	if o.Pi.Provider != "" {
+		c.Pi.Provider = o.Pi.Provider
+	}
+	if o.Pi.Model != "" {
+		c.Pi.Model = o.Pi.Model
+	}
+	if o.Pi.APIKey != "" {
+		log.Printf("warning: pi.api_key loaded from config file — ensure this is a trusted source")
+		c.Pi.APIKey = o.Pi.APIKey
+	}
+
 	if o.TicketCommand != "" {
 		c.TicketCommand = o.TicketCommand
 	}

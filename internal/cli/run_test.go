@@ -103,7 +103,7 @@ func TestRunRunNoPrompt(t *testing.T) {
 }
 
 func TestRunCmdHelp(t *testing.T) {
-	assert.Contains(t, runCmd.Long, "Run Claude Code with a custom prompt")
+	assert.Contains(t, runCmd.Long, "Run the configured coding agent with a custom prompt")
 	assert.Contains(t, runCmd.Long, "programmator run")
 }
 

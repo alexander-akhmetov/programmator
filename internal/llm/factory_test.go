@@ -30,9 +30,14 @@ func TestNewInvoker(t *testing.T) {
 			wantType: "*llm.ClaudeInvoker",
 		},
 		{
+			name:     "pi executor",
+			cfg:      ExecutorConfig{Name: "pi"},
+			wantType: "*llm.PiInvoker",
+		},
+		{
 			name:      "unknown executor returns error",
 			cfg:       ExecutorConfig{Name: "unknown"},
-			wantError: `unknown executor: "unknown" (supported: claude)`,
+			wantError: `unknown executor: "unknown" (supported: claude, pi)`,
 		},
 	}
 
@@ -45,7 +50,13 @@ func TestNewInvoker(t *testing.T) {
 				assert.Nil(t, inv)
 			} else {
 				require.NoError(t, err)
-				assert.IsType(t, &ClaudeInvoker{}, inv)
+				require.NotNil(t, inv)
+				switch tc.cfg.Name {
+				case "pi":
+					assert.IsType(t, &PiInvoker{}, inv)
+				default:
+					assert.IsType(t, &ClaudeInvoker{}, inv)
+				}
 			}
 		})
 	}
@@ -63,4 +74,22 @@ func TestNewInvoker_EnvConfigPassthrough(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "/custom/config", ci.Env.ClaudeConfigDir)
 	assert.Equal(t, "sk-test-key", ci.Env.AnthropicAPIKey)
+}
+
+func TestNewInvoker_PiEnvConfigPassthrough(t *testing.T) {
+	piCfg := PiEnvConfig{
+		ConfigDir: "/custom/pi/config",
+		Provider:  "anthropic",
+		Model:     "sonnet",
+		APIKey:    "pi-test-key",
+	}
+	inv, err := NewInvoker(ExecutorConfig{Name: "pi", Pi: piCfg})
+	require.NoError(t, err)
+
+	pi, ok := inv.(*PiInvoker)
+	require.True(t, ok)
+	assert.Equal(t, "/custom/pi/config", pi.Env.ConfigDir)
+	assert.Equal(t, "anthropic", pi.Env.Provider)
+	assert.Equal(t, "sonnet", pi.Env.Model)
+	assert.Equal(t, "pi-test-key", pi.Env.APIKey)
 }

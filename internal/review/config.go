@@ -11,13 +11,12 @@ const (
 
 // Config holds the review configuration.
 type Config struct {
-	MaxIterations int           `yaml:"max_iterations"`
-	Parallel      bool          `yaml:"parallel"`
-	Timeout       int           `yaml:"-"` // seconds per agent invocation, inherited from main config
-	Agents        []AgentConfig `yaml:"agents,omitempty"`
-	ClaudeFlags   string        `yaml:"-"` // inherited from main config, not user-configured
-	EnvConfig     llm.EnvConfig `yaml:"-"` // Claude subprocess environment (config dir, API key)
-	TicketContext string        `yaml:"-"` // full ticket/plan content for reviewer context
+	MaxIterations  int                `yaml:"max_iterations"`
+	Parallel       bool               `yaml:"parallel"`
+	Timeout        int                `yaml:"-"` // seconds per agent invocation, inherited from main config
+	Agents         []AgentConfig      `yaml:"agents,omitempty"`
+	ExecutorConfig llm.ExecutorConfig `yaml:"-"` // executor configuration, inherited from main config
+	TicketContext  string             `yaml:"-"` // full ticket/plan content for reviewer context
 }
 
 // AgentConfig defines a single review agent configuration.
