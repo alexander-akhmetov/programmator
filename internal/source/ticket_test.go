@@ -13,6 +13,7 @@ import (
 	"github.com/alexander-akhmetov/programmator/internal/ticket"
 )
 
+
 // mockTicketClient implements ticket.Client for testing.
 type mockTicketClient struct {
 	tickets       map[string]*ticket.Ticket
