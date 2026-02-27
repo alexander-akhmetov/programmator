@@ -148,22 +148,21 @@ func TestToReviewConfig_NoAgentsNoPhases(t *testing.T) {
 }
 
 func TestPlanExecutorOrDefault(t *testing.T) {
-	tests := []struct {
-		name         string
-		executor     string
-		planExecutor string
-		want         string
-	}{
-		{"returns PlanExecutor when set", "claude", "codex", "codex"},
-		{"falls back to Executor when PlanExecutor is empty", "claude", "", "claude"},
-		{"returns empty when both are empty", "", "", ""},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			cfg := &Config{Executor: tc.executor, PlanExecutor: tc.planExecutor}
-			assert.Equal(t, tc.want, cfg.PlanExecutorOrDefault())
-		})
-	}
+	t.Run("returns PlanExecutor when set", func(t *testing.T) {
+		cfg := &Config{Executor: "claude", PlanExecutor: "codex"}
+		assert.Equal(t, "codex", cfg.PlanExecutorOrDefault())
+	})
+	t.Run("falls back to Executor when PlanExecutor is empty", func(t *testing.T) {
+		cfg := &Config{Executor: "claude"}
+		assert.Equal(t, "claude", cfg.PlanExecutorOrDefault())
+	})
+	t.Run("local config can clear PlanExecutor back to empty", func(t *testing.T) {
+		global := &Config{Executor: "claude", PlanExecutor: "codex", PlanExecutorSet: true}
+		local := &Config{PlanExecutor: "", PlanExecutorSet: true}
+		global.mergeFrom(local)
+		assert.Equal(t, "", global.PlanExecutor)
+		assert.Equal(t, "claude", global.PlanExecutorOrDefault())
+	})
 }
 
 

@@ -105,6 +105,7 @@ type Config struct {
 	StagnationLimitSet bool `yaml:"-"`
 	TimeoutSet         bool `yaml:"-"`
 	HideTipsSet        bool `yaml:"-"`
+	PlanExecutorSet    bool `yaml:"-"`
 
 	// Private: track where config was loaded from
 	configDir string
@@ -270,6 +271,9 @@ func parseConfigWithTracking(data []byte) (*Config, error) {
 	if _, ok := raw["hide_tips"]; ok {
 		cfg.HideTipsSet = true
 	}
+	if _, ok := raw["plan_executor"]; ok {
+		cfg.PlanExecutorSet = true
+	}
 
 	// Track review fields
 	if review, ok := raw["review"].(map[string]any); ok {
@@ -409,8 +413,9 @@ func (c *Config) mergeFrom(src *Config) {
 	if src.Executor != "" {
 		c.Executor = src.Executor
 	}
-	if src.PlanExecutor != "" {
+	if src.PlanExecutorSet {
 		c.PlanExecutor = src.PlanExecutor
+		c.PlanExecutorSet = true
 	}
 	if src.Claude.Flags != "" {
 		c.Claude.Flags = src.Claude.Flags
