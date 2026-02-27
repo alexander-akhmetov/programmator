@@ -82,9 +82,6 @@ By default, programmator runs 9 review agents after task completion. You can rep
 
 ```yaml
 executor: pi
-pi:
-  provider: openai
-  model: gpt-4o
 
 review:
   agents:
@@ -108,9 +105,6 @@ review:
 
 ```yaml
 executor: pi
-pi:
-  provider: anthropic
-  model: sonnet
 
 review:
   executor:

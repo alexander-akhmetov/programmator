@@ -45,7 +45,7 @@ func TestPrintRunSummary(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			w := NewWriter(&buf, false, 80)
+			w := NewWriter(&buf, false, 80, 0)
 
 			printRunSummary(w, tt.result)
 

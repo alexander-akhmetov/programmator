@@ -28,6 +28,7 @@ type RunConfig struct {
 	Out               io.Writer // output writer (default: os.Stdout)
 	IsTTY             bool
 	TermWidth         int
+	TermHeight        int
 }
 
 // Run creates a loop, wires callbacks to a Writer, and runs synchronously.
@@ -38,7 +39,7 @@ func Run(ctx context.Context, sourceID, workingDir string, cfg RunConfig) (*loop
 		out = os.Stdout
 	}
 
-	w := NewWriter(out, cfg.IsTTY, cfg.TermWidth)
+	w := NewWriter(out, cfg.IsTTY, cfg.TermWidth, cfg.TermHeight)
 
 	l := loop.New(
 		cfg.SafetyConfig,
@@ -88,6 +89,8 @@ func Run(ctx context.Context, sourceID, workingDir string, cfg RunConfig) (*loop
 
 	// Print final summary.
 	printRunSummary(w, result)
+
+	fmt.Fprint(w.out, "\n\n")
 
 	return result, nil
 }

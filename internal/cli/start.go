@@ -77,9 +77,9 @@ func runStart(_ *cobra.Command, args []string) error {
 	}
 
 	isTTY := term.IsTerminal(int(os.Stdout.Fd()))
-	termWidth := 0
+	termWidth, termHeight := 0, 0
 	if isTTY {
-		termWidth, _, _ = term.GetSize(int(os.Stdout.Fd()))
+		termWidth, termHeight, _ = term.GetSize(int(os.Stdout.Fd()))
 	}
 
 	runCfg := RunConfig{
@@ -96,6 +96,7 @@ func runStart(_ *cobra.Command, args []string) error {
 		ExecutorConfig: cfg.ToExecutorConfig(),
 		IsTTY:          isTTY,
 		TermWidth:      termWidth,
+		TermHeight:     termHeight,
 	}
 
 	reviewCfg, err := cfg.ToReviewConfig()

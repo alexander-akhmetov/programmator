@@ -31,6 +31,16 @@ func newTestWriterTTY(buf *bytes.Buffer) *Writer {
 	}
 }
 
+func newTestWriterTTYWithHeight(buf *bytes.Buffer, height int) *Writer {
+	return &Writer{
+		out:    buf,
+		isTTY:  true,
+		width:  80,
+		height: height,
+		mu:     sync.Mutex{},
+	}
+}
+
 func TestWriteEvent(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -192,6 +202,32 @@ func TestUpdateFooter(t *testing.T) {
 	}
 }
 
+func TestUpdateFooter_ScrollRegion(t *testing.T) {
+	var buf bytes.Buffer
+	w := newTestWriterTTYWithHeight(&buf, 40)
+
+	state := safety.NewState()
+	state.Iteration = 2
+	item := &domain.WorkItem{
+		ID:    "test-sr",
+		Title: "Scroll Region Test",
+		Phases: []domain.Phase{
+			{Name: "Phase 1", Completed: false},
+		},
+	}
+
+	w.UpdateFooter(state, item, safety.Config{MaxIterations: 10, StagnationLimit: 3})
+
+	output := buf.String()
+	// Should contain DECSTBM (scroll region set).
+	assert.Contains(t, output, "\033[1;")
+	assert.Contains(t, output, "r")
+	// Should contain footer content.
+	assert.Contains(t, output, "test-sr")
+	assert.Contains(t, output, "Phase 1")
+	assert.True(t, w.scrollSet)
+}
+
 func TestClearFooter(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -227,6 +263,27 @@ func TestClearFooter(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestClearFooter_ScrollRegion(t *testing.T) {
+	var buf bytes.Buffer
+	w := newTestWriterTTYWithHeight(&buf, 40)
+
+	state := safety.NewState()
+	state.Iteration = 1
+	item := &domain.WorkItem{ID: "t-sr"}
+	w.UpdateFooter(state, item, safety.Config{MaxIterations: 5})
+
+	assert.True(t, w.scrollSet)
+	buf.Reset()
+
+	w.ClearFooter()
+
+	output := buf.String()
+	// Should reset scroll region.
+	assert.Contains(t, output, "\033[r")
+	assert.False(t, w.scrollSet)
+	assert.Equal(t, 0, w.footerLines)
 }
 
 func TestSetProcessStats(t *testing.T) {
@@ -284,25 +341,78 @@ func TestWriter_ConcurrentWriteAndFooter(t *testing.T) {
 	assert.NotEmpty(t, buf.String())
 }
 
+func TestWriteEvent_StreamingText(t *testing.T) {
+	var buf bytes.Buffer
+	w := newTestWriter(&buf)
+
+	w.WriteEvent(event.StreamingText("Hello"))
+	w.WriteEvent(event.StreamingText(" World"))
+
+	output := buf.String()
+	assert.Equal(t, "Hello World", output)
+	assert.True(t, w.midLine)
+}
+
+func TestWriteEvent_StreamingTextWithNewline(t *testing.T) {
+	var buf bytes.Buffer
+	w := newTestWriter(&buf)
+
+	w.WriteEvent(event.StreamingText("Hello\n"))
+
+	assert.Equal(t, "Hello\n", buf.String())
+	assert.False(t, w.midLine)
+}
+
+func TestWriteEvent_StreamingToStructuredTransition(t *testing.T) {
+	var buf bytes.Buffer
+	w := newTestWriter(&buf)
+
+	w.WriteEvent(event.StreamingText("partial"))
+	w.WriteEvent(event.Prog("next event"))
+
+	output := buf.String()
+	assert.Contains(t, output, "partial\n")
+	assert.Contains(t, output, "programmator:")
+}
+
 func TestNewWriter(t *testing.T) {
 	tests := []struct {
-		name      string
-		isTTY     bool
-		width     int
-		wantTTY   bool
-		wantWidth int
+		name       string
+		isTTY      bool
+		width      int
+		height     int
+		wantTTY    bool
+		wantWidth  int
+		wantHeight int
 	}{
-		{"non-TTY with zero width defaults to 80", false, 0, false, 80},
-		{"TTY with custom width", true, 120, true, 120},
+		{"non-TTY with zero width defaults to 80", false, 0, 0, false, 80, 0},
+		{"TTY with custom dimensions", true, 120, 40, true, 120, 40},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			w := NewWriter(&buf, tt.isTTY, tt.width)
+			w := NewWriter(&buf, tt.isTTY, tt.width, tt.height)
 
 			assert.Equal(t, tt.wantTTY, w.isTTY)
 			assert.Equal(t, tt.wantWidth, w.width)
+			assert.Equal(t, tt.wantHeight, w.height)
 		})
 	}
+}
+
+func TestFooterHasOrangeSeparator(t *testing.T) {
+	var buf bytes.Buffer
+	w := newTestWriterTTY(&buf)
+
+	state := safety.NewState()
+	state.Iteration = 1
+	item := &domain.WorkItem{ID: "t-1"}
+
+	w.UpdateFooter(state, item, safety.Config{MaxIterations: 5})
+
+	output := buf.String()
+	// The separator should use the orange color (208).
+	assert.Contains(t, output, "─")
+	assert.Contains(t, output, "\033[38;5;208m")
 }

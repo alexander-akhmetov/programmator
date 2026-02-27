@@ -2220,7 +2220,7 @@ func TestOutputEditDiff(t *testing.T) {
 					diffDelFound = true
 				case event.KindProg, event.KindToolUse, event.KindToolResult,
 					event.KindReview, event.KindDiffCtx, event.KindMarkdown,
-					event.KindIterationSeparator:
+					event.KindStreamingText, event.KindIterationSeparator:
 					// Not relevant for this test
 				}
 			}

@@ -25,6 +25,9 @@ const (
 	KindDiffHunk
 	// KindMarkdown is a raw markdown text fragment (rendered via glamour).
 	KindMarkdown
+	// KindStreamingText is a raw text fragment from executor streaming output.
+	// Unlike KindMarkdown, it is printed without a trailing newline or glamour rendering.
+	KindStreamingText
 	// KindIterationSeparator is the header between loop iterations.
 	KindIterationSeparator
 )
@@ -64,6 +67,9 @@ func DiffHunk(text string) Event { return Event{Kind: KindDiffHunk, Text: text} 
 
 // Markdown creates a KindMarkdown event.
 func Markdown(text string) Event { return Event{Kind: KindMarkdown, Text: text} }
+
+// StreamingText creates a KindStreamingText event.
+func StreamingText(text string) Event { return Event{Kind: KindStreamingText, Text: text} }
 
 // IterationSeparator creates a KindIterationSeparator event.
 func IterationSeparator(text string) Event { return Event{Kind: KindIterationSeparator, Text: text} }

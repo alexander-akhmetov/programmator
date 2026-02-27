@@ -746,7 +746,7 @@ func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string
 		ExtraFlags: l.executorConfig.ExtraFlags,
 		Timeout:    l.config.Timeout,
 		OnOutput: func(text string) {
-			l.emit(event.Markdown(text))
+			l.emit(event.StreamingText(text))
 		},
 		OnToolUse: func(name string, input any) {
 			l.outputToolUse(name, input)
