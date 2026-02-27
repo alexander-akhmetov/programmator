@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -126,20 +125,7 @@ type phaseUpdateResult struct {
 }
 
 func updatePhaseLines(lines []string, normalizedPhase string) phaseUpdateResult {
-	updaters := []func([]string, string) phaseUpdateResult{
-		updatePhaseInCheckboxes,
-		updatePhaseInHeadings,
-		updatePhaseInNumberedHeadings,
-	}
-
-	var result phaseUpdateResult
-	for _, updater := range updaters {
-		result = updater(lines, normalizedPhase)
-		if result.found {
-			break
-		}
-	}
-	return result
+	return updatePhaseInCheckboxes(lines, normalizedPhase)
 }
 
 func updatePhaseInCheckboxes(lines []string, normalizedPhase string) phaseUpdateResult {
@@ -162,72 +148,6 @@ func updatePhaseInCheckboxes(lines []string, normalizedPhase string) phaseUpdate
 		return phaseUpdateResult{found: true}
 	}
 	return phaseUpdateResult{}
-}
-
-func updatePhaseInHeadings(lines []string, normalizedPhase string) phaseUpdateResult {
-	for i, line := range lines {
-		match := headingPhaseRegex.FindStringSubmatch(line)
-		if match == nil {
-			continue
-		}
-
-		fullName := formatHeadingPhaseName(match[1], match[2], match[3], match[4])
-		existingPhase := normalizePhase(fullName)
-		if !phaseMatches(existingPhase, normalizedPhase) {
-			continue
-		}
-
-		checkbox := match[5]
-		if checkbox == "x" || checkbox == "X" {
-			return phaseUpdateResult{found: true, alreadyDone: true}
-		}
-
-		if checkbox == " " {
-			lines[i] = strings.Replace(line, "[ ]", "[x]", 1)
-		} else {
-			lines[i] = line + " [x]"
-		}
-		return phaseUpdateResult{found: true}
-	}
-	return phaseUpdateResult{}
-}
-
-func updatePhaseInNumberedHeadings(lines []string, normalizedPhase string) phaseUpdateResult {
-	for i, line := range lines {
-		match := numberedHeadingRegex.FindStringSubmatch(line)
-		if match == nil {
-			continue
-		}
-
-		headingPhase := formatNumberedHeadingPhase(match[2], match[3])
-		existingPhase := normalizePhase(headingPhase)
-		if !phaseMatches(existingPhase, normalizedPhase) {
-			continue
-		}
-
-		if match[4] == "x" || match[4] == "X" {
-			return phaseUpdateResult{found: true, alreadyDone: true}
-		}
-
-		if match[4] == " " {
-			lines[i] = strings.Replace(line, "[ ]", "[x]", 1)
-		} else {
-			lines[i] = line + " [x]"
-		}
-		return phaseUpdateResult{found: true}
-	}
-	return phaseUpdateResult{}
-}
-
-func formatHeadingPhaseName(prefix, number, separator, description string) string {
-	if separator != "" {
-		return fmt.Sprintf("%s %s%s %s", prefix, number, separator, description)
-	}
-	return fmt.Sprintf("%s %s %s", prefix, number, description)
-}
-
-func formatNumberedHeadingPhase(number, description string) string {
-	return fmt.Sprintf("%s. %s", number, strings.TrimSpace(description))
 }
 
 func phaseMatches(existingPhase, normalizedPhase string) bool {
@@ -285,15 +205,11 @@ func (c *CLIClient) findTicketFile(id string) (string, error) {
 }
 
 var normalizePrefixRegex = regexp.MustCompile(`^(phase|step)\s*\d+[:.]\s*`)
-var normalizeNumberPrefixRegex = regexp.MustCompile(`^\d+\.\s*`)
 
 func normalizePhase(s string) string {
 	s = strings.ToLower(s)
 	s = strings.TrimSpace(s)
-	// Remove common prefixes like "Phase 1:", "Step 2:", etc.
 	s = normalizePrefixRegex.ReplaceAllString(s, "")
-	// Remove numbered prefixes like "1.", "10." (Tier 3 numbered headings)
-	s = normalizeNumberPrefixRegex.ReplaceAllString(s, "")
 	return s
 }
 
@@ -368,121 +284,20 @@ func parseTicket(id string, content string) (*Ticket, error) {
 
 var phaseRegex = regexp.MustCompile(`- \[([ xX])\] (.+)`)
 var titleRegex = regexp.MustCompile(`(?m)^# (.+)$`)
-var headingPhaseRegex = regexp.MustCompile(`(?m)^## (Step|Phase) (\d+)([:.])?\s*(.+?)(?:\s*\[([xX ])\])?$`)
-var numberedHeadingRegex = regexp.MustCompile(`(?m)^(#{1,6}) (\d+)\.\s+(.+?)(?:\s*\[([xX ])\])?$`)
 
 func parsePhases(content string) []domain.Phase {
-	var phases []domain.Phase
-
-	// First, try to parse checkbox-style phases (existing behavior)
-	checkboxMatches := phaseRegex.FindAllStringSubmatch(content, -1)
-	for _, match := range checkboxMatches {
+	matches := phaseRegex.FindAllStringSubmatch(content, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	phases := make([]domain.Phase, 0, len(matches))
+	for _, match := range matches {
 		phases = append(phases, domain.Phase{
 			Name:      strings.TrimSpace(match[2]),
 			Completed: match[1] != " ",
 		})
 	}
-
-	// If we found checkbox phases, use those (backward compatibility)
-	if len(phases) > 0 {
-		return phases
-	}
-
-	// Otherwise, try heading-based phases (## Step N: / ## Phase N:)
-	headingMatches := headingPhaseRegex.FindAllStringSubmatch(content, -1)
-	for _, match := range headingMatches {
-		prefix := match[1]      // "Step" or "Phase"
-		number := match[2]      // the number
-		separator := match[3]   // separator (: or . or empty)
-		description := match[4] // description after separator
-		checkbox := match[5]    // optional [x] or [ ] at the end
-
-		// Build the phase name, preserving the original separator
-		var name string
-		if separator != "" {
-			name = fmt.Sprintf("%s %s%s %s", prefix, number, separator, description)
-		} else {
-			name = fmt.Sprintf("%s %s %s", prefix, number, description)
-		}
-
-		// Determine if completed (checkbox [x] or [X] at end of line)
-		completed := checkbox == "x" || checkbox == "X"
-
-		phases = append(phases, domain.Phase{
-			Name:      strings.TrimSpace(name),
-			Completed: completed,
-		})
-	}
-
-	if len(phases) > 0 {
-		return phases
-	}
-
-	// Tier 3: sequential numbered headings
-	return parseNumberedHeadingPhases(content)
-}
-
-func parseNumberedHeadingPhases(content string) []domain.Phase {
-	matches := numberedHeadingRegex.FindAllStringSubmatch(content, -1)
-	if len(matches) < 2 {
-		return nil
-	}
-
-	// Group matches by heading level
-	type headingMatch struct {
-		number    int
-		name      string
-		completed bool
-	}
-
-	byLevel := make(map[int][]headingMatch)
-	for _, m := range matches {
-		level := len(m[1])
-		num, _ := strconv.Atoi(m[2])
-		completed := m[4] == "x" || m[4] == "X"
-		byLevel[level] = append(byLevel[level], headingMatch{
-			number:    num,
-			name:      fmt.Sprintf("%s. %s", m[2], strings.TrimSpace(m[3])),
-			completed: completed,
-		})
-	}
-
-	// Try levels in ascending order
-	for level := 1; level <= 6; level++ {
-		group, ok := byLevel[level]
-		if !ok || len(group) < 2 {
-			continue
-		}
-
-		// Must start at 1
-		if group[0].number != 1 {
-			continue
-		}
-
-		// Find longest sequential run starting at 1
-		sequential := 1
-		for i := 1; i < len(group); i++ {
-			if group[i].number != group[i-1].number+1 {
-				break
-			}
-			sequential++
-		}
-
-		if sequential < 2 {
-			continue
-		}
-
-		var phases []domain.Phase
-		for _, h := range group[:sequential] {
-			phases = append(phases, domain.Phase{
-				Name:      h.name,
-				Completed: h.completed,
-			})
-		}
-		return phases
-	}
-
-	return nil
+	return phases
 }
 
 // ToWorkItem converts a Ticket to a domain.WorkItem.
