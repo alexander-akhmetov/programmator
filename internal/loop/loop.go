@@ -586,7 +586,7 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 		return result, err
 	}
 
-	l.log(fmt.Sprintf("Starting on %s %s: %s", src.Type(), workItemID, workItem.Title))
+	l.logStartBanner(src.Type(), workItemID, workItem)
 
 	// Validate review config before changing ticket state
 	if len(l.reviewConfig.Agents) == 0 {
@@ -1012,6 +1012,37 @@ func (l *Loop) log(message string) {
 func (l *Loop) logIterationSeparator(iteration, maxIterations int) {
 	separator := fmt.Sprintf("\n\n---\n\n### 🔄 Iteration %d/%d\n\n", iteration, maxIterations)
 	l.emit(event.IterationSeparator(separator))
+}
+
+func (l *Loop) logStartBanner(srcType, workItemID string, workItem *domain.WorkItem) {
+	sep := "──────────────────────────────────────────"
+	var b strings.Builder
+	b.WriteString(sep + "\n")
+	b.WriteString("[programmator]\n\n")
+	fmt.Fprintf(&b, "Starting %s %s: %s\n", srcType, workItemID, workItem.Title)
+
+	if workItem.HasPhases() {
+		label := "Phases"
+		if srcType == protocol.SourceTypePlan {
+			label = "Tasks"
+		}
+		fmt.Fprintf(&b, " %s (%d):\n", label, len(workItem.Phases))
+		seenCurrent := false
+		for _, p := range workItem.Phases {
+			indicator := "○"
+			switch {
+			case p.Completed:
+				indicator = "✓"
+			case !seenCurrent:
+				indicator = "→"
+				seenCurrent = true
+			}
+			fmt.Fprintf(&b, "   %s %s\n", indicator, p.Name)
+		}
+	}
+
+	b.WriteString(sep)
+	l.emit(event.IterationSeparator(b.String()))
 }
 
 func (r *Result) FilesChangedList() []string {
