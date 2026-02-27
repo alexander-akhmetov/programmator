@@ -4,24 +4,17 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/alexander-akhmetov/programmator)](https://goreportcard.com/report/github.com/alexander-akhmetov/programmator)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Autonomous Claude Code orchestrator that executes multi-task plans without supervision.
+Autonomous coding agent orchestrator that executes multi-task plans without supervision. Supports [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [pi coding agent](https://github.com/badlogic/pi-mono) as executors.
 
-Claude Code is interactive — it requires you to watch, approve, and guide each step. For complex features spanning multiple tasks, this means hours of babysitting. As context fills up during long sessions, the model starts making mistakes and producing worse code.
+Coding agents are interactive — they require you to watch, approve, and guide each step. For complex features spanning multiple tasks, this means hours of babysitting. As context fills up during long sessions, the model starts making mistakes and producing worse code.
 
 Programmator splits work into isolated sessions with fresh context windows. Each task runs independently, gets reviewed by parallel agents, and can be auto-committed on completion with no supervision needed.
-
-<details>
-<summary>Screenshot</summary>
-
-<img src="docs/screenshot.png" alt="Programmator TUI" width="800">
-
-</details>
 
 ## Quick Start
 
 **Requirements:**
-- Go 1.25.6+
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
+- Go 1.26.0+
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI or [pi coding agent](https://github.com/badlogic/pi-mono) CLI
 
 ```bash
 go install github.com/alexander-akhmetov/programmator/cmd/programmator@latest
@@ -89,7 +82,7 @@ A plan file is a markdown file with checkbox tasks:
 - **Validation Commands**: Run after each task completion (optional)
 - **Tasks**: Checkbox items (`- [ ]` / `- [x]`) anywhere in the file
 
-Create plans interactively — Claude analyzes your codebase and asks clarifying questions:
+Create plans interactively — the executor analyzes your codebase and asks clarifying questions:
 
 ```bash
 programmator plan create "Add authentication to the API"
@@ -97,7 +90,7 @@ programmator plan create "Add authentication to the API"
 
 ## Review
 
-After all tasks complete, programmator automatically runs a multi-agent code review. 9 agents run in parallel — each focused on a specific area (quality, security, implementation, testing, simplification, linting, CLAUDE.md compliance, and a Codex cross-check). Issues found are auto-fixed by Claude and re-reviewed, up to 3 iterations.
+After all tasks complete, programmator automatically runs a multi-agent code review. 8 agents run in parallel — each focused on a specific area (quality, security, implementation, testing, simplification, linting, and CLAUDE.md compliance). Issues found are auto-fixed and re-reviewed, up to 3 iterations.
 
 You can also run review standalone on any branch:
 
@@ -120,7 +113,7 @@ programmator logs --follow                # tail the active log
 programmator config show                  # show resolved config
 ```
 
-`programmator run` is a lightweight wrapper around Claude Code — pass any prompt as an argument or pipe via stdin. Useful for one-off tasks that don't need plan tracking.
+`programmator run` is a lightweight wrapper around the configured coding agent — pass any prompt as an argument or pipe via stdin. Useful for one-off tasks that don't need plan tracking.
 
 ## Safety Gates
 
@@ -158,17 +151,20 @@ See resolved values with `programmator config show`.
 | `max_iterations` | `50` | Maximum loop iterations before forced exit |
 | `stagnation_limit` | `3` | Exit after N consecutive iterations with no file changes |
 | `timeout` | `900` | Seconds per executor invocation |
-| `executor` | `claude` | Which coding agent to use (only "claude" supported) |
+| `executor` | `claude` | Which coding agent to use (`"claude"` or `"pi"`) |
 | `claude.flags` | `""` | Additional flags passed to the `claude` command |
 | `claude.config_dir` | `""` | Custom Claude config directory (empty = default) |
 | `claude.anthropic_api_key` | `""` | Anthropic API key passed to Claude (overrides env) |
+| `pi.flags` | `""` | Additional flags passed to the `pi-coding-agent` command |
+| `pi.config_dir` | `""` | Custom PI_CODING_AGENT_DIR (empty = default) |
+| `pi.provider` | `""` | LLM provider for pi (e.g. `"anthropic"`, `"openai"`) |
+| `pi.model` | `""` | Model name for pi (e.g. `"sonnet"`, `"gpt-4o"`) |
+| `pi.api_key` | `""` | API key for the configured pi provider |
 | `ticket_command` | `tk` | Binary name for the ticket CLI (`tk` or `ticket`) |
-| `logs_dir` | `""` | Directory for progress logs (default: `~/.programmator/logs`) |
 | `git.auto_commit` | `false` | Auto-commit after each phase completion |
 | `git.move_completed_plans` | `false` | Move completed plans to a `completed/` directory |
 | `git.completed_plans_dir` | `""` | Directory for completed plans (default: `plans/completed`) |
 | `git.branch_prefix` | `""` | Prefix for auto-created branches (default: `programmator/`) |
-| `hide_tips` | `false` | Hide the tips section in the TUI sidebar |
 | `review.max_iterations` | `3` | Maximum review fix iterations |
 | `review.parallel` | `true` | Run review agents in parallel |
 | `review.agents` | see [defaults](internal/config/defaults/config.yaml) | Flat list of review agents with names and focus areas |
@@ -178,20 +174,15 @@ See resolved values with `programmator config show`.
 <details>
 <summary>Environment variables</summary>
 
-Each config key can also be set via environment variable with a `PROGRAMMATOR_` prefix (uppercase, dots become underscores):
+Environment variables used by programmator and its executors:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PROGRAMMATOR_MAX_ITERATIONS` | 50 | Maximum loop iterations |
-| `PROGRAMMATOR_STAGNATION_LIMIT` | 3 | Exit after N iterations with no file changes |
-| `PROGRAMMATOR_TIMEOUT` | 900 | Seconds per executor invocation |
-| `PROGRAMMATOR_EXECUTOR` | `claude` | Which executor to use (only "claude" supported) |
-| `PROGRAMMATOR_CLAUDE_FLAGS` | `""` | Flags passed to Claude |
-| `PROGRAMMATOR_MAX_REVIEW_ITERATIONS` | 3 | Maximum review fix iterations |
-| `PROGRAMMATOR_TICKET_COMMAND` | `tk` | Binary name for the ticket CLI (`tk` or `ticket`) |
-| `PROGRAMMATOR_ANTHROPIC_API_KEY` | `""` | Anthropic API key passed to Claude |
+| `PROGRAMMATOR_DEBUG` | `""` | Set to `1` to enable debug output |
+| `PROGRAMMATOR_STATE_DIR` | XDG state dir | Override the state directory path |
 | `TICKETS_DIR` | `~/.tickets` | Where ticket files live |
 | `CLAUDE_CONFIG_DIR` | - | Custom Claude config directory (passed to Claude subprocess) |
+| `PI_CODING_AGENT_DIR` | - | Custom pi coding agent config directory |
 
 </details>
 

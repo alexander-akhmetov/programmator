@@ -38,7 +38,7 @@ make e2e-review                   # Create toy project for review mode
 
 ## Architecture
 
-Programmator is an autonomous Claude Code orchestrator driven by tickets or plan files. It reads a source (ticket or plan file), identifies the current phase, invokes Claude Code with a structured prompt, parses the response, and loops until all phases are complete or safety limits are reached.
+Programmator is an autonomous coding agent orchestrator driven by tickets or plan files. It reads a source (ticket or plan file), identifies the current phase, invokes the configured executor (Claude Code or pi coding agent) with a structured prompt, parses the response, and loops until all phases are complete or safety limits are reached.
 
 ### Core Loop Flow
 
@@ -46,7 +46,7 @@ Programmator is an autonomous Claude Code orchestrator driven by tickets or plan
 main.go (entry) → Loop.Run() → [for each iteration]:
     1. Source.Get() → fetch ticket/plan, parse phases
     2. BuildPrompt() → create Claude prompt with source context
-    3. llm.Invoker.Invoke() → call `claude --print` via internal/llm
+    3. llm.Invoker.Invoke() → call configured executor via internal/llm
     4. ParseResponse() → extract PROGRAMMATOR_STATUS block (YAML)
     5. Source.UpdatePhase() → update checkbox in ticket/plan file
     6. CheckSafety() → verify iteration/stagnation limits
@@ -55,7 +55,7 @@ main.go (entry) → Loop.Run() → [for each iteration]:
 ### Key Components
 
 - **internal/loop/loop.go**: Main orchestration. Manages iteration state, invokes Claude via `llm.Invoker`, handles streaming JSON output. Supports process memory monitoring and auto-commit after phases.
-- **internal/llm/**: Claude CLI invocation layer. Defines `Invoker` interface, streaming JSON parser, environment filtering (strips `ANTHROPIC_API_KEY`), and hook support.
+- **internal/llm/**: Executor invocation layer. Defines `Invoker` interface with `ClaudeInvoker` and `PiInvoker` implementations, streaming JSON parsers, environment filtering, and hook support.
 - **internal/domain/**: Core model types (`WorkItem`, `Phase`).
 - **internal/protocol/**: Cross-package constants — status values (`CONTINUE`, `DONE`, `BLOCKED`, `REVIEW_PASS`, `REVIEW_FAIL`) and source type identifiers.
 - **internal/source/**: Abstraction layer for work sources. `Source` interface with `TicketSource` and `PlanSource` implementations.
