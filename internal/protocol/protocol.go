@@ -32,25 +32,6 @@ const StatusBlockKey = "PROGRAMMATOR_STATUS"
 // Review result block key.
 const ReviewResultBlockKey = "REVIEW_RESULT"
 
-// Signal strings used during interactive plan creation.
-const (
-	SignalQuestion  = "<<<PROGRAMMATOR:QUESTION>>>"
-	SignalPlanReady = "<<<PROGRAMMATOR:PLAN_READY>>>"
-	SignalEnd       = "<<<PROGRAMMATOR:END>>>"
-)
-
-// Log markers emitted by the loop / review runner and parsed by the TUI.
-const (
-	MarkerProg    = "[PROG]"
-	MarkerTool    = "[TOOL]"
-	MarkerToolRes = "[TOOLRES]"
-	MarkerReview  = "[REVIEW]"
-	MarkerDiffAdd = "[DIFF+]"
-	MarkerDiffDel = "[DIFF-]"
-	MarkerDiffCtx = "[DIFF ]"
-	MarkerDiffAt  = "[DIFF@]"
-)
-
 // Source type identifiers returned by Source.Type().
 const (
 	SourceTypePlan   = "plan"

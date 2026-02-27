@@ -37,7 +37,6 @@ type Result struct {
 	RecentSummaries   []string // Summaries from recent iterations (for debugging stagnation)
 }
 
-type OutputCallback func(text string)
 type StateCallback func(state *safety.State, workItem *domain.WorkItem, filesChanged []string)
 type ProcessStatsCallback func(pid int, memoryKB int64)
 
@@ -57,7 +56,6 @@ type GitWorkflowConfig struct {
 type Loop struct {
 	config         safety.Config
 	workingDir     string
-	onOutput       OutputCallback
 	onEvent        EventCallback
 	onStateChange  StateCallback
 	onProcessStats ProcessStatsCallback
@@ -76,7 +74,6 @@ type Loop struct {
 
 	// Review configuration
 	reviewConfig     review.Config
-	reviewOnly       bool
 	reviewRunner     *review.Runner
 	lastReviewIssues string // formatted issues from last review for Claude to fix
 
@@ -102,19 +99,18 @@ func (l *Loop) SetSource(src source.Source) {
 	l.source = src
 }
 
-func New(config safety.Config, workingDir string, onOutput OutputCallback, onStateChange StateCallback, streaming bool) *Loop {
-	return NewWithSource(config, workingDir, onOutput, onStateChange, streaming, nil)
+func New(config safety.Config, workingDir string, onStateChange StateCallback, streaming bool) *Loop {
+	return NewWithSource(config, workingDir, onStateChange, streaming, nil)
 }
 
-func NewWithSource(config safety.Config, workingDir string, onOutput OutputCallback, onStateChange StateCallback, streaming bool, src source.Source) *Loop {
+func NewWithSource(config safety.Config, workingDir string, onStateChange StateCallback, streaming bool, src source.Source) *Loop {
 	return &Loop{
 		config:        config,
 		workingDir:    workingDir,
-		onOutput:      onOutput,
 		onStateChange: onStateChange,
 		streaming:     streaming,
 		source:        src,
-		reviewConfig:  review.ConfigFromEnv(),
+		reviewConfig:  review.DefaultConfig(),
 		engine: Engine{
 			SafetyConfig: config,
 		},
@@ -125,12 +121,6 @@ func NewWithSource(config safety.Config, workingDir string, onOutput OutputCallb
 func (l *Loop) SetReviewConfig(cfg review.Config) {
 	l.reviewConfig = cfg
 	l.engine.MaxReviewIter = cfg.MaxIterations
-}
-
-// SetReviewOnly enables review-only mode (skips task phases).
-func (l *Loop) SetReviewOnly(reviewOnly bool) {
-	l.reviewOnly = reviewOnly
-	l.engine.ReviewOnly = reviewOnly
 }
 
 // SetPromptBuilder sets a custom prompt builder (for customizable templates).
@@ -341,7 +331,7 @@ func (l *Loop) checkContextCanceled(rc *runContext) loopAction {
 // loopRetryReview to re-run review without invoking Claude, or loopContinue to proceed normally.
 func (l *Loop) handleAllPhasesComplete(rc *runContext) loopAction {
 	taskComplete := rc.taskCompleted || rc.workItem.AllPhasesComplete()
-	if !taskComplete && !l.reviewOnly {
+	if !taskComplete {
 		return loopContinue
 	}
 
@@ -399,13 +389,7 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 	if l.reviewRunner == nil {
 		l.applySettingsToReviewConfig()
 		l.applyReviewContext(rc.workItem)
-		var outputCallback review.OutputCallback
-		if l.onOutput != nil && l.onEvent == nil {
-			outputCallback = func(text string) {
-				l.onOutput(text)
-			}
-		}
-		l.reviewRunner = review.NewRunner(l.reviewConfig, outputCallback)
+		l.reviewRunner = review.NewRunner(l.reviewConfig)
 		if l.onEvent != nil {
 			l.reviewRunner.SetEventCallback(event.Handler(l.onEvent))
 		}
@@ -768,9 +752,6 @@ func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string
 		Timeout:    l.config.Timeout,
 		OnOutput: func(text string) {
 			l.emit(event.Markdown(text))
-			if l.onOutput != nil && l.onEvent == nil {
-				l.onOutput(text)
-			}
 		},
 		OnToolUse: func(name string, input any) {
 			l.outputToolUse(name, input)
@@ -824,16 +805,13 @@ func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string
 }
 
 func (l *Loop) handleToolResult(toolName, result string) {
-	if (l.onOutput == nil && l.onEvent == nil) || toolName == "" {
+	if l.onEvent == nil || toolName == "" {
 		return
 	}
 
 	summary := formatToolResultSummary(toolName, result)
 	if summary != "" {
 		l.emit(event.ToolResult(fmt.Sprintf("  ⎿  %s", summary)))
-		if l.onOutput != nil && l.onEvent == nil {
-			l.onOutput(fmt.Sprintf(protocol.MarkerToolRes+"  ⎿  %s\n", summary))
-		}
 	}
 }
 
@@ -898,7 +876,7 @@ func formatToolResultSummary(toolName, result string) string {
 }
 
 func (l *Loop) outputToolUse(name string, input any) {
-	if l.onOutput == nil && l.onEvent == nil {
+	if l.onEvent == nil {
 		return
 	}
 	toolLine := name
@@ -907,9 +885,6 @@ func (l *Loop) outputToolUse(name string, input any) {
 		toolLine += formatToolArg(name, inputMap)
 	}
 	l.emit(event.ToolUse(toolLine))
-	if l.onOutput != nil && l.onEvent == nil {
-		l.onOutput(fmt.Sprintf("\n"+protocol.MarkerTool+"%s\n", toolLine))
-	}
 
 	// Show diff for Edit operations
 	if name == "Edit" && hasInput {
@@ -960,9 +935,6 @@ func (l *Loop) outputEditDiff(input map[string]any) {
 	if len(parts) > 0 {
 		hunkText := fmt.Sprintf("  ⎿  %s", strings.Join(parts, ", "))
 		l.emit(event.DiffHunk(hunkText))
-		if l.onOutput != nil && l.onEvent == nil {
-			l.onOutput(fmt.Sprintf(protocol.MarkerDiffAt+"%s\n", hunkText))
-		}
 	}
 
 	// Generate unified diff for the actual changes
@@ -983,20 +955,10 @@ func (l *Loop) outputEditDiff(input map[string]any) {
 			continue
 		case strings.HasPrefix(line, "-"):
 			l.emit(event.DiffDel(lineText))
-			if l.onOutput != nil && l.onEvent == nil {
-				l.onOutput(fmt.Sprintf(protocol.MarkerDiffDel+"%s\n", lineText))
-			}
 		case strings.HasPrefix(line, "+"):
 			l.emit(event.DiffAdd(lineText))
-			if l.onOutput != nil && l.onEvent == nil {
-				l.onOutput(fmt.Sprintf(protocol.MarkerDiffAdd+"%s\n", lineText))
-			}
 		default:
-			// Context lines - show them dimmed for context
 			l.emit(event.DiffCtx(lineText))
-			if l.onOutput != nil && l.onEvent == nil {
-				l.onOutput(fmt.Sprintf(protocol.MarkerDiffCtx+"%s\n", lineText))
-			}
 		}
 	}
 }
@@ -1045,17 +1007,11 @@ func (l *Loop) Stop() {
 
 func (l *Loop) log(message string) {
 	l.emit(event.Prog(message))
-	if l.onOutput != nil && l.onEvent == nil {
-		l.onOutput(fmt.Sprintf("\n"+protocol.MarkerProg+"%s\n", message))
-	}
 }
 
 func (l *Loop) logIterationSeparator(iteration, maxIterations int) {
 	separator := fmt.Sprintf("\n\n---\n\n### 🔄 Iteration %d/%d\n\n", iteration, maxIterations)
 	l.emit(event.IterationSeparator(separator))
-	if l.onOutput != nil && l.onEvent == nil {
-		l.onOutput(separator)
-	}
 }
 
 func (r *Result) FilesChangedList() []string {

@@ -24,9 +24,8 @@ where each value came from.
 Configuration is loaded from multiple sources with the following precedence:
   1. Embedded defaults (built into binary)
   2. Global config (~/.config/programmator/config.yaml)
-  3. Environment variables
-  4. Local config (.programmator/config.yaml)
-  5. CLI flags (highest precedence)`,
+  3. Local config (.programmator/config.yaml)
+  4. CLI flags (highest precedence)`,
 	RunE: runConfigShow,
 }
 

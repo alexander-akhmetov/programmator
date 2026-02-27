@@ -18,7 +18,6 @@ type Builder struct {
 	phasedTmpl      *template.Template
 	phaselessTmpl   *template.Template
 	reviewFirstTmpl *template.Template
-	planCreateTmpl  *template.Template
 }
 
 // NewBuilder creates a prompt builder from loaded prompts.
@@ -48,16 +47,10 @@ func NewBuilder(prompts *config.Prompts) (*Builder, error) {
 		return nil, fmt.Errorf("parse review_first template: %w", err)
 	}
 
-	planCreateTmpl, err := template.New("plan_create").Parse(prompts.PlanCreate)
-	if err != nil {
-		return nil, fmt.Errorf("parse plan_create template: %w", err)
-	}
-
 	return &Builder{
 		phasedTmpl:      phasedTmpl,
 		phaselessTmpl:   phaselessTmpl,
 		reviewFirstTmpl: reviewFirstTmpl,
-		planCreateTmpl:  planCreateTmpl,
 	}, nil
 }
 
@@ -77,12 +70,6 @@ type ReviewFixData struct {
 	FilesList      string
 	IssuesMarkdown string
 	AutoCommit     bool
-}
-
-// PlanCreateData contains the data for rendering plan creation prompts.
-type PlanCreateData struct {
-	Description     string // User's description of what they want to accomplish
-	PreviousAnswers string // Formatted list of previous Q&A exchanges
 }
 
 // Build creates a prompt from a work item.
@@ -123,32 +110,6 @@ func (b *Builder) BuildReviewFirst(baseBranch string, filesChanged []string, iss
 	return b.render(b.reviewFirstTmpl, data)
 }
 
-// BuildPlanCreate creates a prompt for interactive plan creation.
-func (b *Builder) BuildPlanCreate(description string, previousAnswers []QA) (string, error) {
-	data := PlanCreateData{
-		Description:     description,
-		PreviousAnswers: formatQA(previousAnswers),
-	}
-	return b.render(b.planCreateTmpl, data)
-}
-
-// QA represents a question-answer pair from previous interactions.
-type QA struct {
-	Question string
-	Answer   string
-}
-
-func formatQA(qa []QA) string {
-	if len(qa) == 0 {
-		return ""
-	}
-	var lines []string
-	for _, pair := range qa {
-		lines = append(lines, fmt.Sprintf("- **Q:** %s\n  **A:** %s", pair.Question, pair.Answer))
-	}
-	return strings.Join(lines, "\n")
-}
-
 func (b *Builder) render(tmpl *template.Template, data any) (string, error) {
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
@@ -185,7 +146,6 @@ var (
 )
 
 // Build creates a prompt using the default builder (embedded templates).
-// This is a convenience function for backward compatibility.
 func Build(w *domain.WorkItem) string {
 	defaultBuilderOnce.Do(func() {
 		var err error

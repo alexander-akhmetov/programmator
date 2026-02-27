@@ -118,7 +118,7 @@ func TestDefaultAgentFactory_PassesClaudeFlagsAndSettings(t *testing.T) {
 		ClaudeFlags:   "--dangerously-skip-permissions",
 	}
 
-	runner := NewRunner(cfg, nil)
+	runner := NewRunner(cfg)
 	agent := runner.defaultAgentFactory(AgentConfig{Name: "test", Focus: []string{"bugs"}}, "default prompt")
 
 	claudeAgent, ok := agent.(*ClaudeAgent)
@@ -137,7 +137,7 @@ func TestDefaultAgentFactory_PassesEnvConfig(t *testing.T) {
 		},
 	}
 
-	runner := NewRunner(cfg, nil)
+	runner := NewRunner(cfg)
 	agent := runner.defaultAgentFactory(AgentConfig{Name: "test", Focus: []string{"bugs"}}, "default prompt")
 
 	claudeAgent, ok := agent.(*ClaudeAgent)
@@ -151,7 +151,7 @@ func TestDefaultAgentFactory_EmptyEnvConfig(t *testing.T) {
 		MaxIterations: 3,
 	}
 
-	runner := NewRunner(cfg, nil)
+	runner := NewRunner(cfg)
 	agent := runner.defaultAgentFactory(AgentConfig{Name: "test", Focus: []string{"bugs"}}, "default prompt")
 
 	claudeAgent, ok := agent.(*ClaudeAgent)
@@ -161,7 +161,7 @@ func TestDefaultAgentFactory_EmptyEnvConfig(t *testing.T) {
 
 func TestDefaultAgentFactory_AlwaysCreatesClaude(t *testing.T) {
 	cfg := Config{MaxIterations: 3}
-	runner := NewRunner(cfg, nil)
+	runner := NewRunner(cfg)
 
 	tests := []struct {
 		name     string
@@ -298,7 +298,7 @@ func TestAssignIssueIDs(t *testing.T) {
 func TestRunner_ValidateSimplifications(t *testing.T) {
 	t.Run("filters simplification issues through validator", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
@@ -330,7 +330,7 @@ func TestRunner_ValidateSimplifications(t *testing.T) {
 
 	t.Run("returns original on empty issues", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 
 		original := &Result{
 			AgentName: "simplification",
@@ -345,7 +345,7 @@ func TestRunner_ValidateSimplifications(t *testing.T) {
 
 	t.Run("handles nil result from validator", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
@@ -371,7 +371,7 @@ func TestRunner_ValidateSimplifications(t *testing.T) {
 
 	t.Run("falls back to original on validator error", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
@@ -405,7 +405,7 @@ func TestRunner_RunIteration(t *testing.T) {
 			},
 		}
 
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
@@ -436,7 +436,7 @@ func TestRunner_RunIteration(t *testing.T) {
 			},
 		}
 
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
@@ -465,7 +465,7 @@ func TestRunner_RunIteration(t *testing.T) {
 			},
 		}
 
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
@@ -495,7 +495,7 @@ func TestRunner_RunIteration(t *testing.T) {
 			},
 		}
 
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			if agentCfg.Name == "agent1" {
@@ -525,7 +525,7 @@ func TestRunner_RunIteration(t *testing.T) {
 			Parallel:      true,
 			Agents:        []AgentConfig{{Name: "agent1"}},
 		}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
@@ -550,7 +550,7 @@ func TestRunner_RunIteration(t *testing.T) {
 			MaxIterations: 3,
 			Agents:        []AgentConfig{},
 		}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 
 		result, err := runner.RunIteration(context.Background(), "/tmp", []string{})
 		require.NoError(t, err)
@@ -565,7 +565,7 @@ func TestRunner_RunIteration(t *testing.T) {
 			Parallel:      false,
 			Agents:        []AgentConfig{{Name: "quality"}},
 		}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
@@ -608,7 +608,7 @@ func TestRunner_RunIteration(t *testing.T) {
 			Parallel:      false,
 			Agents:        []AgentConfig{{Name: "quality"}},
 		}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
@@ -678,7 +678,7 @@ func TestRunner_RunIteration(t *testing.T) {
 				{Name: "simplification"},
 			},
 		}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 
 		simpValidatorCalled := false
 		issueValidatorCalled := false
@@ -784,7 +784,7 @@ func TestRunner_RunIteration_ValidatorsAlwaysRun(t *testing.T) {
 			Parallel:      false,
 			Agents:        []AgentConfig{{Name: "quality"}},
 		}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 
 		iterationCount := 0
 		issueValidatorCallCount := 0
@@ -831,7 +831,7 @@ func TestRunner_RunIteration_ValidatorsAlwaysRun(t *testing.T) {
 			Parallel:      false,
 			Agents:        []AgentConfig{{Name: "quality"}},
 		}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
@@ -864,7 +864,7 @@ func TestRunner_RunIteration_ValidatorsAlwaysRun(t *testing.T) {
 func TestRunner_ValidateIssues(t *testing.T) {
 	t.Run("filters issues by validator verdict", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
@@ -899,7 +899,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 
 	t.Run("excludes simplification from validation", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 
 		validatorCalled := false
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
@@ -951,7 +951,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 
 	t.Run("fallback on error returns original", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
@@ -976,7 +976,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 
 	t.Run("nil validator result keeps original results unchanged", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
@@ -1002,7 +1002,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 
 	t.Run("missing structured output summary keeps original results unchanged", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
@@ -1032,7 +1032,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 
 	t.Run("orphan IDs from validator are ignored and missing IDs kept", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
@@ -1069,7 +1069,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 
 	t.Run("preserves original issue data when filtering", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
@@ -1103,7 +1103,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 
 	t.Run("skips when no non-simplification issues", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 
 		validatorCalled := false
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
@@ -1135,7 +1135,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 
 	t.Run("context cancellation returns original results", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(ctx context.Context, _ string, _ []string) (*Result, error) {
@@ -1163,7 +1163,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 
 	t.Run("validator returning empty issues keeps all originals", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
@@ -1194,7 +1194,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 
 	t.Run("validator returning issues without IDs falls back to originals", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
@@ -1225,7 +1225,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 
 	t.Run("issues without IDs in input are kept as safe default", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
@@ -1257,7 +1257,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 
 	t.Run("validator with mixed IDs uses verdicts for filtering", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
@@ -1291,7 +1291,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 
 	t.Run("filters across multiple non-simplification agents", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
@@ -1336,7 +1336,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 
 	t.Run("skips when only simplification agents present", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 
 		validatorCalled := false
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
@@ -1373,7 +1373,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 
 	t.Run("multiple simplification results pass through unchanged", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
@@ -1411,7 +1411,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 
 	t.Run("issues without verdict from validator are kept", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {
@@ -1448,7 +1448,7 @@ func TestRunner_ValidateIssues(t *testing.T) {
 
 	t.Run("issues not in validator output are kept as safe default", func(t *testing.T) {
 		cfg := Config{MaxIterations: 3}
-		runner := NewRunner(cfg, nil)
+		runner := NewRunner(cfg)
 		runner.SetAgentFactory(func(agentCfg AgentConfig, _ string) Agent {
 			mock := NewMockAgent(agentCfg.Name)
 			mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*Result, error) {

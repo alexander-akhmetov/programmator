@@ -71,113 +71,6 @@ func TestLoadWithDirs_LocalOverridesGlobal(t *testing.T) {
 	assert.Equal(t, 900, cfg.Timeout)       // from embedded default
 }
 
-func TestApplyEnv(t *testing.T) {
-	// Save and restore env vars
-	oldMaxIter := os.Getenv("PROGRAMMATOR_MAX_ITERATIONS")
-	oldStag := os.Getenv("PROGRAMMATOR_STAGNATION_LIMIT")
-	defer func() {
-		os.Setenv("PROGRAMMATOR_MAX_ITERATIONS", oldMaxIter)
-		os.Setenv("PROGRAMMATOR_STAGNATION_LIMIT", oldStag)
-	}()
-
-	os.Setenv("PROGRAMMATOR_MAX_ITERATIONS", "75")
-	os.Setenv("PROGRAMMATOR_STAGNATION_LIMIT", "10")
-
-	cfg, err := loadEmbedded()
-	require.NoError(t, err)
-
-	cfg.applyEnv()
-
-	assert.Equal(t, 75, cfg.MaxIterations)
-	assert.Equal(t, 10, cfg.StagnationLimit)
-	assert.True(t, cfg.MaxIterationsSet)
-	assert.True(t, cfg.StagnationLimitSet)
-}
-
-func TestApplyEnv_Executor(t *testing.T) {
-	tests := []struct {
-		name     string
-		envValue string
-		want     string
-	}{
-		{"valid executor is applied", "claude", "claude"},
-		{"invalid executor is ignored", "nonexistent", "claude"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("PROGRAMMATOR_EXECUTOR", tc.envValue)
-
-			cfg, err := loadEmbedded()
-			require.NoError(t, err)
-
-			cfg.applyEnv()
-
-			assert.Equal(t, tc.want, cfg.Executor)
-		})
-	}
-}
-
-func TestEnvBetweenGlobalAndLocal(t *testing.T) {
-	// Env vars should be between global and local in precedence
-	// Order: embedded → global → env → local
-
-	globalDir := t.TempDir()
-	localDir := t.TempDir()
-
-	// Global sets max_iterations to 100
-	err := os.WriteFile(
-		filepath.Join(globalDir, "config.yaml"),
-		[]byte("max_iterations: 100\n"),
-		0o600,
-	)
-	require.NoError(t, err)
-
-	// Env sets stagnation_limit to 7
-	oldStag := os.Getenv("PROGRAMMATOR_STAGNATION_LIMIT")
-	defer os.Setenv("PROGRAMMATOR_STAGNATION_LIMIT", oldStag)
-	os.Setenv("PROGRAMMATOR_STAGNATION_LIMIT", "7")
-
-	// Local sets timeout to 600
-	err = os.WriteFile(
-		filepath.Join(localDir, "config.yaml"),
-		[]byte("timeout: 600\n"),
-		0o600,
-	)
-	require.NoError(t, err)
-
-	cfg, err := LoadWithDirs(globalDir, localDir)
-	require.NoError(t, err)
-
-	assert.Equal(t, 100, cfg.MaxIterations) // from global
-	assert.Equal(t, 7, cfg.StagnationLimit) // from env
-	assert.Equal(t, 600, cfg.Timeout)       // from local
-}
-
-func TestLocalOverridesEnv(t *testing.T) {
-	// Local config should override env vars
-	globalDir := t.TempDir()
-	localDir := t.TempDir()
-
-	// Env sets max_iterations
-	oldMaxIter := os.Getenv("PROGRAMMATOR_MAX_ITERATIONS")
-	defer os.Setenv("PROGRAMMATOR_MAX_ITERATIONS", oldMaxIter)
-	os.Setenv("PROGRAMMATOR_MAX_ITERATIONS", "75")
-
-	// Local also sets max_iterations (should win)
-	err := os.WriteFile(
-		filepath.Join(localDir, "config.yaml"),
-		[]byte("max_iterations: 30\n"),
-		0o600,
-	)
-	require.NoError(t, err)
-
-	cfg, err := LoadWithDirs(globalDir, localDir)
-	require.NoError(t, err)
-
-	assert.Equal(t, 30, cfg.MaxIterations) // local wins over env
-}
-
 func TestApplyCLIFlags(t *testing.T) {
 	cfg, err := loadEmbedded()
 	require.NoError(t, err)
@@ -199,36 +92,6 @@ func TestApplyCLIFlagsZeroNoOverride(t *testing.T) {
 	assert.Equal(t, 50, cfg.MaxIterations)  // unchanged
 	assert.Equal(t, 3, cfg.StagnationLimit) // unchanged
 	assert.Equal(t, 900, cfg.Timeout)       // unchanged
-}
-
-func TestReviewConfig(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	configContent := `
-review:
-  max_iterations: 5
-  phases:
-    - name: custom_phase
-      parallel: true
-      iteration_limit: 2
-      agents:
-        - name: custom_agent
-          focus:
-            - custom focus
-`
-	err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(configContent), 0o600)
-	require.NoError(t, err)
-
-	cfg, err := LoadWithDirs(tmpDir, "")
-	require.NoError(t, err)
-
-	assert.Equal(t, 5, cfg.Review.MaxIterations)
-	require.Len(t, cfg.Review.Phases, 1)
-	assert.Equal(t, "custom_phase", cfg.Review.Phases[0].Name)
-	assert.True(t, cfg.Review.Phases[0].Parallel)
-	assert.Equal(t, 2, cfg.Review.Phases[0].IterationLimit)
-	require.Len(t, cfg.Review.Phases[0].Agents, 1)
-	assert.Equal(t, "custom_agent", cfg.Review.Phases[0].Agents[0].Name)
 }
 
 func TestReviewAgentsConfig(t *testing.T) {
@@ -308,42 +171,6 @@ max_iterations: 100
 	assert.False(t, cfg.TimeoutSet)         // not set in YAML
 }
 
-func TestApplyEnv_InvalidValues(t *testing.T) {
-	tests := []struct {
-		name     string
-		envKey   string
-		envValue string
-	}{
-		{"invalid max_iterations", "PROGRAMMATOR_MAX_ITERATIONS", "abc"},
-		{"invalid timeout", "PROGRAMMATOR_TIMEOUT", "xyz"},
-		{"invalid stagnation_limit", "PROGRAMMATOR_STAGNATION_LIMIT", "not_a_number"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			saved := os.Getenv(tc.envKey)
-			defer os.Setenv(tc.envKey, saved)
-
-			os.Setenv(tc.envKey, tc.envValue)
-
-			cfg, err := loadEmbedded()
-			require.NoError(t, err)
-
-			// Save pre-apply values
-			preMaxIter := cfg.MaxIterations
-			preTimeout := cfg.Timeout
-			preStag := cfg.StagnationLimit
-
-			cfg.applyEnv()
-
-			// Invalid values should not change the config
-			assert.Equal(t, preMaxIter, cfg.MaxIterations)
-			assert.Equal(t, preTimeout, cfg.Timeout)
-			assert.Equal(t, preStag, cfg.StagnationLimit)
-		})
-	}
-}
-
 func TestIsValidCommandName(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -366,36 +193,6 @@ func TestIsValidCommandName(t *testing.T) {
 			assert.Equal(t, tc.want, isValidCommandName(tc.input))
 		})
 	}
-}
-
-func TestApplyEnv_ClaudeConfig(t *testing.T) {
-	envVars := map[string]string{
-		"PROGRAMMATOR_CLAUDE_FLAGS":      "--verbose --model opus",
-		"CLAUDE_CONFIG_DIR":              "/custom/claude",
-		"PROGRAMMATOR_ANTHROPIC_API_KEY": "sk-test-123",
-	}
-
-	saved := make(map[string]string)
-	for k := range envVars {
-		saved[k] = os.Getenv(k)
-	}
-	defer func() {
-		for k, v := range saved {
-			os.Setenv(k, v)
-		}
-	}()
-
-	for k, v := range envVars {
-		os.Setenv(k, v)
-	}
-
-	cfg, err := loadEmbedded()
-	require.NoError(t, err)
-	cfg.applyEnv()
-
-	assert.Equal(t, "--verbose --model opus", cfg.Claude.Flags)
-	assert.Equal(t, "/custom/claude", cfg.Claude.ConfigDir)
-	assert.Equal(t, "sk-test-123", cfg.Claude.AnthropicAPIKey)
 }
 
 func TestMergeFrom_Executor(t *testing.T) {
@@ -476,16 +273,6 @@ claude:
 	assert.Equal(t, "claude", cfg.Executor)
 	assert.Equal(t, "--verbose", cfg.Claude.Flags)
 	assert.Equal(t, "/custom/dir", cfg.Claude.ConfigDir)
-}
-
-func TestParseConfigWithTrackingIgnoresReviewPasses(t *testing.T) {
-	data := []byte(`
-review:
-  passes: []
-`)
-	cfg, err := parseConfigWithTracking(data)
-	require.NoError(t, err)
-	assert.NotNil(t, cfg)
 }
 
 func TestValidate(t *testing.T) {

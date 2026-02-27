@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/alexander-akhmetov/programmator/internal/event"
-	"github.com/alexander-akhmetov/programmator/internal/protocol"
 )
 
 // RunResult holds the result of a complete review run.
@@ -46,15 +45,11 @@ func (r *RunResult) AllIssues() []Issue {
 	return issues
 }
 
-// OutputCallback is called with progress messages.
-type OutputCallback func(text string)
-
 // Runner orchestrates the review process.
 type Runner struct {
 	config       Config
 	agents       map[string]Agent
 	agentsMu     sync.Mutex
-	onOutput     OutputCallback
 	onEvent      event.Handler
 	agentFactory AgentFactory
 }
@@ -63,11 +58,10 @@ type Runner struct {
 type AgentFactory func(agentCfg AgentConfig, defaultPrompt string) Agent
 
 // NewRunner creates a new review runner.
-func NewRunner(config Config, onOutput OutputCallback) *Runner {
+func NewRunner(config Config) *Runner {
 	r := &Runner{
-		config:   config,
-		agents:   make(map[string]Agent),
-		onOutput: onOutput,
+		config: config,
+		agents: make(map[string]Agent),
 	}
 	r.agentFactory = r.defaultAgentFactory
 	return r
@@ -208,13 +202,10 @@ func (r *Runner) SetEventCallback(cb event.Handler) {
 	r.onEvent = cb
 }
 
-// log outputs a message if callback is set.
+// log outputs a message via the event callback.
 func (r *Runner) log(message string) {
 	if r.onEvent != nil {
 		r.onEvent(event.Review(message))
-	}
-	if r.onOutput != nil && r.onEvent == nil {
-		r.onOutput(fmt.Sprintf(protocol.MarkerReview+" %s\n", message))
 	}
 }
 

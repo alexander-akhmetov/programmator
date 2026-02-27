@@ -1,43 +1,8 @@
 package safety
 
 import (
-	"os"
 	"testing"
 )
-
-func TestConfigFromEnv_Defaults(t *testing.T) {
-	os.Clearenv()
-	cfg := ConfigFromEnv()
-
-	if cfg.MaxIterations != DefaultMaxIterations {
-		t.Errorf("MaxIterations = %d, want %d", cfg.MaxIterations, DefaultMaxIterations)
-	}
-	if cfg.StagnationLimit != DefaultStagnationLimit {
-		t.Errorf("StagnationLimit = %d, want %d", cfg.StagnationLimit, DefaultStagnationLimit)
-	}
-	if cfg.Timeout != DefaultTimeout {
-		t.Errorf("Timeout = %d, want %d", cfg.Timeout, DefaultTimeout)
-	}
-}
-
-func TestConfigFromEnv_CustomValues(t *testing.T) {
-	os.Setenv("PROGRAMMATOR_MAX_ITERATIONS", "100")
-	os.Setenv("PROGRAMMATOR_STAGNATION_LIMIT", "5")
-	os.Setenv("PROGRAMMATOR_TIMEOUT", "1800")
-	defer os.Clearenv()
-
-	cfg := ConfigFromEnv()
-
-	if cfg.MaxIterations != 100 {
-		t.Errorf("MaxIterations = %d, want %d", cfg.MaxIterations, 100)
-	}
-	if cfg.StagnationLimit != 5 {
-		t.Errorf("StagnationLimit = %d, want %d", cfg.StagnationLimit, 5)
-	}
-	if cfg.Timeout != 1800 {
-		t.Errorf("Timeout = %d, want %d", cfg.Timeout, 1800)
-	}
-}
 
 func TestNewState(t *testing.T) {
 	state := NewState()
@@ -394,30 +359,6 @@ func TestCheck_MaxReviewRetries(t *testing.T) {
 		result := Check(cfg, state)
 		if result.ShouldExit {
 			t.Error("ShouldExit = true, want false (below limit)")
-		}
-	})
-}
-
-func TestConfigFromEnv_MaxReviewIterations(t *testing.T) {
-	t.Run("custom value", func(t *testing.T) {
-		os.Clearenv()
-		os.Setenv("PROGRAMMATOR_MAX_REVIEW_ITERATIONS", "7")
-		defer os.Clearenv()
-
-		cfg := ConfigFromEnv()
-		if cfg.MaxReviewIterations != 7 {
-			t.Errorf("MaxReviewIterations = %d, want 7", cfg.MaxReviewIterations)
-		}
-	})
-
-	t.Run("invalid value falls back to default", func(t *testing.T) {
-		os.Clearenv()
-		os.Setenv("PROGRAMMATOR_MAX_REVIEW_ITERATIONS", "notanumber")
-		defer os.Clearenv()
-
-		cfg := ConfigFromEnv()
-		if cfg.MaxReviewIterations != DefaultMaxReviewIterations {
-			t.Errorf("MaxReviewIterations = %d, want %d", cfg.MaxReviewIterations, DefaultMaxReviewIterations)
 		}
 	})
 }

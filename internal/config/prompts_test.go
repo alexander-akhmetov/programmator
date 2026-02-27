@@ -19,7 +19,6 @@ func TestLoadPrompts_Embedded(t *testing.T) {
 	assert.NotEmpty(t, prompts.Phased, "phased prompt should be loaded")
 	assert.NotEmpty(t, prompts.Phaseless, "phaseless prompt should be loaded")
 	assert.NotEmpty(t, prompts.ReviewFirst, "review_first prompt should be loaded")
-	assert.NotEmpty(t, prompts.PlanCreate, "plan_create prompt should be loaded")
 
 	// Check that comment lines are stripped
 	assert.NotContains(t, prompts.Phased, "# Phased execution prompt")
@@ -86,7 +85,6 @@ func TestLoadPrompts_NonexistentGlobalFallsToEmbedded(t *testing.T) {
 	assert.NotEmpty(t, prompts.Phased)
 	assert.NotEmpty(t, prompts.Phaseless)
 	assert.NotEmpty(t, prompts.ReviewFirst)
-	assert.NotEmpty(t, prompts.PlanCreate)
 }
 
 func TestLoadPrompts_LocalPermissionErrorFallsBack(t *testing.T) {

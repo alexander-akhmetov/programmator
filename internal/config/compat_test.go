@@ -79,61 +79,6 @@ func TestToReviewConfig_WithAgents(t *testing.T) {
 	assert.Equal(t, "test-api-key", rc.EnvConfig.AnthropicAPIKey)
 }
 
-func TestToReviewConfig_MigrateFromPhases(t *testing.T) {
-	cfg := &Config{
-		Timeout: 300,
-		Review: ReviewConfig{
-			MaxIterations: 3,
-			Phases: []ReviewPhase{
-				{
-					Name: "phase1",
-					Agents: []review.AgentConfig{
-						{Name: "quality", Focus: []string{"bugs"}},
-						{Name: "security", Focus: []string{"injection"}},
-					},
-				},
-				{
-					Name: "phase2",
-					Agents: []review.AgentConfig{
-						{Name: "quality", Focus: []string{"different_focus"}}, // duplicate, should be deduped
-						{Name: "implementation", Focus: []string{"completeness"}},
-					},
-				},
-			},
-		},
-	}
-
-	rc := cfg.ToReviewConfig()
-	assert.Equal(t, 3, rc.MaxIterations)
-	require.Len(t, rc.Agents, 3) // quality, security, implementation (deduped)
-	assert.Equal(t, "quality", rc.Agents[0].Name)
-	assert.Equal(t, "security", rc.Agents[1].Name)
-	assert.Equal(t, "implementation", rc.Agents[2].Name)
-}
-
-func TestToReviewConfig_AgentsTakePrecedenceOverPhases(t *testing.T) {
-	cfg := &Config{
-		Review: ReviewConfig{
-			MaxIterations: 5,
-			Agents: []review.AgentConfig{
-				{Name: "quality", Focus: []string{"bugs"}},
-			},
-			Phases: []ReviewPhase{
-				{
-					Name: "phase1",
-					Agents: []review.AgentConfig{
-						{Name: "security", Focus: []string{"injection"}},
-					},
-				},
-			},
-		},
-	}
-
-	rc := cfg.ToReviewConfig()
-	require.Len(t, rc.Agents, 1)
-	assert.Equal(t, "quality", rc.Agents[0].Name) // agents wins, not phases
-}
-
 func TestToReviewConfig_NoAgentsNoPhases(t *testing.T) {
 	cfg := &Config{
 		Timeout: 300,
