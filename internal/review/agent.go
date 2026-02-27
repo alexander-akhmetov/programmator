@@ -115,14 +115,13 @@ type Agent interface {
 
 // ClaudeAgent implements ReviewAgent using Claude Code.
 type ClaudeAgent struct {
-	name         string
-	focus        []string
-	prompt       string
-	timeout      time.Duration
-	claudeArgs   []string
-	settingsJSON string
-	envConfig    llm.EnvConfig
-	invoker      llm.Invoker
+	name       string
+	focus      []string
+	prompt     string
+	timeout    time.Duration
+	claudeArgs []string
+	envConfig  llm.EnvConfig
+	invoker    llm.Invoker
 }
 
 // ClaudeAgentOption is a functional option for ClaudeAgent.
@@ -139,13 +138,6 @@ func WithTimeout(d time.Duration) ClaudeAgentOption {
 func WithClaudeArgs(args []string) ClaudeAgentOption {
 	return func(a *ClaudeAgent) {
 		a.claudeArgs = args
-	}
-}
-
-// WithSettingsJSON sets the --settings JSON for guard mode / permission hooks.
-func WithSettingsJSON(settingsJSON string) ClaudeAgentOption {
-	return func(a *ClaudeAgent) {
-		a.settingsJSON = settingsJSON
 	}
 }
 
@@ -267,14 +259,13 @@ REVIEW_RESULT:
 func (a *ClaudeAgent) invokeClaude(ctx context.Context, workingDir, promptText string) (string, error) {
 	inv := a.invoker
 	if inv == nil {
-		inv = llm.NewClaudeInvoker(a.envConfig, "", false)
+		inv = llm.NewClaudeInvoker(a.envConfig)
 	}
 
 	opts := llm.InvokeOptions{
-		WorkingDir:   workingDir,
-		ExtraFlags:   a.claudeArgs,
-		SettingsJSON: a.settingsJSON,
-		Timeout:      int(a.timeout.Seconds()),
+		WorkingDir: workingDir,
+		ExtraFlags: a.claudeArgs,
+		Timeout:    int(a.timeout.Seconds()),
 	}
 
 	res, err := inv.Invoke(ctx, promptText, opts)

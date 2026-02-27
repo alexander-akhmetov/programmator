@@ -1,9 +1,8 @@
 package tui
 
 import (
+	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -12,9 +11,6 @@ import (
 
 	"github.com/alexander-akhmetov/programmator/internal/config"
 	"github.com/alexander-akhmetov/programmator/internal/git"
-	"github.com/alexander-akhmetov/programmator/internal/loop"
-	"github.com/alexander-akhmetov/programmator/internal/progress"
-	"github.com/alexander-akhmetov/programmator/internal/prompt"
 	"github.com/alexander-akhmetov/programmator/internal/review"
 )
 
@@ -23,10 +19,8 @@ import (
 var errReviewFailed = fmt.Errorf("review failed: issues found")
 
 var (
-	reviewBaseBranch      string
-	reviewWorkingDir      string
-	reviewSkipPermissions bool
-	reviewGuardMode       bool
+	reviewBaseBranch string
+	reviewWorkingDir string
 )
 
 var reviewCmd = &cobra.Command{
@@ -48,8 +42,6 @@ Examples:
 func init() {
 	reviewCmd.Flags().StringVar(&reviewBaseBranch, "base", "main", "Base branch to diff against (default: main)")
 	reviewCmd.Flags().StringVarP(&reviewWorkingDir, "dir", "d", "", "Working directory (default: current directory)")
-	reviewCmd.Flags().BoolVar(&reviewSkipPermissions, "dangerously-skip-permissions", false, "Skip interactive permission dialogs (grants all permissions)")
-	reviewCmd.Flags().BoolVar(&reviewGuardMode, "guard", true, "Guard mode: skip permissions but block destructive commands via dcg (default: enabled)")
 }
 
 func runReview(_ *cobra.Command, _ []string) error {
@@ -89,53 +81,13 @@ func runReview(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("invalid config: %w", err)
 	}
 
-	safetyConfig := cfg.ToSafetyConfig()
-	execConfig := cfg.ToExecutorConfig()
-
-	reviewGuardMode = resolveGuardMode(reviewGuardMode, &execConfig)
-	if reviewSkipPermissions {
-		applySkipPermissions(&execConfig)
-	}
-
 	reviewConfig := cfg.ToReviewConfig()
-	// Create progress logger for review
-	// Use base branch + directory name as source ID
-	sourceID := fmt.Sprintf("review-%s-%s", reviewBaseBranch, filepath.Base(wd))
-	progressLogger, err := progress.NewLogger(progress.Config{
-		LogsDir:    cfg.LogsDir,
-		SourceID:   sourceID,
-		SourceType: "review",
-		WorkDir:    wd,
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not create progress logger: %v\n", err)
-	}
-	defer func() {
-		if progressLogger != nil {
-			progressLogger.Close()
-		}
-	}()
 
-	// Create loop for review-only mode
-	reviewLoop := loop.New(safetyConfig, wd, func(text string) {
+	runner := review.NewRunner(reviewConfig, func(text string) {
 		fmt.Print(text)
-	}, nil, true)
-	reviewLoop.SetReviewConfig(reviewConfig)
-	reviewLoop.SetReviewOnly(true)
-	execConfig.GuardMode = reviewGuardMode
-	if progressLogger != nil {
-		reviewLoop.SetProgressLogger(progressLogger)
-	}
-	promptBuilder, err := prompt.NewBuilder(cfg.Prompts)
-	if err != nil {
-		return fmt.Errorf("failed to create prompt builder: %w", err)
-	}
-	reviewLoop.SetPromptBuilder(promptBuilder)
-	reviewLoop.SetCodexConfig(cfg.Codex)
-	reviewLoop.SetExecutorConfig(execConfig)
+	})
 
-	// Run review-only loop
-	result, err := reviewLoop.RunReviewOnly(reviewBaseBranch, filesChanged)
+	result, err := runner.RunIteration(context.Background(), wd, filesChanged)
 	if err != nil {
 		return fmt.Errorf("review failed: %w", err)
 	}
@@ -189,7 +141,7 @@ func formatReviewDuration(d time.Duration) string {
 	return fmt.Sprintf("%ds", s)
 }
 
-func printReviewOnlySummary(result *loop.ReviewOnlyResult) {
+func printReviewOnlySummary(result *review.RunResult) {
 	var b strings.Builder
 
 	b.WriteString(reviewSummaryTitle.Render("REVIEW COMPLETE") + "\n\n")
@@ -200,24 +152,13 @@ func printReviewOnlySummary(result *loop.ReviewOnlyResult) {
 		b.WriteString(reviewSummaryLabel.Render("Status:     ") + reviewSummaryError.Render("FAILED") + "\n")
 	}
 
-	b.WriteString(reviewSummaryLabel.Render("Iterations: ") + reviewSummaryValue.Render(fmt.Sprintf("%d", result.Iterations)) + "\n")
+	b.WriteString(reviewSummaryLabel.Render("Iterations: ") + reviewSummaryValue.Render(fmt.Sprintf("%d", result.Iteration)) + "\n")
 	b.WriteString(reviewSummaryLabel.Render("Issues:     ") + reviewSummaryValue.Render(fmt.Sprintf("%d", result.TotalIssues)) + "\n")
 	b.WriteString(reviewSummaryLabel.Render("Duration:   ") + reviewSummaryValue.Render(formatReviewDuration(result.Duration)) + "\n")
 
-	if result.CommitsMade > 0 {
-		b.WriteString(reviewSummaryLabel.Render("Commits:    ") + reviewSummaryValue.Render(fmt.Sprintf("%d", result.CommitsMade)) + "\n")
-	}
-
-	if len(result.FilesFixed) > 0 {
-		b.WriteString(reviewSummaryLabel.Render("Files fixed:") + "\n")
-		for _, f := range result.FilesFixed {
-			b.WriteString("  • " + f + "\n")
-		}
-	}
-
-	if !result.Passed && result.FinalReview != nil && len(result.FinalReview.Results) > 0 {
+	if !result.Passed && len(result.Results) > 0 {
 		b.WriteString("\n" + reviewSummaryLabel.Render("Remaining issues:") + "\n")
-		b.WriteString(review.FormatIssuesMarkdown(result.FinalReview.Results))
+		b.WriteString(review.FormatIssuesMarkdown(result.Results))
 	}
 
 	fmt.Println()

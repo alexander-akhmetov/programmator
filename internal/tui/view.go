@@ -32,13 +32,7 @@ func (m Model) View() string {
 	logsBox := logBoxStyle.Width(mainWidth).Height(contentHeight).Render(logsContent)
 
 	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebarBox, logsBox)
-	fullView := main + "\n" + m.renderHelp()
-
-	if m.permissionDialog != nil {
-		return m.permissionDialog.ViewWithBackground(m.width, m.height, fullView)
-	}
-
-	return fullView
+	return main + "\n" + m.renderHelp()
 }
 
 // renderSidebar composes all sidebar sections.
@@ -84,10 +78,7 @@ func (m Model) renderSidebarHeader(width int) string {
 	b.WriteString(titleStyle.Render("⚡ PROGRAMMATOR"))
 	b.WriteString("\n")
 
-	if m.guardMode {
-		b.WriteString(guardStyle.Render("🛡  GUARD MODE"))
-		b.WriteString("\n")
-	} else if strings.Contains(m.claudeFlags, "--dangerously-skip-permissions") {
+	if strings.Contains(m.claudeFlags, "--dangerously-skip-permissions") {
 		b.WriteString(dangerStyle.Render("⚠ SKIP PERMISSIONS"))
 		b.WriteString("\n")
 	}
@@ -125,8 +116,6 @@ func (m Model) getStateIndicator() string {
 	switch m.runState {
 	case stateRunning:
 		return runningStyle.Render(m.spinner.View() + " Running")
-	case statePaused:
-		return pausedStyle.Render("⏸ PAUSED")
 	case stateStopped:
 		return stoppedStyle.Render("⏹ STOPPED")
 	case stateComplete:
@@ -262,11 +251,9 @@ var sidebarTips = []string{
 	"Did you know? `plan create` lets you build plans interactively",
 	"Did you know? You can run plan files directly with `start ./plan.md`",
 	"Did you know? `--auto-commit` commits after each completed phase",
-	"Did you know? `logs --follow` tails the active session in real time",
+	"Did you know? `run` lets you run Claude with a custom prompt",
 	"Did you know? `config show` displays your resolved configuration",
-	"Did you know? Press `p` to pause and resume anytime",
 	"Did you know? You can override prompt templates in `.programmator/prompts/`",
-	"Did you know? Guard mode blocks destructive commands automatically via dcg",
 }
 
 func (m Model) renderSidebarTips(width int) string {
@@ -400,13 +387,8 @@ func (m Model) renderPhasesContent(width int, height int, usedLines int, tipsLin
 func (m Model) renderHelp() string {
 	var parts []string
 
-	switch m.runState {
-	case stateRunning:
-		parts = append(parts, "p: pause", "s: stop")
-	case statePaused:
-		parts = append(parts, "p: resume", "s: stop")
-	case stateStopped, stateComplete:
-		// No controls needed
+	if m.runState == stateRunning {
+		parts = append(parts, "s: stop")
 	}
 
 	parts = append(parts, "↑/↓: scroll", "q: quit")

@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexander-akhmetov/programmator/internal/git"
-	"github.com/alexander-akhmetov/programmator/internal/loop"
 	"github.com/alexander-akhmetov/programmator/internal/review"
 )
 
@@ -162,13 +161,11 @@ func TestReviewCmdRegistered(t *testing.T) {
 
 func TestPrintReviewOnlySummaryPassed(t *testing.T) {
 	output := captureStdout(t, func() {
-		result := &loop.ReviewOnlyResult{
+		result := &review.RunResult{
 			Passed:      true,
-			Iterations:  1,
+			Iteration:   1,
 			TotalIssues: 0,
-			FilesFixed:  []string{},
 			Duration:    30 * time.Second,
-			CommitsMade: 0,
 		}
 		printReviewOnlySummary(result)
 	})
@@ -181,46 +178,37 @@ func TestPrintReviewOnlySummaryPassed(t *testing.T) {
 
 func TestPrintReviewOnlySummaryFailed(t *testing.T) {
 	output := captureStdout(t, func() {
-		result := &loop.ReviewOnlyResult{
+		result := &review.RunResult{
 			Passed:      false,
-			Iterations:  3,
+			Iteration:   3,
 			TotalIssues: 5,
-			FilesFixed:  []string{"main.go", "util.go"},
 			Duration:    2*time.Minute + 15*time.Second,
-			CommitsMade: 2,
 		}
 		printReviewOnlySummary(result)
 	})
 
 	assert.Contains(t, output, "FAILED")
-	assert.Contains(t, output, "3")       // iterations
-	assert.Contains(t, output, "5")       // issues
-	assert.Contains(t, output, "2m15s")   // duration
-	assert.Contains(t, output, "main.go") // files fixed
-	assert.Contains(t, output, "util.go")
+	assert.Contains(t, output, "3")     // iterations
+	assert.Contains(t, output, "5")     // issues
+	assert.Contains(t, output, "2m15s") // duration
 }
 
 func TestPrintReviewOnlySummaryWithFinalReview(t *testing.T) {
 	output := captureStdout(t, func() {
-		result := &loop.ReviewOnlyResult{
+		result := &review.RunResult{
 			Passed:      false,
-			Iterations:  2,
+			Iteration:   2,
 			TotalIssues: 1,
-			FilesFixed:  []string{},
 			Duration:    45 * time.Second,
-			FinalReview: &review.RunResult{
-				Passed:      false,
-				TotalIssues: 1,
-				Results: []*review.Result{
-					{
-						AgentName: "test_agent",
-						Issues: []review.Issue{
-							{
-								File:        "test.go",
-								Line:        42,
-								Severity:    review.SeverityHigh,
-								Description: "Test issue",
-							},
+			Results: []*review.Result{
+				{
+					AgentName: "test_agent",
+					Issues: []review.Issue{
+						{
+							File:        "test.go",
+							Line:        42,
+							Severity:    review.SeverityHigh,
+							Description: "Test issue",
 						},
 					},
 				},
@@ -232,6 +220,46 @@ func TestPrintReviewOnlySummaryWithFinalReview(t *testing.T) {
 	assert.Contains(t, output, "FAILED")
 	assert.Contains(t, output, "Remaining issues")
 	assert.Contains(t, output, "test.go")
+}
+
+// TestReviewCmdAllFlagDefaults verifies all flag defaults for the review command.
+func TestReviewCmdAllFlagDefaults(t *testing.T) {
+	flags := reviewCmd.Flags()
+
+	tests := []struct {
+		name     string
+		flag     string
+		defValue string
+	}{
+		{"base branch", "base", "main"},
+		{"working dir", "dir", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := flags.Lookup(tc.flag)
+			require.NotNil(t, f, "flag %s should exist", tc.flag)
+			assert.Equal(t, tc.defValue, f.DefValue, "flag %s default", tc.flag)
+		})
+	}
+}
+
+// TestPrintReviewOnlySummaryWithCommitsAndFiles verifies the full review summary output.
+func TestPrintReviewOnlySummaryWithCommitsAndFiles(t *testing.T) {
+	output := captureStdout(t, func() {
+		result := &review.RunResult{
+			Passed:      true,
+			Iteration:   3,
+			TotalIssues: 4,
+			Duration:    5*time.Minute + 30*time.Second,
+		}
+		printReviewOnlySummary(result)
+	})
+
+	assert.Contains(t, output, "PASSED")
+	assert.Contains(t, output, "3")     // iterations
+	assert.Contains(t, output, "4")     // issues
+	assert.Contains(t, output, "5m30s") // duration
 }
 
 // setupTestGitRepo creates a minimal git repo for testing.

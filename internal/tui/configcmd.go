@@ -89,17 +89,6 @@ func runConfigShow(_ *cobra.Command, _ []string) error {
 	}
 	fmt.Println()
 
-	fmt.Println("## Codex Settings")
-	fmt.Printf("  command:          %s\n", cfg.Codex.Command)
-	fmt.Printf("  model:            %s\n", cfg.Codex.Model)
-	fmt.Printf("  reasoning_effort: %s\n", cfg.Codex.ReasoningEffort)
-	fmt.Printf("  timeout_ms:       %d\n", cfg.Codex.TimeoutMs)
-	fmt.Printf("  sandbox:          %s\n", cfg.Codex.Sandbox)
-	if len(cfg.Codex.ErrorPatterns) > 0 {
-		fmt.Printf("  error_patterns:   %s\n", strings.Join(cfg.Codex.ErrorPatterns, ", "))
-	}
-	fmt.Println()
-
 	fmt.Println("## Review Settings")
 	fmt.Printf("  max_iterations: %d\n", cfg.Review.MaxIterations)
 	fmt.Printf("  parallel:       %t\n", cfg.Review.Parallel)

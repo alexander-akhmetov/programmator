@@ -98,7 +98,6 @@ func TestClaudeAgent(t *testing.T) {
 			"prompt",
 			WithTimeout(10*time.Minute),
 			WithClaudeArgs([]string{"--verbose"}),
-			WithSettingsJSON(`{"hooks":{}}`),
 			WithEnvConfig(llm.EnvConfig{
 				ClaudeConfigDir: "/custom/config",
 				AnthropicAPIKey: "test-key",
@@ -107,7 +106,6 @@ func TestClaudeAgent(t *testing.T) {
 
 		require.Equal(t, 10*time.Minute, agent.timeout)
 		require.Equal(t, []string{"--verbose"}, agent.claudeArgs)
-		require.Equal(t, `{"hooks":{}}`, agent.settingsJSON)
 		require.Equal(t, "/custom/config", agent.envConfig.ClaudeConfigDir)
 		require.Equal(t, "test-key", agent.envConfig.AnthropicAPIKey)
 	})
@@ -118,7 +116,6 @@ func TestDefaultAgentFactory_PassesClaudeFlagsAndSettings(t *testing.T) {
 		MaxIterations: 3,
 		Timeout:       120,
 		ClaudeFlags:   "--dangerously-skip-permissions",
-		SettingsJSON:  `{"hooks":{"PreToolUse":[]}}`,
 	}
 
 	runner := NewRunner(cfg, nil)
@@ -127,7 +124,6 @@ func TestDefaultAgentFactory_PassesClaudeFlagsAndSettings(t *testing.T) {
 	claudeAgent, ok := agent.(*ClaudeAgent)
 	require.True(t, ok)
 	require.Equal(t, []string{"--dangerously-skip-permissions"}, claudeAgent.claudeArgs)
-	require.Equal(t, `{"hooks":{"PreToolUse":[]}}`, claudeAgent.settingsJSON)
 	require.Equal(t, 120*time.Second, claudeAgent.timeout)
 }
 
@@ -841,28 +837,6 @@ func TestRunner_RunIteration_ValidatorsAlwaysRun(t *testing.T) {
 		require.Equal(t, 1, result.TotalIssues)
 		require.False(t, result.Passed)
 	})
-}
-
-func TestRunner_DefaultFactory_CodexAgent(t *testing.T) {
-	cfg := Config{
-		MaxIterations: 3,
-		Codex: CodexSettings{
-			Command:         "test-codex",
-			Model:           "gpt-5.2-codex",
-			ReasoningEffort: "xhigh",
-			TimeoutMs:       3600000,
-			Sandbox:         "read-only",
-		},
-	}
-
-	runner := NewRunner(cfg, nil)
-	agent := runner.defaultAgentFactory(AgentConfig{Name: "codex", Focus: []string{"bugs"}}, "default prompt")
-
-	codexAgent, ok := agent.(*CodexAgent)
-	require.True(t, ok, "codex agent config should produce a CodexAgent")
-	require.Equal(t, "codex", codexAgent.Name())
-	require.Equal(t, "test-codex", codexAgent.executor.Command)
-	require.Equal(t, "gpt-5.2-codex", codexAgent.executor.Model)
 }
 
 func TestRunner_ValidateIssues(t *testing.T) {

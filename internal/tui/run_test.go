@@ -28,9 +28,6 @@ func TestRunCmdFlags(t *testing.T) {
 	require.NotNil(t, skipPermFlag)
 	assert.Equal(t, "false", skipPermFlag.DefValue)
 
-	allowFlag := flags.Lookup("allow")
-	require.NotNil(t, allowFlag)
-
 	printFlag := flags.Lookup("print")
 	require.NotNil(t, printFlag)
 	assert.Equal(t, "false", printFlag.DefValue)

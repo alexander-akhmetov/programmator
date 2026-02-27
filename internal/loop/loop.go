@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aymanbagabas/go-udiff"
@@ -18,7 +19,6 @@ import (
 	gitutil "github.com/alexander-akhmetov/programmator/internal/git"
 	"github.com/alexander-akhmetov/programmator/internal/llm"
 	"github.com/alexander-akhmetov/programmator/internal/parser"
-	"github.com/alexander-akhmetov/programmator/internal/progress"
 	"github.com/alexander-akhmetov/programmator/internal/prompt"
 	"github.com/alexander-akhmetov/programmator/internal/protocol"
 	"github.com/alexander-akhmetov/programmator/internal/review"
@@ -66,10 +66,7 @@ type Loop struct {
 	source         source.Source
 	invoker        llm.Invoker
 
-	mu            sync.Mutex
-	paused        bool
-	stopRequested bool
-	pauseCond     *sync.Cond
+	stopRequested atomic.Bool
 
 	currentState    *safety.State
 	currentWorkItem *domain.WorkItem
@@ -85,9 +82,6 @@ type Loop struct {
 
 	// Prompt builder (uses customizable templates)
 	promptBuilder *prompt.Builder
-
-	// Progress logger for persistent log files
-	progressLogger *progress.Logger
 
 	// Ticket CLI command name
 	ticketCommand string
@@ -113,7 +107,7 @@ func New(config safety.Config, workingDir string, onOutput OutputCallback, onSta
 }
 
 func NewWithSource(config safety.Config, workingDir string, onOutput OutputCallback, onStateChange StateCallback, streaming bool, src source.Source) *Loop {
-	l := &Loop{
+	return &Loop{
 		config:        config,
 		workingDir:    workingDir,
 		onOutput:      onOutput,
@@ -125,8 +119,6 @@ func NewWithSource(config safety.Config, workingDir string, onOutput OutputCallb
 			SafetyConfig: config,
 		},
 	}
-	l.pauseCond = sync.NewCond(&l.mu)
-	return l
 }
 
 // SetReviewConfig sets the review configuration.
@@ -144,11 +136,6 @@ func (l *Loop) SetReviewOnly(reviewOnly bool) {
 // SetPromptBuilder sets a custom prompt builder (for customizable templates).
 func (l *Loop) SetPromptBuilder(builder *prompt.Builder) {
 	l.promptBuilder = builder
-}
-
-// SetProgressLogger sets the progress logger for persistent log files.
-func (l *Loop) SetProgressLogger(logger *progress.Logger) {
-	l.progressLogger = logger
 }
 
 // SetTicketCommand sets the ticket CLI command name.
@@ -179,10 +166,6 @@ func (l *Loop) executorName() string {
 	return l.executorConfig.Name
 }
 
-// SetCodexConfig is a no-op kept for backward compatibility.
-// Codex is now configured as a review agent in review.agents.
-func (l *Loop) SetCodexConfig(_ any) {}
-
 // setupGitWorkflow initializes the git repo and optionally creates a branch.
 func (l *Loop) setupGitWorkflow(sourceID string, isPlan bool) error {
 	// Initialize git repo
@@ -211,7 +194,6 @@ func (l *Loop) setupGitWorkflow(sourceID string, isPlan bool) error {
 
 	// Create or checkout the branch
 	l.log(fmt.Sprintf("Setting up branch: %s", branchName))
-	l.logProgressf("Setting up branch: %s", branchName)
 
 	if err := l.gitRepo.CreateBranch(branchName); err != nil {
 		return fmt.Errorf("create branch: %w", err)
@@ -227,7 +209,6 @@ func (l *Loop) autoCommitPhase(phaseName string, filesChanged []string) error {
 	}
 
 	l.log(fmt.Sprintf("Auto-committing: %s", phaseName))
-	l.logProgressf("Auto-committing: %s", phaseName)
 
 	if err := l.gitRepo.AddAndCommit(filesChanged, phaseName); err != nil {
 		return fmt.Errorf("auto-commit: %w", err)
@@ -268,7 +249,6 @@ func (l *Loop) moveCompletedPlan(rc *runContext) error {
 	}
 
 	l.log(fmt.Sprintf("Moved completed plan to: %s", newPath))
-	l.logProgressf("Moved completed plan to: %s", newPath)
 
 	// If auto-commit is enabled, commit the move
 	if l.gitConfig.AutoCommit && l.gitRepo != nil {
@@ -300,7 +280,6 @@ func (l *Loop) moveCompletedPlan(rc *runContext) error {
 				l.log(fmt.Sprintf("Warning: failed to commit plan move: %v", err))
 			} else {
 				l.log("Committed plan move")
-				l.logProgressf("Committed plan move")
 			}
 		}
 	}
@@ -334,18 +313,9 @@ type runContext struct {
 // checkStopRequested checks if stop was requested and handles the response.
 // Returns loopReturn if we should exit, loopContinue otherwise.
 func (l *Loop) checkStopRequested(rc *runContext) loopAction {
-	l.mu.Lock()
-	for l.paused && !l.stopRequested {
-		l.pauseCond.Wait()
-	}
-	stopped := l.stopRequested
-	l.mu.Unlock()
-
-	if stopped {
+	if l.stopRequested.Load() {
 		l.log("Stop requested by user")
-		if err := rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: Stopped by user after %d iterations", rc.state.Iteration)); err != nil {
-			l.logErrorf("failed to add stop note: %v", err)
-		}
+		_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: Stopped by user after %d iterations", rc.state.Iteration))
 		rc.result.ExitReason = safety.ExitReasonUserInterrupt
 		rc.result.Iterations = rc.state.Iteration
 		return loopReturn
@@ -425,7 +395,6 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 	l.log(fmt.Sprintf("Review iteration %d/%d",
 		l.engine.ReviewIterations, l.engine.MaxReviewIter))
 
-	l.logReviewStart(l.engine.ReviewIterations, l.engine.MaxReviewIter)
 	rc.state.EnterReviewPhase()
 	if l.reviewRunner == nil {
 		l.applySettingsToReviewConfig()
@@ -453,7 +422,6 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 	}
 
 	rc.state.RecordReviewIteration()
-	l.logReviewResult(reviewResult.Passed, reviewResult.TotalIssues)
 
 	errorCount := countReviewErrors(reviewResult.Results)
 	if errorCount > 0 {
@@ -507,17 +475,12 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 // completeAllPhases marks the work item as complete and returns.
 func (l *Loop) completeAllPhases(rc *runContext) loopAction {
 	l.log("All phases complete!")
-	if err := rc.source.SetStatus(rc.workItemID, protocol.WorkItemClosed); err != nil {
-		l.logErrorf("failed to set status to closed: %v", err)
-	}
-	if err := rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: Completed all phases in %d iterations", rc.state.Iteration)); err != nil {
-		l.logErrorf("failed to add completion note: %v", err)
-	}
+	_ = rc.source.SetStatus(rc.workItemID, protocol.WorkItemClosed)
+	_ = rc.source.AddNote(rc.workItemID, fmt.Sprintf("progress: Completed all phases in %d iterations", rc.state.Iteration))
 
 	// Move completed plan if configured
 	if err := l.moveCompletedPlan(rc); err != nil {
 		l.log(fmt.Sprintf("Warning: failed to move completed plan: %v", err))
-		l.logErrorf("failed to move completed plan: %v", err)
 	}
 
 	rc.result.ExitReason = safety.ExitReasonComplete
@@ -530,7 +493,6 @@ func (l *Loop) completeAllPhases(rc *runContext) loopAction {
 func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) loopAction {
 	l.log(fmt.Sprintf("Status: %s", status.Status))
 	l.log(fmt.Sprintf("Summary: %s", status.Summary))
-	l.logStatus(string(status.Status), status.Summary, status.FilesChanged)
 
 	rc.result.FinalStatus = status
 	l.recordPhaseProgress(rc, status)
@@ -582,17 +544,14 @@ func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) 
 func (l *Loop) recordPhaseProgress(rc *runContext, status *parser.ParsedStatus) {
 	if status.PhaseCompleted != "" {
 		l.log(fmt.Sprintf("Phase completed: %s", status.PhaseCompleted))
-		l.logPhaseComplete(status.PhaseCompleted)
 		if err := rc.source.UpdatePhase(rc.workItemID, status.PhaseCompleted); err != nil {
 			l.log(fmt.Sprintf("Warning: failed to update phase '%s': %v", status.PhaseCompleted, err))
-			l.logErrorf("failed to update phase '%s': %v", status.PhaseCompleted, err)
 		}
 		l.addNote(rc, fmt.Sprintf("progress: [iter %d] Completed %s", rc.state.Iteration, status.PhaseCompleted))
 
 		// Auto-commit after phase completion if enabled
 		if err := l.autoCommitPhase(status.PhaseCompleted, status.FilesChanged); err != nil {
 			l.log(fmt.Sprintf("Warning: auto-commit failed: %v", err))
-			l.logErrorf("auto-commit failed: %v", err)
 		}
 	} else {
 		l.addNote(rc, fmt.Sprintf("progress: [iter %d] %s", rc.state.Iteration, status.Summary))
@@ -633,8 +592,6 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 	}
 	defer func() {
 		result.Duration = time.Since(startTime)
-		// Log exit to progress file
-		l.logExit(string(result.ExitReason), result.ExitMessage, result.Iterations, result.TotalFilesChanged)
 	}()
 
 	timing.Log("Loop.Run: fetching work item")
@@ -646,7 +603,6 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 	}
 
 	l.log(fmt.Sprintf("Starting on %s %s: %s", src.Type(), workItemID, workItem.Title))
-	l.logProgressf("Starting on %s %s: %s", src.Type(), workItemID, workItem.Title)
 
 	// Validate review config before changing ticket state
 	if len(l.reviewConfig.Agents) == 0 {
@@ -657,14 +613,11 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 		return result, err
 	}
 
-	if err := src.SetStatus(workItemID, protocol.WorkItemInProgress); err != nil {
-		l.logErrorf("failed to set status to in-progress: %v", err)
-	}
+	_ = src.SetStatus(workItemID, protocol.WorkItemInProgress)
 
 	// Set up git repo and optionally create branch
 	if err := l.setupGitWorkflow(workItemID, src.Type() == protocol.SourceTypePlan); err != nil {
 		l.log(fmt.Sprintf("Warning: git workflow setup failed: %v", err))
-		l.logErrorf("git workflow setup failed: %v", err)
 	}
 
 	rc := &runContext{
@@ -721,18 +674,15 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 		currentPhase := rc.workItem.CurrentPhase()
 		l.logIterationSeparator(rc.state.Iteration, l.config.MaxIterations)
 		l.log(fmt.Sprintf("Iteration %d/%d", rc.state.Iteration, l.config.MaxIterations))
-		phaseName := ""
 		if currentPhase != nil {
-			phaseName = currentPhase.Name
 			l.log(fmt.Sprintf("Current phase: %s", currentPhase.Name))
 		}
-		l.logIteration(rc.state.Iteration, l.config.MaxIterations, phaseName)
 
 		var promptText string
-		if l.engine.PendingReviewFix {
+		if l.engine.PendingReviewFix && l.promptBuilder != nil {
 			// Use review fix prompt with the stored issues so review templates apply
 			var promptErr error
-			promptText, promptErr = l.buildReviewFixPrompt("", rc.result.TotalFilesChanged, l.lastReviewIssues, l.engine.ReviewIterations)
+			promptText, promptErr = l.promptBuilder.BuildReviewFirst("", rc.result.TotalFilesChanged, l.lastReviewIssues, l.engine.ReviewIterations, l.gitConfig.AutoCommit)
 			if promptErr != nil {
 				l.log(fmt.Sprintf("Failed to build review fix prompt: %v, falling back to task prompt", promptErr))
 				promptText = prompt.Build(rc.workItem)
@@ -760,7 +710,6 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 		output, err := l.invokeClaudePrint(ctx, promptText)
 		if err != nil {
 			l.log(fmt.Sprintf("Invocation failed: %v", err))
-			l.logErrorf("Invocation failed: %v", err)
 			rc.state.RecordIteration(nil, "invocation_error")
 			if l.onStateChange != nil {
 				l.onStateChange(rc.state, rc.workItem, rc.result.TotalFilesChanged)
@@ -768,7 +717,6 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 			l.consecutiveInvokeErrors++
 			if l.consecutiveInvokeErrors >= 3 {
 				l.log("3 consecutive invocation failures — exiting")
-				l.logErrorf("3 consecutive invocation failures — exiting")
 				rc.result.ExitReason = safety.ExitReasonError
 				rc.result.ExitMessage = fmt.Sprintf("3 consecutive invocation failures, last: %v", err)
 				rc.result.Iterations = rc.state.Iteration
@@ -780,7 +728,6 @@ func (l *Loop) Run(workItemID string) (*Result, error) {
 
 		status, err := parser.Parse(output)
 		if err != nil {
-			l.logErrorf("failed to parse response: %v", err)
 			rc.result.ExitReason = safety.ExitReasonError
 			return rc.result, err
 		}
@@ -1090,30 +1037,10 @@ func formatToolArg(toolName string, input map[string]any) string {
 }
 
 func (l *Loop) Stop() {
-	l.mu.Lock()
-	l.stopRequested = true
-	l.pauseCond.Broadcast()
-	l.mu.Unlock()
-
+	l.stopRequested.Store(true)
 	if l.cancelFunc != nil {
 		l.cancelFunc()
 	}
-}
-
-func (l *Loop) TogglePause() bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.paused = !l.paused
-	if !l.paused {
-		l.pauseCond.Broadcast()
-	}
-	return l.paused
-}
-
-func (l *Loop) IsPaused() bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.paused
 }
 
 func (l *Loop) log(message string) {
@@ -1131,62 +1058,6 @@ func (l *Loop) logIterationSeparator(iteration, maxIterations int) {
 	}
 }
 
-// logProgressf writes to the progress log file if a logger is configured.
-func (l *Loop) logProgressf(format string, args ...any) {
-	if l.progressLogger != nil {
-		l.progressLogger.Printf(format, args...)
-	}
-}
-
-// logIteration logs the start of an iteration to the progress file.
-func (l *Loop) logIteration(n, maxIter int, phase string) {
-	if l.progressLogger != nil {
-		l.progressLogger.Iteration(n, maxIter, phase)
-	}
-}
-
-// logStatus logs a status update to the progress file.
-func (l *Loop) logStatus(status, summary string, filesChanged []string) {
-	if l.progressLogger != nil {
-		l.progressLogger.Status(status, summary, filesChanged)
-	}
-}
-
-// logPhaseComplete logs phase completion to the progress file.
-func (l *Loop) logPhaseComplete(phase string) {
-	if l.progressLogger != nil {
-		l.progressLogger.PhaseComplete(phase)
-	}
-}
-
-// logErrorf logs an error to the progress file.
-func (l *Loop) logErrorf(format string, args ...any) {
-	if l.progressLogger != nil {
-		l.progressLogger.Errorf(format, args...)
-	}
-}
-
-// logReviewStart logs the start of a review iteration to the progress file.
-func (l *Loop) logReviewStart(iteration, maxIter int) {
-	if l.progressLogger != nil {
-		l.progressLogger.ReviewStart(iteration, maxIter)
-	}
-}
-
-// logReviewResult logs review results to the progress file.
-func (l *Loop) logReviewResult(passed bool, issueCount int) {
-	if l.progressLogger != nil {
-		l.progressLogger.ReviewResult(passed, issueCount)
-	}
-}
-
-// logExit logs the exit reason and stats to the progress file.
-func (l *Loop) logExit(reason, message string, iterations int, filesChanged []string) {
-	if l.progressLogger != nil {
-		l.progressLogger.Exit(reason, message, iterations, filesChanged)
-	}
-}
-
 func (r *Result) FilesChangedList() []string {
 	return r.TotalFilesChanged
 }
@@ -1199,11 +1070,9 @@ func (l *Loop) getRecentSummaries(rc *runContext, n int) []string {
 	return rc.iterationSummaries[len(rc.iterationSummaries)-n:]
 }
 
-// addNote logs AddNote errors instead of silently discarding them.
+// addNote adds a note to the work item, ignoring errors.
 func (l *Loop) addNote(rc *runContext, note string) {
-	if err := rc.source.AddNote(rc.workItemID, note); err != nil {
-		l.logErrorf("failed to add note: %v", err)
-	}
+	_ = rc.source.AddNote(rc.workItemID, note)
 }
 
 func (l *Loop) pollProcessStats(pid int, stop <-chan struct{}) {
@@ -1259,23 +1128,11 @@ func (l *Loop) emit(e event.Event) {
 	}
 }
 
-// buildHookSettings delegates to llm.BuildHookSettings using executorConfig.
-func (l *Loop) buildHookSettings() string {
-	return llm.BuildHookSettings(llm.HookConfig{
-		PermissionSocketPath: l.executorConfig.PermissionSocketPath,
-		GuardMode:            l.executorConfig.GuardMode,
-	})
-}
-
-// applySettingsToReviewConfig copies guard mode / permission socket settings
-// into the review config so review agents get the same flags as the main loop.
+// applySettingsToReviewConfig copies config settings into the review config.
 func (l *Loop) applySettingsToReviewConfig() {
 	if l.isClaudeExecutor() {
 		if len(l.executorConfig.ExtraFlags) > 0 {
 			l.reviewConfig.ClaudeFlags = strings.Join(l.executorConfig.ExtraFlags, " ")
-		}
-		if l.executorConfig.PermissionSocketPath != "" || l.executorConfig.GuardMode {
-			l.reviewConfig.SettingsJSON = l.buildHookSettings()
 		}
 		l.reviewConfig.EnvConfig = l.executorConfig.Claude
 	}
@@ -1291,354 +1148,4 @@ func (l *Loop) applyReviewContext(workItem *domain.WorkItem) {
 // SetReviewRunner sets a custom review runner (useful for testing).
 func (l *Loop) SetReviewRunner(runner *review.Runner) {
 	l.reviewRunner = runner
-}
-
-// ReviewOnlyResult holds the result of a review-only run.
-type ReviewOnlyResult struct {
-	Passed        bool
-	Iterations    int
-	TotalIssues   int
-	FilesFixed    []string
-	Duration      time.Duration
-	FinalReview   *review.RunResult
-	ExitReason    safety.ExitReason
-	CommitsMade   int
-	LastReviewErr error
-}
-
-// RunReviewOnly runs the review-only loop: review → fix → commit → re-review.
-// It requires git changed files to be provided and does not use tickets.
-func (l *Loop) RunReviewOnly(baseBranch string, filesChanged []string) (*ReviewOnlyResult, error) {
-	startTime := time.Now()
-	ctx, cancel := context.WithCancel(context.Background())
-	l.cancelFunc = cancel
-	defer cancel()
-
-	state := safety.NewState()
-	state.EnterReviewPhase()
-	result := &ReviewOnlyResult{
-		Passed:     false,
-		FilesFixed: make([]string, 0),
-		ExitReason: safety.ExitReasonComplete,
-	}
-	defer func() { result.Duration = time.Since(startTime) }()
-
-	if len(l.reviewConfig.Agents) == 0 {
-		err := fmt.Errorf("review enabled but no review agents configured (review.agents)")
-		result.ExitReason = safety.ExitReasonError
-		result.LastReviewErr = err
-		l.log(err.Error())
-		return result, err
-	}
-
-	// Initialize review runner
-	if l.reviewRunner == nil {
-		l.reviewConfig.TicketContext = ""
-		l.applySettingsToReviewConfig()
-		var outputCallback review.OutputCallback
-		if l.onOutput != nil && l.onEvent == nil {
-			outputCallback = func(text string) {
-				l.onOutput(text)
-			}
-		}
-		l.reviewRunner = review.NewRunner(l.reviewConfig, outputCallback)
-		if l.onEvent != nil {
-			l.reviewRunner.SetEventCallback(event.Handler(l.onEvent))
-		}
-	}
-
-	roc := &reviewOnlyContext{
-		ctx:           ctx,
-		state:         state,
-		result:        result,
-		baseBranch:    baseBranch,
-		filesChanged:  filesChanged,
-		filesFixedSet: make(map[string]struct{}),
-	}
-
-	maxIter := l.reviewConfig.MaxIterations
-	if maxIter <= 0 {
-		maxIter = review.DefaultMaxIterations
-	}
-
-	// Single review loop: review → fix → re-review
-	for iter := 0; ; iter++ {
-		if l.checkReviewOnlyStop(roc) {
-			return result, nil
-		}
-
-		roc.state.Iteration++
-		roc.result.Iterations = roc.state.Iteration
-
-		checkResult := safety.Check(l.config, roc.state)
-		if checkResult.ShouldExit {
-			l.log(fmt.Sprintf("Safety exit: %s", checkResult.Reason))
-			roc.result.ExitReason = checkResult.Reason
-			return result, nil
-		}
-
-		l.logIterationSeparator(roc.state.Iteration, maxIter)
-		l.log(fmt.Sprintf("Review iteration %d/%d", iter+1, maxIter))
-		l.logReviewStart(iter+1, maxIter)
-
-		// Run review
-		l.log("Running code review...")
-		reviewResult, err := l.reviewRunner.RunIteration(roc.ctx, l.workingDir, roc.filesChanged)
-		roc.state.RecordReviewIteration()
-		if err != nil {
-			l.log(fmt.Sprintf("Review error: %v", err))
-			roc.result.LastReviewErr = err
-			roc.result.ExitReason = safety.ExitReasonError
-			return result, err
-		}
-
-		roc.result.FinalReview = reviewResult
-		roc.result.TotalIssues = reviewResult.TotalIssues
-		l.logReviewResult(reviewResult.Passed, reviewResult.TotalIssues)
-
-		errorCount := countReviewErrors(reviewResult.Results)
-		if errorCount > 0 {
-			l.log(fmt.Sprintf("Review agent errors (%d) - retrying review without invoking Claude", errorCount))
-			if iter+1 >= maxIter {
-				l.log(fmt.Sprintf("Review exceeded max iterations (%d) with agent errors - stopping", maxIter))
-				return result, nil
-			}
-			continue
-		}
-
-		if reviewResult.Passed {
-			l.log("Review passed - no issues found!")
-			result.Passed = true
-			result.ExitReason = safety.ExitReasonComplete
-			return result, nil
-		}
-
-		l.log(fmt.Sprintf("Review found %d issues - invoking Claude to fix", reviewResult.TotalIssues))
-
-		if iter+1 >= maxIter {
-			l.log(fmt.Sprintf("Review exceeded max iterations (%d) - stopping", maxIter))
-			return result, nil
-		}
-
-		earlyReturn, err := l.invokeFixAndProcess(roc, reviewResult)
-		if err != nil {
-			return result, err
-		}
-		if earlyReturn {
-			return result, nil
-		}
-	}
-}
-
-// reviewOnlyContext holds mutable state for RunReviewOnly.
-type reviewOnlyContext struct {
-	ctx           context.Context
-	state         *safety.State
-	result        *ReviewOnlyResult
-	baseBranch    string
-	filesChanged  []string
-	filesFixedSet map[string]struct{}
-}
-
-// checkReviewOnlyStop checks if the loop should stop.
-func (l *Loop) checkReviewOnlyStop(roc *reviewOnlyContext) bool {
-	l.mu.Lock()
-	for l.paused && !l.stopRequested {
-		l.pauseCond.Wait()
-	}
-	if l.stopRequested {
-		l.mu.Unlock()
-		l.log("Stop requested by user")
-		roc.result.ExitReason = safety.ExitReasonUserInterrupt
-		roc.result.Iterations = roc.state.Iteration
-		return true
-	}
-	l.mu.Unlock()
-
-	select {
-	case <-roc.ctx.Done():
-		roc.result.ExitReason = safety.ExitReasonUserInterrupt
-		roc.result.Iterations = roc.state.Iteration
-		return true
-	default:
-		return false
-	}
-}
-
-// invokeFixAndProcess invokes Claude to fix review issues and processes the response.
-// Returns (earlyReturn, error).
-func (l *Loop) invokeFixAndProcess(roc *reviewOnlyContext, reviewResult *review.RunResult) (bool, error) {
-	issuesMarkdown := review.FormatIssuesMarkdown(reviewResult.Results)
-	promptText, err := l.buildReviewFixPrompt(roc.baseBranch, roc.filesChanged, issuesMarkdown, roc.state.Iteration)
-	if err != nil {
-		roc.result.ExitReason = safety.ExitReasonError
-		return false, fmt.Errorf("build review fix prompt: %w", err)
-	}
-
-	l.currentState = roc.state
-	if l.onStateChange != nil {
-		l.onStateChange(roc.state, nil, roc.result.FilesFixed)
-	}
-
-	l.log(fmt.Sprintf("Invoking %s to fix review issues...", l.executorName()))
-	output, err := l.invokeClaudePrint(roc.ctx, promptText)
-	if err != nil {
-		l.log(fmt.Sprintf("Invocation failed: %v", err))
-		l.logErrorf("Invocation failed: %v", err)
-		roc.state.RecordIteration(nil, "invocation_error")
-		return false, nil
-	}
-
-	status, err := parser.Parse(output)
-	if err != nil {
-		l.log(fmt.Sprintf("Warning: Failed to parse status: %v", err))
-		roc.state.RecordIteration(nil, "parse_error")
-		return false, nil
-	}
-
-	if status == nil {
-		l.log("Warning: No " + protocol.StatusBlockKey + " found in output")
-		roc.state.RecordIteration(nil, "no_status_block")
-		return false, nil
-	}
-
-	l.log(fmt.Sprintf("Status: %s", status.Status))
-	l.log(fmt.Sprintf("Summary: %s", status.Summary))
-
-	if len(status.FilesChanged) > 0 {
-		l.log(fmt.Sprintf("Files fixed: %s", strings.Join(status.FilesChanged, ", ")))
-		for _, f := range status.FilesChanged {
-			if _, exists := roc.filesFixedSet[f]; !exists {
-				roc.filesFixedSet[f] = struct{}{}
-				roc.result.FilesFixed = append(roc.result.FilesFixed, f)
-			}
-		}
-	}
-
-	roc.state.RecordIteration(status.FilesChanged, status.Error)
-
-	if l.onStateChange != nil {
-		l.onStateChange(roc.state, nil, roc.result.FilesFixed)
-	}
-
-	if status.Status == protocol.StatusBlocked {
-		l.log(fmt.Sprintf("Executor reported BLOCKED: %s", status.Error))
-		roc.result.ExitReason = safety.ExitReasonBlocked
-		return true, nil
-	}
-
-	if len(status.FilesChanged) > 0 && l.gitConfig.AutoCommit {
-		if status.CommitMade {
-			roc.result.CommitsMade++
-			l.log(fmt.Sprintf("Commit made by executor (total: %d)", roc.result.CommitsMade))
-		} else if l.gitRepo != nil {
-			l.log("Auto-committing changes...")
-			if err := l.autoCommitChanges(status.FilesChanged, status.Summary); err != nil {
-				l.log(fmt.Sprintf("Warning: auto-commit failed: %v", err))
-			} else {
-				roc.result.CommitsMade++
-				l.log(fmt.Sprintf("Auto-commit successful (total: %d)", roc.result.CommitsMade))
-			}
-		}
-	}
-
-	var refreshedFiles []string
-	if l.gitRepo != nil {
-		refreshedFiles, err = l.gitRepo.ChangedFilesFromBase(roc.baseBranch)
-	} else {
-		refreshedFiles, err = gitutil.ChangedFiles(l.workingDir, roc.baseBranch)
-	}
-	if err != nil {
-		l.log(fmt.Sprintf("Warning: failed to refresh changed files: %v", err))
-	} else {
-		roc.filesChanged = refreshedFiles
-	}
-
-	if status.Status == protocol.StatusDone {
-		l.log("Executor reports fixes complete - re-reviewing")
-	}
-
-	return false, nil
-}
-
-// autoCommitChanges stages and commits the specified files with a fix message.
-func (l *Loop) autoCommitChanges(files []string, summary string) error {
-	if l.gitRepo == nil {
-		return fmt.Errorf("git repo not initialized")
-	}
-
-	commitMsg := "fix: review fixes"
-	if summary != "" {
-		commitMsg = fmt.Sprintf("fix: %s", summary)
-	}
-
-	return l.gitRepo.AddAndCommit(files, commitMsg)
-}
-
-// buildReviewFixPrompt creates a prompt for Claude to fix review issues using the template.
-func (l *Loop) buildReviewFixPrompt(baseBranch string, filesChanged []string, issuesMarkdown string, iteration int) (string, error) {
-	if l.promptBuilder != nil {
-		return l.promptBuilder.BuildReviewFirst(baseBranch, filesChanged, issuesMarkdown, iteration, l.gitConfig.AutoCommit)
-	}
-	return defaultReviewFixPrompt(baseBranch, filesChanged, issuesMarkdown, iteration), nil
-}
-
-func defaultReviewFixPrompt(baseBranch string, filesChanged []string, issuesMarkdown string, iteration int) string {
-	filesList := strings.Join(filesChanged, "\n  - ")
-
-	return fmt.Sprintf(`You are reviewing and fixing code issues found by automated code review.
-
-## Context
-- Base branch: %s
-- Review iteration: %d
-
-## Files to review
-  - %s
-
-## Issues Found
-The following issues were found by code review agents and need to be fixed:
-
-%s
-
-## Instructions
-1. Review each issue carefully
-2. Make the necessary fixes to address each issue
-3. After fixing, commit your changes with a clear commit message
-4. Report your status
-
-## Important
-- Fix ALL issues listed above
-- Make clean, minimal fixes that address the specific issues
-- Test your changes if possible
-- Commit with message format: "fix: <brief description of fixes>"
-
-## Session End Protocol
-When you've completed your fixes, you MUST end with exactly this block:
-
-`+"```"+`
-PROGRAMMATOR_STATUS:
-  phase_completed: null
-  status: CONTINUE
-  files_changed:
-    - file1.go
-    - file2.go
-  summary: "Fixed N issues: brief description"
-  commit_made: true
-`+"```"+`
-
-Status values:
-- CONTINUE: Made fixes, ready for re-review
-- DONE: All issues fixed, commit made
-- BLOCKED: Cannot fix without human intervention (add error: field)
-
-If blocked:
-`+"```"+`
-PROGRAMMATOR_STATUS:
-  phase_completed: null
-  status: BLOCKED
-  files_changed: []
-  summary: "What was attempted"
-  error: "Description of what's blocking progress"
-`+"```"+`
-`, baseBranch, iteration, filesList, issuesMarkdown)
 }

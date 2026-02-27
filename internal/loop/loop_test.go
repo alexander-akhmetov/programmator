@@ -56,42 +56,13 @@ func TestNewLoop(t *testing.T) {
 	}
 }
 
-func TestLoopPauseResume(t *testing.T) {
-	config := safety.Config{}
-	l := New(config, "", nil, nil, false)
-
-	if l.IsPaused() {
-		t.Error("loop should not be paused initially")
-	}
-
-	paused := l.TogglePause()
-	if !paused {
-		t.Error("TogglePause should return true when pausing")
-	}
-	if !l.IsPaused() {
-		t.Error("loop should be paused after TogglePause")
-	}
-
-	paused = l.TogglePause()
-	if paused {
-		t.Error("TogglePause should return false when resuming")
-	}
-	if l.IsPaused() {
-		t.Error("loop should not be paused after second TogglePause")
-	}
-}
-
 func TestLoopStop(t *testing.T) {
 	config := safety.Config{}
 	l := New(config, "", nil, nil, false)
 
 	l.Stop()
 
-	l.mu.Lock()
-	stopped := l.stopRequested
-	l.mu.Unlock()
-
-	if !stopped {
+	if !l.stopRequested.Load() {
 		t.Error("stopRequested should be true after Stop()")
 	}
 }
@@ -228,52 +199,6 @@ func TestLoopLogNoCallback(t *testing.T) {
 	l := New(config, "", nil, nil, false)
 
 	l.log("test message")
-}
-
-func TestPauseWakeup(t *testing.T) {
-	config := safety.Config{}
-	l := New(config, "", nil, nil, false)
-
-	l.TogglePause()
-
-	done := make(chan bool)
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		l.TogglePause()
-		done <- true
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(1 * time.Second):
-		t.Error("pause wakeup timed out")
-	}
-}
-
-func TestStopWakesUpPause(t *testing.T) {
-	config := safety.Config{}
-	l := New(config, "", nil, nil, false)
-
-	l.TogglePause()
-
-	done := make(chan bool)
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		l.Stop()
-		done <- true
-	}()
-
-	select {
-	case <-done:
-		l.mu.Lock()
-		stopped := l.stopRequested
-		l.mu.Unlock()
-		if !stopped {
-			t.Error("stop should set stopRequested")
-		}
-	case <-time.After(1 * time.Second):
-		t.Error("stop wakeup timed out")
-	}
 }
 
 func TestResultExitReasons(t *testing.T) {
@@ -753,261 +678,6 @@ func TestRunContextCancellation(t *testing.T) {
 	require.Equal(t, safety.ExitReasonUserInterrupt, result.ExitReason)
 }
 
-// Tests for RunReviewOnly
-
-func TestRunReviewOnlyPassesWithNoIssues(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
-	l := New(config, "/tmp", nil, nil, false)
-	l.SetReviewConfig(singleAgentReviewConfig())
-
-	// Mock the review runner to return no issues
-	mockRunner := createMockReviewRunner(t, false, 0)
-	l.SetReviewRunner(mockRunner)
-
-	result, err := l.RunReviewOnly("main", []string{"file.go"})
-
-	require.NoError(t, err)
-	require.True(t, result.Passed)
-	require.Equal(t, 1, result.Iterations)
-	require.Equal(t, 0, result.TotalIssues)
-	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
-}
-
-func TestRunReviewOnlyFailsMaxIterations(t *testing.T) {
-	config := safety.Config{MaxIterations: 20, StagnationLimit: 20, Timeout: 60, MaxReviewIterations: 20}
-	l := New(config, "/tmp", nil, nil, false)
-	l.SetReviewConfig(review.Config{
-		MaxIterations: 2,
-		Agents:        []review.AgentConfig{{Name: "test_agent"}},
-	})
-
-	// Mock review runner to always return issues
-	mockRunner := createMockReviewRunner(t, true, 1)
-	l.SetReviewRunner(mockRunner)
-
-	// Mock Claude invoker to return CONTINUE
-	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
-		return `PROGRAMMATOR_STATUS:
-  phase_completed: null
-  status: CONTINUE
-  files_changed: ["file.go"]
-  summary: "Fixed one issue"
-  commit_made: true
-`, nil
-	}})
-
-	result, err := l.RunReviewOnly("main", []string{"file.go"})
-
-	require.NoError(t, err)
-	// Max iterations exceeded, review stops
-	require.False(t, result.Passed)
-	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
-}
-
-func TestRunReviewOnlyBlocked(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
-	l := New(config, "/tmp", nil, nil, false)
-	l.SetReviewConfig(singleAgentReviewConfig())
-
-	// Mock review runner to return issues
-	mockRunner := createMockReviewRunner(t, true, 1)
-	l.SetReviewRunner(mockRunner)
-
-	// Mock Claude invoker to return BLOCKED
-	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
-		return `PROGRAMMATOR_STATUS:
-  phase_completed: null
-  status: BLOCKED
-  files_changed: []
-  summary: "Cannot fix this issue"
-  error: "Requires human intervention"
-`, nil
-	}})
-
-	result, err := l.RunReviewOnly("main", []string{"file.go"})
-
-	require.NoError(t, err)
-	require.False(t, result.Passed)
-	require.Equal(t, safety.ExitReasonBlocked, result.ExitReason)
-}
-
-func TestRunReviewOnlyFixAndPass(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
-	l := New(config, "/tmp", nil, nil, false)
-	l.SetGitWorkflowConfig(GitWorkflowConfig{AutoCommit: true})
-	l.SetReviewConfig(singleAgentReviewConfig())
-
-	// Mock review runner: first call returns issues, second call passes
-	invocation := 0
-	mockRunner := createMockReviewRunnerFunc(t, func() (bool, int) {
-		invocation++
-		if invocation == 1 {
-			return true, 1 // has issues
-		}
-		return false, 0 // passes
-	})
-	l.SetReviewRunner(mockRunner)
-
-	// Mock Claude invoker to return CONTINUE with files fixed
-	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
-		return `PROGRAMMATOR_STATUS:
-  phase_completed: null
-  status: CONTINUE
-  files_changed: ["file.go"]
-  summary: "Fixed the issue"
-  commit_made: true
-`, nil
-	}})
-
-	result, err := l.RunReviewOnly("main", []string{"file.go"})
-
-	require.NoError(t, err)
-	require.True(t, result.Passed)
-	require.Equal(t, 2, result.Iterations)
-	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
-	require.Len(t, result.FilesFixed, 1)
-	require.Equal(t, 1, result.CommitsMade)
-}
-
-func TestRunReviewOnlyStopRequested(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
-	l := New(config, "/tmp", nil, nil, false)
-	l.SetReviewConfig(singleAgentReviewConfig())
-
-	l.Stop()
-
-	result, err := l.RunReviewOnly("main", []string{"file.go"})
-
-	require.NoError(t, err)
-	require.Equal(t, safety.ExitReasonUserInterrupt, result.ExitReason)
-}
-
-func TestRunReviewOnlyInvokerError(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
-	l := New(config, "/tmp", nil, nil, false)
-	l.SetReviewConfig(review.Config{
-		MaxIterations: 10,
-		Agents:        []review.AgentConfig{{Name: "test_agent"}},
-	})
-
-	// Mock review runner to return issues
-	mockRunner := createMockReviewRunner(t, true, 1)
-	l.SetReviewRunner(mockRunner)
-
-	// Mock Claude invoker to return error
-	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
-		return "", fmt.Errorf("claude error")
-	}})
-
-	result, err := l.RunReviewOnly("main", []string{"file.go"})
-
-	require.NoError(t, err)
-	require.Equal(t, safety.ExitReasonStagnation, result.ExitReason)
-}
-
-func TestRunReviewOnlyTracksFilesFixed(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 10}
-	l := New(config, "/tmp", nil, nil, false)
-
-	l.SetReviewConfig(singleAgentReviewConfig())
-
-	// Mock review runner: returns issues for first 2 calls, then passes
-	invocation := 0
-	mockRunner := createMockReviewRunnerFunc(t, func() (bool, int) {
-		invocation++
-		if invocation <= 2 {
-			return true, 1
-		}
-		return false, 0
-	})
-	l.SetReviewRunner(mockRunner)
-
-	// Mock Claude invoker to return different files each time
-	claudeCall := 0
-	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
-		claudeCall++
-		files := fmt.Sprintf(`["file%d.go"]`, claudeCall)
-		return fmt.Sprintf(`PROGRAMMATOR_STATUS:
-  phase_completed: null
-  status: CONTINUE
-  files_changed: %s
-  summary: "Fixed issue %d"
-  commit_made: true
-`, files, claudeCall), nil
-	}})
-
-	result, err := l.RunReviewOnly("main", []string{"file.go"})
-
-	require.NoError(t, err)
-	require.True(t, result.Passed)
-	require.Len(t, result.FilesFixed, 2) // Two different files fixed
-}
-
-func TestRunReviewOnlyAutoCommit(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
-	l := New(config, "/tmp", nil, nil, false)
-	l.SetReviewConfig(singleAgentReviewConfig())
-
-	// Mock review runner: first call returns issues, second call passes
-	invocation := 0
-	mockRunner := createMockReviewRunnerFunc(t, func() (bool, int) {
-		invocation++
-		if invocation == 1 {
-			return true, 1 // has issues
-		}
-		return false, 0 // passes
-	})
-	l.SetReviewRunner(mockRunner)
-
-	// Mock Claude invoker to return CONTINUE with files fixed but NO commit_made
-	// (auto-commit will fail since we're in /tmp, but that's OK for this test)
-	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
-		return `PROGRAMMATOR_STATUS:
-  phase_completed: null
-  status: CONTINUE
-  files_changed: ["file.go"]
-  summary: "Fixed the issue"
-`, nil
-	}})
-
-	result, err := l.RunReviewOnly("main", []string{"file.go"})
-
-	// Should pass since review passes on second iteration
-	require.NoError(t, err)
-	require.True(t, result.Passed)
-	require.Equal(t, 2, result.Iterations)
-	require.Len(t, result.FilesFixed, 1)
-	// Auto-commit would have been attempted but might fail in test env - that's OK
-}
-
-func TestDefaultReviewFixPrompt(t *testing.T) {
-	baseBranch := "main"
-	filesChanged := []string{"main.go", "utils.go"}
-	issuesMarkdown := "### quality\n- Error not handled at main.go:42"
-	iteration := 2
-
-	prompt := defaultReviewFixPrompt(baseBranch, filesChanged, issuesMarkdown, iteration)
-
-	require.Contains(t, prompt, "Base branch: main")
-	require.Contains(t, prompt, "Review iteration: 2")
-	require.Contains(t, prompt, "main.go")
-	require.Contains(t, prompt, "utils.go")
-	require.Contains(t, prompt, issuesMarkdown)
-	require.Contains(t, prompt, protocol.StatusBlockKey+":")
-	require.Contains(t, prompt, "commit_made: true")
-}
-
-func TestDefaultReviewFixPromptFormatting(t *testing.T) {
-	prompt := defaultReviewFixPrompt("develop", []string{"file.go"}, "some issues", 1)
-
-	// Check structure
-	require.Contains(t, prompt, "## Context")
-	require.Contains(t, prompt, "## Files to review")
-	require.Contains(t, prompt, "## Issues Found")
-	require.Contains(t, prompt, "## Instructions")
-	require.Contains(t, prompt, "## Session End Protocol")
-}
-
 // singleAgentReviewConfig returns a review config with one agent,
 // suitable for tests that use mock review runners.
 func singleAgentReviewConfig() review.Config {
@@ -1107,228 +777,6 @@ func createMockReviewRunnerFunc(t *testing.T, resultFunc func() (hasIssues bool,
 	})
 
 	return runner
-}
-
-// Additional tests for review-only mode edge cases
-
-func TestRunReviewOnlyNoStatusBlock(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 10}
-	l := New(config, "/tmp", nil, nil, false)
-	l.SetReviewConfig(singleAgentReviewConfig())
-
-	// Mock review runner: returns issues first time, passes second time
-	invocation := 0
-	mockRunner := createMockReviewRunnerFunc(t, func() (bool, int) {
-		invocation++
-		if invocation == 1 {
-			return true, 1 // has issues
-		}
-		return false, 0 // passes
-	})
-	l.SetReviewRunner(mockRunner)
-
-	// Mock Claude invoker to return output without PROGRAMMATOR_STATUS block
-	claudeCall := 0
-	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
-		claudeCall++
-		if claudeCall <= 2 {
-			// No status block - should be handled gracefully
-			return "Made some changes but forgot the status block", nil
-		}
-		// Eventually return proper status
-		return `PROGRAMMATOR_STATUS:
-  phase_completed: null
-  status: CONTINUE
-  files_changed: ["file.go"]
-  summary: "Fixed the issue"
-`, nil
-	}})
-
-	result, err := l.RunReviewOnly("main", []string{"file.go"})
-
-	require.NoError(t, err)
-	// Eventually passes after review runner returns no issues
-	require.True(t, result.Passed)
-}
-
-func TestRunReviewOnlyReviewError(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
-	l := New(config, "/tmp", nil, nil, false)
-
-	// Mock review runner that returns an error from sequential execution.
-	// Use a single iteration to avoid invoking Claude for an unfixable agent error.
-	cfg := review.Config{
-		MaxIterations: 1,
-		Agents: []review.AgentConfig{
-			{Name: "test_agent"},
-		},
-	}
-	l.SetReviewConfig(cfg)
-	runner := review.NewRunner(cfg, nil)
-	runner.SetAgentFactory(func(agentCfg review.AgentConfig, _ string) review.Agent {
-		mock := review.NewMockAgent(agentCfg.Name)
-		mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*review.Result, error) {
-			return nil, fmt.Errorf("review agent failed")
-		})
-		return mock
-	})
-	l.SetReviewRunner(runner)
-
-	result, err := l.RunReviewOnly("main", []string{"file.go"})
-
-	// Agent errors are captured in results and count as issues, so the review fails.
-	require.NoError(t, err)
-	require.False(t, result.Passed)
-	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
-}
-
-func TestRunReviewOnlyStagnation(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 2, Timeout: 60, MaxReviewIterations: 10}
-	l := New(config, "/tmp", nil, nil, false)
-	l.SetReviewConfig(review.Config{
-		MaxIterations: 10,
-		Agents:        []review.AgentConfig{{Name: "test_agent"}},
-	})
-
-	// Mock review runner that always returns issues
-	mockRunner := createMockReviewRunner(t, true, 1)
-	l.SetReviewRunner(mockRunner)
-
-	// Mock Claude invoker that never changes any files (should trigger stagnation)
-	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
-		return `PROGRAMMATOR_STATUS:
-  phase_completed: null
-  status: CONTINUE
-  files_changed: []
-  summary: "Thinking about how to fix this"
-`, nil
-	}})
-
-	result, err := l.RunReviewOnly("main", []string{"file.go"})
-
-	require.NoError(t, err)
-	require.False(t, result.Passed)
-	require.Equal(t, safety.ExitReasonStagnation, result.ExitReason)
-}
-
-func TestRunReviewOnlyOutputCallback(t *testing.T) {
-	var outputCollected []string
-	onOutput := func(text string) {
-		outputCollected = append(outputCollected, text)
-	}
-
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
-	l := New(config, "/tmp", onOutput, nil, false)
-	l.SetReviewConfig(singleAgentReviewConfig())
-
-	// Mock review runner that passes immediately
-	mockRunner := createMockReviewRunner(t, false, 0)
-	l.SetReviewRunner(mockRunner)
-
-	result, err := l.RunReviewOnly("main", []string{"file.go"})
-
-	require.NoError(t, err)
-	require.True(t, result.Passed)
-
-	// Verify output was collected
-	require.Greater(t, len(outputCollected), 0)
-}
-
-func TestRunReviewOnlyStateCallback(t *testing.T) {
-	var callbackInvoked bool
-	var lastState *safety.State
-
-	stateCallback := func(state *safety.State, _ *domain.WorkItem, _ []string) {
-		callbackInvoked = true
-		lastState = state
-	}
-
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
-	l := New(config, "/tmp", nil, stateCallback, false)
-	l.SetReviewConfig(singleAgentReviewConfig())
-
-	// Mock review runner: first call returns issues (so Claude is invoked and callback is triggered),
-	// second call passes
-	invocation := 0
-	mockRunner := createMockReviewRunnerFunc(t, func() (bool, int) {
-		invocation++
-		if invocation == 1 {
-			return true, 1 // has issues first time
-		}
-		return false, 0 // passes second time
-	})
-	l.SetReviewRunner(mockRunner)
-
-	// Mock Claude invoker so we go through the fix loop
-	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
-		return `PROGRAMMATOR_STATUS:
-  phase_completed: null
-  status: CONTINUE
-  files_changed: ["file.go"]
-  summary: "Fixed the issue"
-  commit_made: true
-`, nil
-	}})
-
-	result, err := l.RunReviewOnly("main", []string{"file.go"})
-
-	require.NoError(t, err)
-	require.True(t, result.Passed)
-	require.True(t, callbackInvoked, "state callback should have been invoked")
-	require.NotNil(t, lastState)
-}
-
-func TestRunReviewOnlyDurationTracked(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
-	l := New(config, "/tmp", nil, nil, false)
-	l.SetReviewConfig(singleAgentReviewConfig())
-
-	// Mock review runner that passes immediately
-	mockRunner := createMockReviewRunner(t, false, 0)
-	l.SetReviewRunner(mockRunner)
-
-	result, err := l.RunReviewOnly("main", []string{"file.go"})
-
-	require.NoError(t, err)
-	require.True(t, result.Passed)
-	// Duration should be greater than 0
-	require.Greater(t, result.Duration, time.Duration(0))
-}
-
-func TestRunReviewOnlyDeduplicatesFilesFixed(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 10}
-	l := New(config, "/tmp", nil, nil, false)
-	l.SetReviewConfig(singleAgentReviewConfig())
-
-	// Mock review runner: returns issues for first 2 calls, then passes
-	invocation := 0
-	mockRunner := createMockReviewRunnerFunc(t, func() (bool, int) {
-		invocation++
-		if invocation <= 2 {
-			return true, 1
-		}
-		return false, 0
-	})
-	l.SetReviewRunner(mockRunner)
-
-	// Mock Claude invoker that returns the same file multiple times
-	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
-		return `PROGRAMMATOR_STATUS:
-  phase_completed: null
-  status: CONTINUE
-  files_changed: ["file.go"]
-  summary: "Fixed the issue"
-  commit_made: true
-`, nil
-	}})
-
-	result, err := l.RunReviewOnly("main", []string{"file.go"})
-
-	require.NoError(t, err)
-	require.True(t, result.Passed)
-	// file.go should only appear once even though it was returned multiple times
-	require.Len(t, result.FilesFixed, 1)
-	require.Equal(t, "file.go", result.FilesFixed[0])
 }
 
 func TestSetReviewConfig(t *testing.T) {
@@ -1568,56 +1016,6 @@ func TestRunPhaselessTicket_BlockedHandled(t *testing.T) {
 	require.Equal(t, "Missing required credentials", result.FinalStatus.Error)
 }
 
-func TestBuildHookSettings_PermissionOnly(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-	l.SetExecutorConfig(llm.ExecutorConfig{PermissionSocketPath: "/tmp/test.sock"})
-
-	settings := l.buildHookSettings()
-
-	require.Contains(t, settings, `"matcher":""`)
-	require.Contains(t, settings, "programmator hook --socket /tmp/test.sock")
-	require.Contains(t, settings, `"timeout":120000`)
-	require.NotContains(t, settings, "dcg")
-}
-
-func TestBuildHookSettings_GuardOnly(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-	l.SetExecutorConfig(llm.ExecutorConfig{GuardMode: true})
-
-	settings := l.buildHookSettings()
-
-	require.Contains(t, settings, `"matcher":"Bash"`)
-	home, _ := os.UserHomeDir()
-	require.Contains(t, settings, fmt.Sprintf("DCG_CONFIG='%s/.config/dcg/config.toml' dcg", home))
-	require.Contains(t, settings, `"timeout":5000`)
-	require.NotContains(t, settings, "programmator hook")
-}
-
-func TestBuildHookSettings_BothCombined(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-	l.SetExecutorConfig(llm.ExecutorConfig{
-		PermissionSocketPath: "/tmp/test.sock",
-		GuardMode:            true,
-	})
-
-	settings := l.buildHookSettings()
-
-	require.Contains(t, settings, `"matcher":""`)
-	require.Contains(t, settings, "programmator hook --socket /tmp/test.sock")
-	require.Contains(t, settings, `"matcher":"Bash"`)
-	home, _ := os.UserHomeDir()
-	require.Contains(t, settings, fmt.Sprintf("DCG_CONFIG='%s/.config/dcg/config.toml' dcg", home))
-}
-
-func TestSetGuardMode_ViaExecutorConfig(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-
-	require.False(t, l.executorConfig.GuardMode)
-
-	l.SetExecutorConfig(llm.ExecutorConfig{GuardMode: true})
-	require.True(t, l.executorConfig.GuardMode)
-}
-
 // Fix 1 test: iteration_limit:1 allows Claude one fix attempt
 func TestHandleMultiPhaseReview_IterationLimitOneAllowsFix(t *testing.T) {
 	mock := source.NewMockSource()
@@ -1667,28 +1065,6 @@ func TestHandleMultiPhaseReview_IterationLimitOneAllowsFix(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, claudeInvoked, "Claude should be invoked to fix issues even with iteration_limit:1")
 	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
-}
-
-// Fix 2 test: promptBuilder wired through to buildReviewFixPrompt
-func TestPromptBuilderWiredInReview(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 10, Timeout: 60}
-	l := New(config, "/tmp", nil, nil, false)
-	l.SetReviewConfig(singleAgentReviewConfig())
-
-	// Create a real prompt builder
-	builder, err := prompt.NewBuilder(nil)
-	require.NoError(t, err)
-	l.SetPromptBuilder(builder)
-
-	// buildReviewFixPrompt should use the builder (not fallback)
-	result, err := l.buildReviewFixPrompt("main", []string{"file.go"}, "some issues", 1)
-	require.NoError(t, err)
-
-	// The template-rendered prompt differs from the default fallback.
-	// The default fallback contains "## Session End Protocol" which the
-	// template does not (it uses different wording). Just verify non-empty.
-	require.NotEmpty(t, result)
-	require.Contains(t, result, "some issues")
 }
 
 // Test: main loop uses review fix prompt (not task prompt) when pendingReviewFix is true
@@ -1837,62 +1213,6 @@ func TestReviewUsesMaxIterations(t *testing.T) {
 	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
 	// MaxIterations=5: 5 review+fix cycles, each review finds issues and triggers a fix
 	require.Equal(t, 5, claudeCallCount)
-}
-
-// Test: empty agents returns an error
-func TestRunReviewOnlyEmptyAgents(t *testing.T) {
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60, MaxReviewIterations: 10}
-	l := New(config, "/tmp", nil, nil, false)
-	l.SetReviewConfig(review.Config{
-		MaxIterations: 3,
-		Agents:        []review.AgentConfig{}, // empty
-	})
-
-	result, err := l.RunReviewOnly("main", []string{"file.go"})
-
-	require.Error(t, err)
-	require.False(t, result.Passed)
-	require.Equal(t, safety.ExitReasonError, result.ExitReason)
-}
-
-// Test: review iteration with fix and pass
-func TestRunReviewOnlyIterationWithFix(t *testing.T) {
-	config := safety.Config{MaxIterations: 50, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 50}
-	l := New(config, "/tmp", nil, nil, false)
-
-	l.SetReviewConfig(review.Config{
-		MaxIterations: 10,
-		Agents:        []review.AgentConfig{{Name: "test_agent"}},
-	})
-
-	// Track review calls
-	reviewCallCount := 0
-	mockRunner := createMockReviewRunnerFunc(t, func() (bool, int) {
-		reviewCallCount++
-		if reviewCallCount == 1 {
-			return true, 2 // has issues
-		}
-		return false, 0 // passes after fix
-	})
-	l.SetReviewRunner(mockRunner)
-
-	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
-		return `PROGRAMMATOR_STATUS:
-  phase_completed: null
-  status: CONTINUE
-  files_changed: ["fix.go"]
-  summary: "Fixed issues"
-  commit_made: true
-`, nil
-	}})
-
-	result, err := l.RunReviewOnly("main", []string{"file.go"})
-
-	require.NoError(t, err)
-	require.True(t, result.Passed)
-	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
-	// review(issues) + fix + review(pass) = 2 iterations
-	require.Equal(t, 2, result.Iterations)
 }
 
 // Test: single review.max_iterations controls entire review (no per-phase caps)
@@ -2249,6 +1569,256 @@ func TestWorkItemHelpers_Phaseless(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Regression tests: lock down core run/review behaviors before pipeline migration.
+// These tests verify behaviors that must survive the refactoring from loop to pipeline.
+
+// TestRunPhaseCompletionTriggersReviewRunner verifies that after all phases complete,
+// the review runner is invoked. This is a key behavior: work → review → complete.
+func TestRunPhaseCompletionTriggersReviewRunner(t *testing.T) {
+	mock := source.NewMockSource()
+	phaseCompleted := false
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
+			ID:    "test-review-trigger",
+			Title: "Test Review Trigger",
+			Phases: []domain.Phase{
+				{Name: "Phase 1", Completed: phaseCompleted},
+			},
+		}, nil
+	}
+	mock.UpdatePhaseFunc = func(_, _ string) error {
+		phaseCompleted = true
+		return nil
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 5, Timeout: 60, MaxReviewIterations: 10}
+	l := NewWithSource(config, "", nil, nil, false, mock)
+
+	l.SetReviewConfig(review.Config{
+		MaxIterations: 3,
+		Agents:        []review.AgentConfig{{Name: "test_agent"}},
+	})
+
+	// Track whether review runner was actually invoked
+	reviewRunnerInvoked := false
+	mockRunner := createMockReviewRunnerFunc(t, func() (bool, int) {
+		reviewRunnerInvoked = true
+		return false, 0 // pass
+	})
+	l.SetReviewRunner(mockRunner)
+
+	// Mock Claude to complete the single phase
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: "Phase 1"
+  status: CONTINUE
+  files_changed: ["main.go"]
+  summary: "Completed the phase"
+`, nil
+	}})
+
+	result, err := l.Run("test-review-trigger")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	require.True(t, reviewRunnerInvoked, "review runner must be invoked after all phases complete")
+}
+
+// TestRunResultDurationTracked verifies that Result.Duration is populated after Run.
+func TestRunResultDurationTracked(t *testing.T) {
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
+			ID:    "test-duration",
+			Title: "Test Duration",
+			Phases: []domain.Phase{
+				{Name: "Phase 1", Completed: true},
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := NewWithSource(config, "", nil, nil, false, mock)
+	l.SetReviewConfig(singleAgentReviewConfig())
+	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
+
+	result, err := l.Run("test-duration")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	require.Greater(t, result.Duration, time.Duration(0), "Result.Duration should be > 0")
+}
+
+// TestRunRecentSummariesPopulated verifies that Result.RecentSummaries accumulates
+// across multiple iterations. This data is used for stagnation diagnosis.
+func TestRunRecentSummariesPopulated(t *testing.T) {
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
+			ID:    "test-summaries",
+			Title: "Test Summaries",
+			Phases: []domain.Phase{
+				{Name: "Phase 1", Completed: false},
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 3, StagnationLimit: 10, Timeout: 60}
+	l := NewWithSource(config, "", nil, nil, false, mock)
+
+	invocation := 0
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		invocation++
+		return fmt.Sprintf(`PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: ["file%d.go"]
+  summary: "Iteration %d work"
+`, invocation, invocation), nil
+	}})
+
+	result, err := l.Run("test-summaries")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonMaxIterations, result.ExitReason)
+	require.NotEmpty(t, result.RecentSummaries, "RecentSummaries should be populated")
+	require.GreaterOrEqual(t, len(result.RecentSummaries), 2, "should have summaries from multiple iterations")
+}
+
+// TestRunOutputCallbackDuringRun verifies that the output callback receives messages
+// during a full Run cycle (not just RunReviewOnly).
+func TestRunOutputCallbackDuringRun(t *testing.T) {
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
+			ID:    "test-output",
+			Title: "Test Output Callback",
+			Phases: []domain.Phase{
+				{Name: "Phase 1", Completed: true},
+			},
+		}, nil
+	}
+
+	var outputCalls int
+	onOutput := func(_ string) {
+		outputCalls++
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := NewWithSource(config, "", onOutput, nil, false, mock)
+	l.SetReviewConfig(singleAgentReviewConfig())
+	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
+
+	result, err := l.Run("test-output")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	require.Greater(t, outputCalls, 0, "output callback should be called during Run")
+}
+
+// TestRunEventEmissionDuringFullRun verifies that events are emitted during Run
+// when an event callback is set.
+func TestRunEventEmissionDuringFullRun(t *testing.T) {
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
+			ID:    "test-events",
+			Title: "Test Events",
+			Phases: []domain.Phase{
+				{Name: "Phase 1", Completed: false},
+			},
+		}, nil
+	}
+
+	var receivedEvents []event.Event
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 5, Timeout: 60}
+	l := NewWithSource(config, "", nil, nil, false, mock)
+	l.SetEventCallback(func(e event.Event) {
+		receivedEvents = append(receivedEvents, e)
+	})
+	l.SetReviewConfig(singleAgentReviewConfig())
+	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
+
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: "Phase 1"
+  status: DONE
+  files_changed: ["main.go"]
+  summary: "Done"
+`, nil
+	}})
+
+	result, err := l.Run("test-events")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	require.NotEmpty(t, receivedEvents, "events should be emitted during Run")
+
+	// Verify we got at least a Prog event (iteration separator or status log)
+	var hasProgEvent bool
+	for _, e := range receivedEvents {
+		if e.Kind == event.KindProg {
+			hasProgEvent = true
+			break
+		}
+	}
+	require.True(t, hasProgEvent, "should emit at least one Prog event during Run")
+}
+
+// TestRunReviewFixCycleInMainLoop verifies the complete review-fix cycle within Run:
+// phases complete → review finds issues → Claude fixes → review passes → complete.
+func TestRunReviewFixCycleInMainLoop(t *testing.T) {
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
+			ID:    "test-review-fix",
+			Title: "Test Review Fix Cycle",
+			Phases: []domain.Phase{
+				{Name: "Phase 1", Completed: true},
+			},
+		}, nil
+	}
+
+	config := safety.Config{MaxIterations: 50, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 50}
+	l := NewWithSource(config, "", nil, nil, false, mock)
+
+	l.SetReviewConfig(review.Config{
+		MaxIterations: 10,
+		Agents:        []review.AgentConfig{{Name: "test_agent"}},
+	})
+
+	// Review: first call finds issues, second call passes
+	reviewCall := 0
+	mockRunner := createMockReviewRunnerFunc(t, func() (bool, int) {
+		reviewCall++
+		if reviewCall == 1 {
+			return true, 2 // has 2 issues
+		}
+		return false, 0 // passes
+	})
+	l.SetReviewRunner(mockRunner)
+
+	// Claude fixes the issues
+	var fixPromptReceived string
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, p string) (string, error) {
+		fixPromptReceived = p
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  status: CONTINUE
+  files_changed: ["fix.go"]
+  summary: "Fixed review issues"
+`, nil
+	}})
+
+	result, err := l.Run("test-review-fix")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	require.Equal(t, 2, reviewCall, "review runner should be called twice (fail then pass)")
+	require.NotEmpty(t, fixPromptReceived, "Claude should receive a fix prompt")
+	require.Contains(t, result.TotalFilesChanged, "fix.go", "fixed files should be tracked")
 }
 
 func TestConsecutiveInvocationFailures(t *testing.T) {

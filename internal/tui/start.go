@@ -12,10 +12,7 @@ import (
 	"github.com/alexander-akhmetov/programmator/internal/config"
 	"github.com/alexander-akhmetov/programmator/internal/dirs"
 	"github.com/alexander-akhmetov/programmator/internal/loop"
-	"github.com/alexander-akhmetov/programmator/internal/progress"
 	"github.com/alexander-akhmetov/programmator/internal/prompt"
-	"github.com/alexander-akhmetov/programmator/internal/protocol"
-	"github.com/alexander-akhmetov/programmator/internal/source"
 	"github.com/alexander-akhmetov/programmator/internal/timing"
 )
 
@@ -24,9 +21,6 @@ var (
 	maxIterations   int
 	stagnationLimit int
 	timeout         int
-	skipPermissions bool
-	guardMode       bool
-	allowPatterns   []string
 	reviewOnly      bool
 
 	// Git workflow flags
@@ -52,7 +46,6 @@ The TUI displays real-time status including:
 - Live log output from Claude
 
 Controls:
-  p - Pause/resume the loop
   s - Stop the loop
   q - Quit (stops loop if running)
   ↑/↓ - Scroll logs`,
@@ -65,9 +58,6 @@ func init() {
 	startCmd.Flags().IntVarP(&maxIterations, "max-iterations", "n", 0, "Maximum iterations (overrides PROGRAMMATOR_MAX_ITERATIONS)")
 	startCmd.Flags().IntVar(&stagnationLimit, "stagnation-limit", 0, "Stagnation limit (overrides PROGRAMMATOR_STAGNATION_LIMIT)")
 	startCmd.Flags().IntVar(&timeout, "timeout", 0, "Timeout per Claude invocation in seconds (overrides PROGRAMMATOR_TIMEOUT)")
-	startCmd.Flags().BoolVar(&skipPermissions, "dangerously-skip-permissions", false, "Skip interactive permission dialogs (grants all permissions)")
-	startCmd.Flags().StringArrayVar(&allowPatterns, "allow", nil, "Pre-allow permission patterns (e.g., 'Bash(git:*)', 'Read')")
-	startCmd.Flags().BoolVar(&guardMode, "guard", true, "Guard mode: skip permissions but block destructive commands via dcg (default: enabled)")
 	startCmd.Flags().BoolVar(&reviewOnly, "review-only", false, "Run only the code review phase (skip task phases)")
 
 	// Git workflow flags
@@ -108,34 +98,8 @@ func runStart(_ *cobra.Command, args []string) error {
 	defer removeSessionFile()
 	timing.Log("runStart: session file written")
 
-	guardMode = resolveGuardMode(guardMode, &execConfig)
-	execConfig.GuardMode = guardMode
-	if skipPermissions {
-		applySkipPermissions(&execConfig)
-	}
-
-	// Create progress logger
-	sourceType := protocol.SourceTypeTicket
-	if source.IsPlanPath(ticketID) {
-		sourceType = protocol.SourceTypePlan
-	}
-	progressLogger, err := progress.NewLogger(progress.Config{
-		LogsDir:    cfg.LogsDir,
-		SourceID:   ticketID,
-		SourceType: sourceType,
-		WorkDir:    wd,
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not create progress logger: %v\n", err)
-	} else {
-		defer progressLogger.Close()
-	}
-
 	timing.Log("runStart: creating TUI")
 	t := New(safetyConfig)
-	t.SetInteractivePermissions(!skipPermissions && !guardMode)
-	t.SetGuardMode(guardMode)
-	t.SetAllowPatterns(allowPatterns)
 	t.SetReviewOnly(reviewOnly)
 	t.SetReviewConfig(cfg.ToReviewConfig())
 	promptBuilder, err := prompt.NewBuilder(cfg.Prompts)
@@ -143,9 +107,6 @@ func runStart(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create prompt builder: %w", err)
 	}
 	t.SetPromptBuilder(promptBuilder)
-	if progressLogger != nil {
-		t.SetProgressLogger(progressLogger)
-	}
 	t.SetTicketCommand(cfg.TicketCommand)
 	t.SetHideTips(cfg.HideTips)
 
@@ -158,10 +119,7 @@ func runStart(_ *cobra.Command, args []string) error {
 		AutoBranch:         autoBranch,
 	})
 
-	// Wire codex config
-	t.SetCodexConfig(cfg.Codex)
-
-	// Wire executor config (may have been modified by resolveGuardMode/applySkipPermissions)
+	// Wire executor config
 	t.SetExecutorConfig(execConfig)
 
 	timing.Log("TUI created, calling Run")

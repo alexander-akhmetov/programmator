@@ -14,7 +14,6 @@ import (
 	"github.com/alexander-akhmetov/programmator/internal/config"
 	"github.com/alexander-akhmetov/programmator/internal/llm"
 	"github.com/alexander-akhmetov/programmator/internal/parser"
-	"github.com/alexander-akhmetov/programmator/internal/progress"
 	"github.com/alexander-akhmetov/programmator/internal/prompt"
 )
 
@@ -78,19 +77,6 @@ func runPlanCreate(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	// Create progress logger for the plan creation session
-	progressLogger, err := progress.NewLogger(progress.Config{
-		LogsDir:    cfg.LogsDir,
-		SourceID:   "plan-create",
-		SourceType: "plan-create",
-		WorkDir:    wd,
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not create progress logger: %v\n", err)
-	} else {
-		defer progressLogger.Close()
-	}
-
 	// Create prompt builder
 	prompts, err := config.LoadPrompts(cfg.ConfigDir(), "")
 	if err != nil {
@@ -113,7 +99,6 @@ func runPlanCreate(_ *cobra.Command, args []string) error {
 		maxTurns:       planMaxTurns,
 		builder:        builder,
 		collector:      collector,
-		progressLogger: progressLogger,
 		executorConfig: execConfig,
 	}
 
@@ -157,7 +142,6 @@ type planCreator struct {
 	maxTurns       int
 	builder        *prompt.Builder
 	collector      Collector
-	progressLogger *progress.Logger
 	executorConfig llm.ExecutorConfig
 	qa             []prompt.QA
 }
@@ -174,8 +158,6 @@ func (p *planCreator) run() (string, error) {
 			return "", fmt.Errorf("build prompt: %w", err)
 		}
 
-		p.logProgressf("Turn %d: invoking Claude", turn)
-
 		// Invoke Claude
 		output, err := p.invokeClaude(ctx, promptText)
 		if err != nil {
@@ -189,7 +171,6 @@ func (p *planCreator) run() (string, error) {
 				return "", fmt.Errorf("parse plan content: %w", err)
 			}
 
-			p.logProgressf("Plan ready, saving to file")
 			return p.savePlan(planContent)
 		}
 
@@ -213,8 +194,6 @@ func (p *planCreator) run() (string, error) {
 				return "", fmt.Errorf("collect answer: %w", err)
 			}
 
-			p.logProgressf("Turn %d: Q=%s A=%s", turn, question.Question, answer)
-
 			// Record Q&A
 			p.qa = append(p.qa, prompt.QA{
 				Question: question.Question,
@@ -227,13 +206,11 @@ func (p *planCreator) run() (string, error) {
 		// No signal found - Claude might have generated a plan without the signal
 		// or there was an issue. Let's check if the output looks like a plan
 		if looksLikePlan(output) {
-			p.logProgressf("Plan appears complete (no signal), saving")
 			return p.savePlan(output)
 		}
 
 		// If we reach here, Claude didn't produce a question or plan
 		// This might happen if Claude needs more context - continue to next turn
-		p.logProgressf("Turn %d: no signal found, continuing", turn)
 		fmt.Println(hintStyle.Render("Claude is analyzing the codebase..."))
 	}
 
@@ -282,12 +259,6 @@ func (p *planCreator) savePlan(content string) (string, error) {
 	}
 
 	return planPath, nil
-}
-
-func (p *planCreator) logProgressf(format string, args ...any) {
-	if p.progressLogger != nil {
-		p.progressLogger.Printf(format, args...)
-	}
 }
 
 // generateSlug creates a URL-safe slug from a description.

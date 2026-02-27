@@ -20,11 +20,9 @@ var tipSnippets = []string{
 	"plan create",
 	"plan.md",
 	"--auto-commit",
-	"logs --follow",
+	"run",
 	"config show",
-	"Press `p`",
 	".programmator/prompts/",
-	"Guard mode",
 }
 
 func TestNewModel(t *testing.T) {
@@ -79,20 +77,6 @@ func TestModelUpdateKeyMsgs(t *testing.T) {
 			name:       "ctrl+c quits",
 			key:        "ctrl+c",
 			expectQuit: true,
-		},
-		{
-			name:           "p toggles pause when running",
-			key:            "p",
-			initialState:   stateRunning,
-			hasLoop:        true,
-			expectNewState: statePaused,
-		},
-		{
-			name:           "p resumes when paused",
-			key:            "p",
-			initialState:   statePaused,
-			hasLoop:        true,
-			expectNewState: stateRunning,
 		},
 		{
 			name:           "s stops when running",
@@ -301,11 +285,6 @@ func TestModelRenderSidebar(t *testing.T) {
 			contains: []string{"Tips", "Did you know?"},
 		},
 		{
-			name:     "paused state",
-			runState: statePaused,
-			contains: []string{"Tips"},
-		},
-		{
 			name:     "stopped state",
 			runState: stateStopped,
 			contains: []string{"Tips"},
@@ -356,29 +335,20 @@ func TestModelRenderSidebarWithTicket(t *testing.T) {
 
 func TestModelRenderHelp(t *testing.T) {
 	tests := []struct {
-		name     string
-		state    runState
-		contains []string
+		name  string
+		state runState
 	}{
 		{
-			name:     "running state",
-			state:    stateRunning,
-			contains: []string{"pause", "stop", "quit"},
+			name:  "running state",
+			state: stateRunning,
 		},
 		{
-			name:     "paused state",
-			state:    statePaused,
-			contains: []string{"resume", "stop", "quit"},
+			name:  "stopped state",
+			state: stateStopped,
 		},
 		{
-			name:     "stopped state",
-			state:    stateStopped,
-			contains: []string{"quit"},
-		},
-		{
-			name:     "complete state",
-			state:    stateComplete,
-			contains: []string{"quit"},
+			name:  "complete state",
+			state: stateComplete,
 		},
 	}
 
@@ -443,14 +413,11 @@ func TestRunStateValues(t *testing.T) {
 	if stateRunning != 0 {
 		t.Errorf("stateRunning = %d, want 0", stateRunning)
 	}
-	if statePaused != 1 {
-		t.Errorf("statePaused = %d, want 1", statePaused)
+	if stateStopped != 1 {
+		t.Errorf("stateStopped = %d, want 1", stateStopped)
 	}
-	if stateStopped != 2 {
-		t.Errorf("stateStopped = %d, want 2", stateStopped)
-	}
-	if stateComplete != 3 {
-		t.Errorf("stateComplete = %d, want 3", stateComplete)
+	if stateComplete != 2 {
+		t.Errorf("stateComplete = %d, want 2", stateComplete)
 	}
 }
 

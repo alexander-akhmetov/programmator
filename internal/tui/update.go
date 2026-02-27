@@ -33,13 +33,6 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.permissionDialog != nil {
-		if m.permissionDialog.HandleKey(msg.String()) {
-			m.permissionDialog = nil
-		}
-		return m, nil
-	}
-
 	var cmds []tea.Cmd
 
 	switch msg.String() {
@@ -48,16 +41,6 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.loop.Stop()
 		}
 		return m, tea.Quit
-
-	case "p":
-		if m.loop != nil && (m.runState == stateRunning || m.runState == statePaused) {
-			paused := m.loop.TogglePause()
-			if paused {
-				m.runState = statePaused
-			} else {
-				m.runState = stateRunning
-			}
-		}
 
 	case "s":
 		if m.loop != nil && m.runState != stateStopped && m.runState != stateComplete {
@@ -80,11 +63,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		return m.handleKeyMsg(msg)
-
-	case PermissionRequestMsg:
-		debug.Logf("tui: received permission request for tool=%s", msg.Request.ToolName)
-		m.permissionDialog = NewPermissionDialog(msg.Request, msg.ResponseChan)
-		return m, nil
 
 	case tea.WindowSizeMsg:
 		timing.Log("Update: WindowSizeMsg received")
