@@ -1,5 +1,5 @@
 ---
-name: setup
+name: programmator-setup
 description: "Install and configure programmator — autonomous coding agent orchestrator. Use when the user asks to install programmator, set up configuration, or get started."
 allowed-tools: Bash(programmator:*) Bash(go:*) Bash(mkdir:*) Read Write AskUserQuestion
 ---
@@ -58,7 +58,6 @@ pi:
 Default: 9 agents run in parallel (bug-shallow, bug-deep, architect, simplification, silent-failures, claudemd, type-design, comments, tests-and-linters). You can replace them:
 
 ```yaml
-# Single custom reviewer
 review:
   agents:
     - name: code-review
@@ -87,6 +86,15 @@ review:
     - tests-and-linters
 ```
 
+Or exclude specific agents:
+
+```yaml
+review:
+  exclude:
+    - comments
+    - type-design
+```
+
 ### Use a different executor for review
 
 Code with pi, review with Claude Opus:
@@ -112,6 +120,35 @@ git:
 ```
 
 Or via CLI: `programmator start ./plan.md --auto-commit`
+
+### Config keys
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `max_iterations` | `50` | Maximum loop iterations before forced exit |
+| `stagnation_limit` | `3` | Exit after N consecutive iterations with no file changes |
+| `timeout` | `900` | Seconds per executor invocation |
+| `executor` | `claude` | Which coding agent to use (`"claude"` or `"pi"`) |
+| `claude.flags` | `""` | Additional flags passed to the `claude` command |
+| `claude.config_dir` | `""` | Custom Claude config directory |
+| `claude.anthropic_api_key` | `""` | Anthropic API key (overrides env) |
+| `pi.flags` | `""` | Additional flags passed to `pi-coding-agent` |
+| `pi.config_dir` | `""` | Custom PI_CODING_AGENT_DIR |
+| `pi.provider` | `""` | LLM provider for pi (`"anthropic"`, `"openai"`) |
+| `pi.model` | `""` | Model name for pi (`"sonnet"`, `"gpt-4o"`) |
+| `pi.api_key` | `""` | API key for the configured pi provider |
+| `ticket_command` | `tk` | Binary name for the ticket CLI |
+| `git.auto_commit` | `false` | Auto-commit after each phase completion |
+| `git.move_completed_plans` | `false` | Move completed plans to a `completed/` directory |
+| `git.completed_plans_dir` | `""` | Directory for completed plans (default: `plans/completed`) |
+| `git.branch_prefix` | `""` | Prefix for auto-created branches (default: `programmator/`) |
+| `review.max_iterations` | `3` | Maximum review fix iterations |
+| `review.parallel` | `true` | Run review agents in parallel |
+| `review.include` | `[]` | Subset of built-in review agents |
+| `review.exclude` | `[]` | Remove specific default review agents |
+| `review.agents` | `[]` | Custom review agents (replaces defaults when non-empty) |
+| `review.validators.issue` | `true` | Cross-agent false-positive validator |
+| `review.validators.simplification` | `true` | Simplification value validator |
 
 ## Plan file format
 
@@ -140,12 +177,20 @@ With validation commands (run after each task):
 - [ ] Add tests for auth flow
 ```
 
+## Source detection
+
+`programmator start <thing>` auto-detects the source type:
+- File paths (e.g. `./plan.md`) → plan file
+- Everything else (e.g. `pro-1a2b`) → ticket ID (requires `ticket` CLI)
+
 ## Commands
 
 ```bash
 programmator start ./plan.md              # execute a plan
-programmator start ./plan.md --auto-commit # with git workflow
-programmator review                       # standalone code review on current branch
+programmator start ./plan.md --auto-commit # with git workflow (branch + commits)
+programmator start pro-1a2b               # execute a ticket
+programmator review                       # review current branch vs main
+programmator review --base develop        # review against a different base
 programmator run "explain this codebase"  # one-off prompt to the coding agent
 programmator config show                  # show resolved config
 ```

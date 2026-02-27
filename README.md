@@ -12,7 +12,7 @@ Programmator splits work into isolated sessions with fresh context windows. Each
 
 ## Install with Claude Code
 
-The plugin can help you install and configure programmator.
+The plugin can help you install and configure programmator. For manual installation without the plugin, see [Manual Install](#manual-install).
 
 **1. Install the plugin:**
 
@@ -285,7 +285,7 @@ Available templates: `phased.md`, `phaseless.md`, `review_first.md`. See [prompt
 
 The plugin (see [Install with Claude Code](#install-with-claude-code)) provides:
 
-- **`/setup`** — Guided install and configuration of programmator.
+- **`/programmator-setup`** — Guided install and configuration of programmator.
 - **`/plan-to-file`** — Convert the most recent Claude Code plan into a programmator plan file (`plan.md`), ready for `programmator start ./plan.md`.
 - **`/plan-to-ticket`** — Convert the most recent Claude Code plan into a programmator ticket (requires `ticket` CLI).
 
