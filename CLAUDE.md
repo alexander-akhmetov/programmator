@@ -68,9 +68,9 @@ main.go (entry) → Loop.Run() → [for each iteration]:
 - **internal/prompt/builder.go**: Builds prompts using Go `text/template` with named variables. Loads templates from embedded defaults, global, or local override files.
 - **internal/parser/parser.go**: Extracts and parses `PROGRAMMATOR_STATUS` YAML block from Claude output. Status values: CONTINUE, DONE, BLOCKED. Also parses `<<<PROGRAMMATOR:QUESTION>>>` and `<<<PROGRAMMATOR:PLAN_READY>>>` signals for interactive plan creation.
 - **internal/review/**: Code review pipeline. Runs parallel review agents, collects structured issues, validates findings, and builds fix prompts.
-- **internal/event/**: Typed event system for communication between loop, TUI, and other components.
+- **internal/event/**: Typed event system for communication between loop, CLI, and other components.
 - **internal/safety/safety.go**: Exit conditions: max iterations, stagnation (no file changes), repeated errors.
-- **internal/tui/**: Bubbletea-based TUI with status panel, markdown rendering via glamour, real-time token usage display, and all CLI command definitions.
+- **internal/cli/**: CLI with streaming stdout event log, sticky ANSI footer, markdown rendering via glamour, and all command definitions (start, run, review, plan, status, config).
 - **internal/config/**: Unified YAML configuration with multi-level merge (embedded defaults → global → env vars → local → CLI flags). Includes prompt template loading with fallback chain.
 - **internal/dirs/**: XDG Base Directory Specification paths. Central source of truth for `ConfigDir()`, `StateDir()`, `LogsDir()`.
 - **internal/git/repo.go**: Git operations wrapper (`Repo` struct) for branch creation, checkout, add, commit, and file moves. Used by auto-commit workflow.

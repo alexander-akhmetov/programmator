@@ -1,6 +1,6 @@
 // Package event defines typed events emitted by the loop and review runner,
-// consumed by the TUI, progress logger, and CLI output. These replace the
-// string-based [PROG]/[TOOL]/[REVIEW] log markers with structured types.
+// consumed by the CLI output writer. These replace the string-based
+// [PROG]/[TOOL]/[REVIEW] log markers with structured types.
 package event
 
 // Kind identifies the type of event.
@@ -23,7 +23,7 @@ const (
 	KindDiffCtx
 	// KindDiffHunk is a hunk header / summary line in a diff.
 	KindDiffHunk
-	// KindMarkdown is a raw markdown text fragment (rendered by TUI via glamour).
+	// KindMarkdown is a raw markdown text fragment (rendered via glamour).
 	KindMarkdown
 	// KindIterationSeparator is the header between loop iterations.
 	KindIterationSeparator
