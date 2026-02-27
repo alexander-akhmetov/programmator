@@ -41,6 +41,7 @@ func Run(ctx context.Context, sourceID, workingDir string, cfg RunConfig) (*loop
 	}
 
 	w := NewWriter(out, cfg.IsTTY, cfg.TermWidth, cfg.TermHeight)
+	w.SetExecutorName(cfg.ExecutorConfig.Name)
 	var footerMu sync.RWMutex
 	var latestState *safety.State
 	var latestItem *domain.WorkItem

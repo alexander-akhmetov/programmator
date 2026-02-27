@@ -33,13 +33,3 @@ func formatElapsed(d time.Duration) string {
 	m %= 60
 	return fmt.Sprintf("%dh %dm", h, m)
 }
-
-func formatMemory(kb int64) string {
-	if kb >= 1024*1024 {
-		return fmt.Sprintf("%.1fGB", float64(kb)/(1024*1024))
-	}
-	if kb >= 1024 {
-		return fmt.Sprintf("%.0fMB", float64(kb)/1024)
-	}
-	return fmt.Sprintf("%dKB", kb)
-}

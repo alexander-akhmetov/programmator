@@ -15,17 +15,19 @@ import (
 	"github.com/alexander-akhmetov/programmator/internal/safety"
 )
 
-// ANSI color codes matching the old lipgloss styles.
+// ANSI 256-color codes approximating Flat UI Colors "DEFO" palette.
 const (
-	colorOrange  = 208 // prog prefix, footer separator
-	colorGreen   = 42  // diff add, running state
-	colorRed     = 196 // diff del, stopped state
-	colorCyan    = 117 // diff hunk, review, file paths
-	colorDim     = 241 // labels, tool, diff context
-	colorDimmer  = 245 // tool result
-	colorWhite   = 255 // values
-	colorMagenta = 205 // title, current phase
-	colorPink    = 212 // phase arrow
+	colorOrange  = 214 // Orange (#f39c12)
+	colorGreen   = 41  // Emerald (#2ecc71)
+	colorRed     = 203 // Alizarin (#e74c3c)
+	colorCyan    = 68  // Peter River (#3498db)
+	colorDim     = 102 // Asbestos (#7f8c8d)
+	colorDimmer  = 109 // Concrete (#95a5a6)
+	colorWhite   = 255 // Clouds (#ecf0f1)
+	colorMagenta = 134 // Amethyst (#9b59b6)
+	colorPink    = 97  // Wisteria (#8e44ad)
+
+	footerIDPrefixChars = 12
 )
 
 type bubbleFooterMsg struct {
@@ -78,8 +80,8 @@ type Writer struct {
 	midLine     bool
 	pendingLine string
 
-	pid   int
-	memKB int64
+	pid          int
+	executorName string
 
 	useTea    bool
 	tea       *tea.Program
@@ -342,13 +344,24 @@ func (w *Writer) flushTeaPendingLocked() {
 	w.midLine = false
 }
 
-// SetProcessStats updates the PID and memory fields used by the footer.
+// SetExecutorName sets the executor label used in footer status (e.g. claude, pi).
+func (w *Writer) SetExecutorName(name string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if name == "" {
+		name = "claude"
+	}
+	w.executorName = sanitizeTerminalText(strings.ToLower(name))
+}
+
+// SetProcessStats updates the PID field used by the footer.
 func (w *Writer) SetProcessStats(pid int, memKB int64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
 	w.pid = pid
-	w.memKB = memKB
+	_ = memKB
 }
 
 // legacyEraseFooter moves cursor up and clears footer lines. Must be called with mu held.
@@ -383,18 +396,31 @@ func (w *Writer) buildFooter(state *safety.State, item *domain.WorkItem, cfg saf
 	sep := strings.Repeat("─", w.width)
 	lines = append(lines, w.style(colorOrange, sep))
 
-	// Status line: ID | iteration | stagnation | files
+	stageName := ""
+	if item != nil {
+		if phase := item.CurrentPhase(); phase != nil {
+			stageName = phase.Name
+		} else if item.AllPhasesComplete() {
+			stageName = "complete"
+		}
+	}
+
+	// Status line: item | iteration | elapsed | pid
 	var parts []string
 	if item != nil {
-		parts = append(parts, w.styleBold(colorMagenta, sanitizeTerminalText(item.ID)))
+		parts = append(parts, w.styleBold(colorMagenta, sanitizeTerminalText(truncateRunes(item.ID, footerIDPrefixChars))))
+		if state != nil {
+			parts = append(parts, w.style(colorWhite, fmt.Sprintf("iteration %d of %d", state.Iteration, cfg.MaxIterations)))
+		}
+	} else if state != nil {
+		parts = append(parts, w.style(colorWhite, fmt.Sprintf("iteration %d of %d", state.Iteration, cfg.MaxIterations)))
 	}
-	if state != nil {
-		parts = append(parts, fmt.Sprintf("iter %s",
-			w.style(colorWhite, fmt.Sprintf("%d/%d", state.Iteration, cfg.MaxIterations))))
-		parts = append(parts, fmt.Sprintf("stag %s",
-			w.style(colorWhite, fmt.Sprintf("%d/%d", state.ConsecutiveNoChanges, cfg.StagnationLimit))))
-		parts = append(parts, fmt.Sprintf("files %s",
-			w.style(colorWhite, fmt.Sprintf("%d", len(state.TotalFilesChanged)))))
+	if w.pid > 0 {
+		name := w.executorName
+		if name == "" {
+			name = "claude"
+		}
+		parts = append(parts, w.style(colorDim, fmt.Sprintf("%s pid %d", name, w.pid)))
 	}
 	if len(parts) > 0 {
 		parts = sanitizeSlice(parts)
@@ -405,18 +431,12 @@ func (w *Writer) buildFooter(state *safety.State, item *domain.WorkItem, cfg saf
 		lines = append(lines, statusLine)
 	}
 
-	// Current phase
-	if item != nil {
-		if phase := item.CurrentPhase(); phase != nil {
-			lines = append(lines, w.style(colorPink, "-> ")+w.styleBold(colorPink, sanitizeTerminalText(phase.Name)))
-		} else if item.AllPhasesComplete() {
-			lines = append(lines, w.style(colorGreen, "all phases complete"))
-		}
-	}
-
-	// Process stats
-	if w.pid > 0 {
-		lines = append(lines, w.style(colorDim, fmt.Sprintf("pid %d | %s", w.pid, formatMemory(w.memKB))))
+	// Current work line on its own row.
+	if stageName != "" {
+		lines = append(lines,
+			w.style(colorDim, "Working on: ")+
+				w.style(colorDimmer, sanitizeTerminalText(stageName)),
+		)
 	}
 
 	return lines
@@ -430,12 +450,33 @@ func sanitizeSlice(in []string) []string {
 	return out
 }
 
+func truncateRunes(s string, maxChars int) string {
+	if maxChars <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= maxChars {
+		return s
+	}
+	if maxChars <= 3 {
+		return string(runes[:maxChars])
+	}
+	return string(runes[:maxChars-3]) + "..."
+}
+
 // Formatting methods per event kind.
 
 func (w *Writer) formatProg(text string) string {
 	prefix := "programmator: "
+	isFailure := strings.HasPrefix(strings.ToLower(strings.TrimSpace(text)), "invocation failed:")
 	if w.colorEnabled() {
-		return fgBold(colorOrange, "▶ "+prefix) + text
+		if isFailure {
+			return fgBold(colorRed, "X "+prefix) + text
+		}
+		return fgBold(colorOrange, prefix) + text
+	}
+	if isFailure {
+		return "X " + prefix + text
 	}
 	return prefix + text
 }

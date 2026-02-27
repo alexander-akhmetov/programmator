@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/alexander-akhmetov/programmator/internal/domain"
 	"github.com/alexander-akhmetov/programmator/internal/event"
@@ -149,6 +150,20 @@ func TestWriteEvent_TTYMode(t *testing.T) {
 	}
 }
 
+func TestFormatProg_FailurePrefix(t *testing.T) {
+	var buf bytes.Buffer
+	wTTY := newTestWriterTTY(&buf)
+	wNoTTY := newTestWriter(&buf)
+
+	ttyLine := wTTY.formatProg("Invocation failed: claude exited: signal: interrupt")
+	assert.Contains(t, ttyLine, "X programmator:")
+	assert.Contains(t, ttyLine, fmt.Sprintf("\033[1;38;5;%dm", colorRed))
+
+	plainLine := wNoTTY.formatProg("Invocation failed: claude exited: signal: interrupt")
+	assert.Contains(t, plainLine, "X programmator:")
+	assert.NotContains(t, plainLine, "\033[")
+}
+
 func TestUpdateFooter(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -160,7 +175,7 @@ func TestUpdateFooter(t *testing.T) {
 			name:       "TTY renders footer",
 			isTTY:      true,
 			wantOutput: true,
-			contains:   []string{"test-123", "3/10", "Phase 2"},
+			contains:   []string{"test-123", "iteration 3 of 10", "Working on: Phase 2"},
 		},
 		{
 			name:       "non-TTY produces no footer",
@@ -192,11 +207,13 @@ func TestUpdateFooter(t *testing.T) {
 
 			w.UpdateFooter(state, item, safety.Config{MaxIterations: 10, StagnationLimit: 3})
 
-			output := buf.String()
+			output := stripANSISequences(buf.String())
 			if tt.wantOutput {
 				for _, s := range tt.contains {
 					assert.Contains(t, output, s)
 				}
+				assert.NotContains(t, output, "stag ")
+				assert.NotContains(t, output, "files ")
 			} else {
 				assert.Empty(t, output)
 			}
@@ -306,10 +323,46 @@ func TestSetProcessStats(t *testing.T) {
 	var buf bytes.Buffer
 	w := newTestWriterTTY(&buf)
 
+	w.SetExecutorName("claude")
 	w.SetProcessStats(12345, 512*1024)
 
+	state := safety.NewState()
+	state.Iteration = 1
+	item := &domain.WorkItem{ID: "pid-test"}
+	w.UpdateFooter(state, item, safety.Config{MaxIterations: 5})
+
+	output := stripANSISequences(buf.String())
 	assert.Equal(t, 12345, w.pid)
-	assert.Equal(t, int64(512*1024), w.memKB)
+	assert.Contains(t, output, "claude pid 12345")
+	assert.NotContains(t, output, "MB")
+}
+
+func TestUpdateFooter_PhaseOnSecondLineAndPIDOnFirst(t *testing.T) {
+	var buf bytes.Buffer
+	w := newTestWriterTTY(&buf)
+
+	w.SetExecutorName("pi")
+	w.SetProcessStats(9876, 0)
+
+	state := safety.NewState()
+	state.Iteration = 2
+	item := &domain.WorkItem{
+		ID: "phase-order",
+		Phases: []domain.Phase{
+			{Name: "Implement parser", Completed: false},
+		},
+	}
+
+	w.UpdateFooter(state, item, safety.Config{MaxIterations: 10, StagnationLimit: 3})
+
+	require.GreaterOrEqual(t, len(w.lastFooter), 3)
+	firstStatusLine := stripANSISequences(w.lastFooter[1])
+	secondPhaseLine := stripANSISequences(w.lastFooter[2])
+
+	assert.Contains(t, firstStatusLine, "pi pid 9876")
+	assert.NotContains(t, secondPhaseLine, "pid")
+	assert.Contains(t, secondPhaseLine, "Working on: Implement parser")
+	assert.Contains(t, w.lastFooter[2], fmt.Sprintf("\033[38;5;%dm", colorDimmer))
 }
 
 func TestWriter_ConcurrentWrites(t *testing.T) {
@@ -470,9 +523,9 @@ func TestFooterHasOrangeSeparator(t *testing.T) {
 	w.UpdateFooter(state, item, safety.Config{MaxIterations: 5})
 
 	output := buf.String()
-	// The separator should use the orange color (208).
+	// The separator should use the configured orange palette color.
 	assert.Contains(t, output, "─")
-	assert.Contains(t, output, "\033[38;5;208m")
+	assert.Contains(t, output, fmt.Sprintf("\033[38;5;%dm", colorOrange))
 }
 
 func TestWriterFrameRenderer_HighLevelStickyFooter(t *testing.T) {
@@ -503,7 +556,7 @@ func TestWriterFrameRenderer_HighLevelStickyFooter(t *testing.T) {
 	output := stripANSISequences(buf.String())
 	assert.Contains(t, output, "command done")
 	assert.Contains(t, footerSnapshot, "ticket-1")
-	assert.Contains(t, footerSnapshot, "iter 2/10")
+	assert.Contains(t, footerSnapshot, "iteration 2 of 10")
 	assert.Contains(t, footerSnapshot, "Phase 1")
 }
 
@@ -531,7 +584,7 @@ func TestWriterFrameRenderer_HighLevelScrollAndFooter(t *testing.T) {
 	output := stripANSISequences(buf.String())
 	assert.Contains(t, output, "file-25.go")
 	assert.Contains(t, output, "file-01.go")
-	assert.Contains(t, footerSnapshot, "scroll-ticket")
+	assert.Contains(t, footerSnapshot, truncateRunes("scroll-ticket", footerIDPrefixChars))
 }
 
 func TestWriterTeaMode_ChunkedStreamingRemainsInline(t *testing.T) {
