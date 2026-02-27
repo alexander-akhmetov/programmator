@@ -80,8 +80,9 @@ type Writer struct {
 	midLine     bool
 	pendingLine string
 
-	pid          int
-	executorName string
+	pid            int
+	executorName   string
+	claudeConfigDir string
 
 	useTea    bool
 	tea       *tea.Program
@@ -355,6 +356,14 @@ func (w *Writer) SetExecutorName(name string) {
 	w.executorName = sanitizeTerminalText(strings.ToLower(name))
 }
 
+// SetClaudeConfigDir sets a non-default Claude config directory to display in the footer.
+func (w *Writer) SetClaudeConfigDir(dir string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.claudeConfigDir = dir
+}
+
 // SetProcessStats updates the PID field used by the footer.
 func (w *Writer) SetProcessStats(pid int, memKB int64) {
 	w.mu.Lock()
@@ -405,8 +414,11 @@ func (w *Writer) buildFooter(state *safety.State, item *domain.WorkItem, cfg saf
 		}
 	}
 
-	// Status line: item | iteration | elapsed | pid
+	// Status line: [claude_dir] | item | iteration | elapsed | pid
 	var parts []string
+	if w.claudeConfigDir != "" {
+		parts = append(parts, w.style(colorDim, "claude_dir=")+w.style(colorDimmer, sanitizeTerminalText(w.claudeConfigDir)))
+	}
 	if item != nil {
 		parts = append(parts, w.styleBold(colorMagenta, sanitizeTerminalText(truncateRunes(item.ID, footerIDPrefixChars))))
 		if state != nil {
