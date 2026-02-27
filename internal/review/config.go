@@ -21,10 +21,9 @@ type Config struct {
 
 // AgentConfig defines a single review agent configuration.
 type AgentConfig struct {
-	Name     string   `yaml:"name"`
-	Executor string   `yaml:"executor,omitempty"` // executor type override (empty = use default)
-	Focus    []string `yaml:"focus"`
-	Prompt   string   `yaml:"prompt,omitempty"` // custom prompt path or empty for default
+	Name   string   `yaml:"name"`
+	Focus  []string `yaml:"focus"`
+	Prompt string   `yaml:"prompt,omitempty"` // custom prompt path or empty for default
 }
 
 // DefaultConfig returns the default review configuration.

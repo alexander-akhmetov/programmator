@@ -95,9 +95,6 @@ func runConfigShow(_ *cobra.Command, _ []string) error {
 		fmt.Println("  agents:")
 		for _, agent := range cfg.Review.Agents {
 			fmt.Printf("    - %s\n", agent.Name)
-			if agent.Executor != "" {
-				fmt.Printf("        executor: %s\n", agent.Executor)
-			}
 			if len(agent.Focus) > 0 {
 				fmt.Printf("        focus: %s\n", strings.Join(agent.Focus, ", "))
 			}

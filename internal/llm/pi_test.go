@@ -27,15 +27,39 @@ func TestBuildPiEnv(t *testing.T) {
 			wantAbsent: []string{"ANTHROPIC_API_KEY="},
 		},
 		{
-			name:    "sets explicit API key",
+			name:       "filters all provider API keys",
+			setEnv:     map[string]string{"ANTHROPIC_API_KEY": "a", "OPENAI_API_KEY": "b", "GEMINI_API_KEY": "c"},
+			config:     PiEnvConfig{},
+			wantAbsent: []string{"ANTHROPIC_API_KEY=", "OPENAI_API_KEY=", "GEMINI_API_KEY="},
+		},
+		{
+			name:    "anthropic provider sets ANTHROPIC_API_KEY",
 			setEnv:  map[string]string{"ANTHROPIC_API_KEY": "should-be-filtered"},
-			config:  PiEnvConfig{APIKey: "explicit-key"},
+			config:  PiEnvConfig{Provider: "anthropic", APIKey: "explicit-key"},
 			wantSet: map[string]string{"ANTHROPIC_API_KEY": "explicit-key"},
+		},
+		{
+			name:       "openai provider sets OPENAI_API_KEY",
+			config:     PiEnvConfig{Provider: "openai", APIKey: "sk-openai"},
+			wantSet:    map[string]string{"OPENAI_API_KEY": "sk-openai"},
+			wantAbsent: []string{"ANTHROPIC_API_KEY="},
+		},
+		{
+			name:    "empty provider defaults to ANTHROPIC_API_KEY",
+			config:  PiEnvConfig{APIKey: "fallback-key"},
+			wantSet: map[string]string{"ANTHROPIC_API_KEY": "fallback-key"},
 		},
 		{
 			name:    "sets PI_CODING_AGENT_DIR",
 			config:  PiEnvConfig{ConfigDir: "/custom/pi/config"},
 			wantSet: map[string]string{"PI_CODING_AGENT_DIR": "/custom/pi/config"},
+		},
+		{
+			name:       "filters inherited PI_CODING_AGENT_DIR",
+			setEnv:     map[string]string{"PI_CODING_AGENT_DIR": "/old/dir"},
+			config:     PiEnvConfig{ConfigDir: "/new/dir"},
+			wantSet:    map[string]string{"PI_CODING_AGENT_DIR": "/new/dir"},
+			wantAbsent: []string{"PI_CODING_AGENT_DIR=/old/dir"},
 		},
 		{
 			name:   "empty config returns non-nil env",
@@ -105,9 +129,9 @@ func TestPiInvokerWorkingDir(t *testing.T) {
 
 func TestPiInvokerStreamingMode(t *testing.T) {
 	tmpDir := t.TempDir()
-	// Fake pi that outputs JSON events. In streaming mode prompt is a positional arg,
-	// so the script ignores it and just outputs events.
+	// Fake pi that outputs JSON events. Prompt arrives via stdin.
 	script := `#!/bin/sh
+cat >/dev/null
 echo '{"type":"session","version":3,"id":"test","timestamp":"2025-01-01T00:00:00Z","cwd":"/tmp"}'
 echo '{"type":"message_start","message":{"role":"assistant","model":"test-model","content":[]}}'
 echo '{"type":"message_update","message":{"role":"assistant"},"assistantMessageEvent":{"type":"text_delta","delta":"Hello"}}'
@@ -152,7 +176,7 @@ echo '{"type":"agent_end","messages":[{"role":"assistant","model":"test-model","
 
 func TestPiInvokerErrorCapturesStderr(t *testing.T) {
 	tmpDir := t.TempDir()
-	script := "#!/bin/sh\necho 'some error' >&2\nexit 1\n"
+	script := "#!/bin/sh\ncat >/dev/null\necho 'some error' >&2\nexit 1\n"
 	err := os.WriteFile(tmpDir+"/pi", []byte(script), 0o755)
 	require.NoError(t, err)
 	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))

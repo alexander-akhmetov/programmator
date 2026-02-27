@@ -46,12 +46,8 @@ func (p *PiInvoker) Invoke(ctx context.Context, prompt string, opts InvokeOption
 		args = append(args, opts.ExtraFlags...)
 	}
 
-	// In streaming mode, use --mode json with prompt as positional arg.
-	// In text mode, use --print with prompt via stdin.
-	promptViaStdin := true
 	if opts.Streaming {
-		args = append(args, "--mode", "json", prompt)
-		promptViaStdin = false
+		args = append(args, "--mode", "json")
 	} else {
 		args = append(args, "--print")
 	}
@@ -78,31 +74,24 @@ func (p *PiInvoker) Invoke(ctx context.Context, prompt string, opts InvokeOption
 	var stderrBuf bytes.Buffer
 	cmd.Stderr = &stderrBuf
 
-	if promptViaStdin {
-		stdin, err := cmd.StdinPipe()
-		if err != nil {
-			return nil, err
-		}
-		if err := cmd.Start(); err != nil {
-			return nil, err
-		}
-		if opts.OnProcessStart != nil {
-			opts.OnProcessStart(cmd.Process.Pid)
-		}
-		go func() {
-			defer stdin.Close()
-			if _, err := io.WriteString(stdin, prompt); err != nil {
-				debug.Logf("failed to write prompt to stdin: %v", err)
-			}
-		}()
-	} else {
-		if err := cmd.Start(); err != nil {
-			return nil, err
-		}
-		if opts.OnProcessStart != nil {
-			opts.OnProcessStart(cmd.Process.Pid)
-		}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
 	}
+
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	if opts.OnProcessStart != nil {
+		opts.OnProcessStart(cmd.Process.Pid)
+	}
+
+	go func() {
+		defer stdin.Close()
+		if _, err := io.WriteString(stdin, prompt); err != nil {
+			debug.Logf("failed to write prompt to stdin: %v", err)
+		}
+	}()
 
 	var output string
 	if opts.Streaming {
@@ -128,14 +117,41 @@ func (p *PiInvoker) Invoke(ctx context.Context, prompt string, opts InvokeOption
 	return &InvokeResult{Text: output}, nil
 }
 
+// providerAPIKeyEnvVars maps pi provider names to their expected env var.
+var providerAPIKeyEnvVars = map[string]string{
+	"anthropic": "ANTHROPIC_API_KEY",
+	"openai":    "OPENAI_API_KEY",
+	"google":    "GEMINI_API_KEY",
+	"groq":      "GROQ_API_KEY",
+	"mistral":   "MISTRAL_API_KEY",
+}
+
+// allProviderAPIKeyPrefixes returns all known provider API key env var prefixes for filtering.
+func allProviderAPIKeyPrefixes() []string {
+	prefixes := make([]string, 0, len(providerAPIKeyEnvVars))
+	for _, v := range providerAPIKeyEnvVars {
+		prefixes = append(prefixes, v+"=")
+	}
+	return prefixes
+}
+
 // BuildPiEnv constructs the environment variable slice for a pi subprocess.
-// It filters ANTHROPIC_API_KEY from the inherited environment and only sets
-// it if explicitly configured via PiEnvConfig.
+// It filters all known provider API keys from the inherited environment to
+// prevent key leakage, then sets PI_CODING_AGENT_DIR and the provider-specific
+// API key if configured.
 func BuildPiEnv(cfg PiEnvConfig) []string {
+	prefixes := allProviderAPIKeyPrefixes()
 	environ := os.Environ()
 	env := make([]string, 0, len(environ))
 	for _, e := range environ {
-		if !strings.HasPrefix(e, "ANTHROPIC_API_KEY=") {
+		filtered := false
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(e, prefix) {
+				filtered = true
+				break
+			}
+		}
+		if !filtered && !strings.HasPrefix(e, "PI_CODING_AGENT_DIR=") {
 			env = append(env, e)
 		}
 	}
@@ -143,7 +159,11 @@ func BuildPiEnv(cfg PiEnvConfig) []string {
 		env = append(env, "PI_CODING_AGENT_DIR="+cfg.ConfigDir)
 	}
 	if cfg.APIKey != "" {
-		env = append(env, "ANTHROPIC_API_KEY="+cfg.APIKey)
+		envVar := providerAPIKeyEnvVars[cfg.Provider]
+		if envVar == "" {
+			envVar = "ANTHROPIC_API_KEY" // default to anthropic
+		}
+		env = append(env, envVar+"="+cfg.APIKey)
 	}
 	return env
 }

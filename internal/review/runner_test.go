@@ -176,8 +176,7 @@ func TestDefaultAgentFactory_AlwaysCreatesClaude(t *testing.T) {
 		name     string
 		agentCfg AgentConfig
 	}{
-		{"explicit executor=claude", AgentConfig{Name: "test", Executor: "claude"}},
-		{"empty executor defaults to claude", AgentConfig{Name: "test"}},
+		{"default creates claude agent", AgentConfig{Name: "test"}},
 		{"custom name defaults to claude", AgentConfig{Name: "custom-agent"}},
 	}
 

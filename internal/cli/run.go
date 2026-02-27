@@ -39,7 +39,7 @@ Examples:
 }
 
 func init() {
-	runCmd.Flags().StringVarP(&runWorkingDir, "dir", "d", "", "Working directory for Claude (default: current directory)")
+	runCmd.Flags().StringVarP(&runWorkingDir, "dir", "d", "", "Working directory (default: current directory)")
 	runCmd.Flags().BoolVar(&runNonInteractive, "print", false, "Non-interactive mode: print output directly")
 	runCmd.Flags().IntVar(&runMaxTurns, "max-turns", 0, "Maximum agentic turns (0 = unlimited)")
 	runCmd.Flags().StringVar(&runExecutor, "executor", "", "Executor to use: claude, pi (default: claude)")
@@ -108,10 +108,10 @@ func buildCommonFlags() []string {
 }
 
 func runClaudePrint(cfg *config.Config, prompt, workingDir string) error {
-	execCfg := cfg.ToExecutorConfig()
 	if runExecutor != "" {
-		execCfg.Name = runExecutor
+		cfg.Executor = runExecutor
 	}
+	execCfg := cfg.ToExecutorConfig()
 
 	inv, err := llm.NewInvoker(execCfg)
 	if err != nil {
