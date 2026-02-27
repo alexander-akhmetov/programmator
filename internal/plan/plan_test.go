@@ -258,6 +258,65 @@ func TestMarkTaskComplete_AlreadyCompleted(t *testing.T) {
 	assert.True(t, errors.Is(err, ErrTaskNotFound))
 }
 
+func TestMarkTaskCompleteByIndex(t *testing.T) {
+	tests := []struct {
+		name    string
+		tasks   []Task
+		index   int
+		wantErr error
+	}{
+		{
+			name:    "valid index",
+			tasks:   []Task{{Name: "A", Completed: false}, {Name: "B", Completed: false}},
+			index:   0,
+			wantErr: nil,
+		},
+		{
+			name:    "last index",
+			tasks:   []Task{{Name: "A", Completed: false}, {Name: "B", Completed: false}},
+			index:   1,
+			wantErr: nil,
+		},
+		{
+			name:    "negative index",
+			tasks:   []Task{{Name: "A", Completed: false}},
+			index:   -1,
+			wantErr: ErrIndexOutOfRange,
+		},
+		{
+			name:    "index too large",
+			tasks:   []Task{{Name: "A", Completed: false}},
+			index:   1,
+			wantErr: ErrIndexOutOfRange,
+		},
+		{
+			name:    "empty tasks",
+			tasks:   []Task{},
+			index:   0,
+			wantErr: ErrIndexOutOfRange,
+		},
+		{
+			name:    "already completed",
+			tasks:   []Task{{Name: "A", Completed: true}, {Name: "B", Completed: false}},
+			index:   0,
+			wantErr: ErrTaskAlreadyComplete,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			plan := &Plan{Tasks: tt.tasks}
+			err := plan.MarkTaskCompleteByIndex(tt.index)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+				assert.True(t, plan.Tasks[tt.index].Completed)
+			}
+		})
+	}
+}
+
 func TestMarkTaskComplete_EmptyTasks(t *testing.T) {
 	plan := &Plan{Tasks: []Task{}}
 	err := plan.MarkTaskComplete("anything")

@@ -24,6 +24,17 @@ type WorkItem struct {
 	ValidationCommands []string
 }
 
+// CurrentPhaseIndex returns the 0-based index of the first incomplete phase,
+// or -1 if all phases are complete or there are no phases.
+func (w *WorkItem) CurrentPhaseIndex() int {
+	for i := range w.Phases {
+		if !w.Phases[i].Completed {
+			return i
+		}
+	}
+	return -1
+}
+
 // CurrentPhase returns the first incomplete phase, or nil if all are complete.
 func (w *WorkItem) CurrentPhase() *Phase {
 	for i := range w.Phases {

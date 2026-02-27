@@ -940,6 +940,280 @@ func TestRunWithPlanSource_UpdatesCheckboxes(t *testing.T) {
 	require.Contains(t, string(savedContent), "- [x] Task 2: Second task")
 }
 
+func TestRunIndexBasedPhaseCompletion(t *testing.T) {
+	mock := source.NewMockSource()
+	completedPhases := map[int]bool{}
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		phases := []domain.Phase{
+			{Name: "Task 1", Completed: completedPhases[0]},
+			{Name: "Task 2", Completed: completedPhases[1]},
+		}
+		return &domain.WorkItem{
+			ID:     "test-idx",
+			Title:  "Test Index Completion",
+			Phases: phases,
+		}, nil
+	}
+	mock.UpdatePhaseByIndexFunc = func(_ string, index int) error {
+		completedPhases[index] = true
+		return nil
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := NewWithSource(config, "", nil, false, mock)
+	l.SetReviewConfig(singleAgentReviewConfig())
+	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
+
+	invocation := 0
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		invocation++
+		if invocation == 1 {
+			return `PROGRAMMATOR_STATUS:
+  phase_completed: "Task 1"
+  phase_completed_index: 1
+  status: CONTINUE
+  files_changed: ["file1.go"]
+  summary: "Completed first task"
+`, nil
+		}
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: "Task 2"
+  phase_completed_index: 2
+  status: DONE
+  files_changed: ["file2.go"]
+  summary: "Completed second task"
+`, nil
+	}})
+
+	result, err := l.Run("test-idx")
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	require.Equal(t, 2, result.Iterations)
+
+	// Should have called UpdatePhaseByIndex, not UpdatePhase
+	require.Len(t, mock.UpdatePhaseByIndexCalls, 2)
+	require.Equal(t, 0, mock.UpdatePhaseByIndexCalls[0].Index) // 1-based → 0-based
+	require.Equal(t, 1, mock.UpdatePhaseByIndexCalls[1].Index)
+	require.Empty(t, mock.UpdatePhaseCalls)
+}
+
+func TestRunIndexBasedFallsBackToNameBased(t *testing.T) {
+	mock := source.NewMockSource()
+	completedPhases := map[string]bool{}
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		phases := []domain.Phase{
+			{Name: "Phase 1", Completed: completedPhases["Phase 1"]},
+		}
+		return &domain.WorkItem{
+			ID:     "test-fallback",
+			Title:  "Test Fallback",
+			Phases: phases,
+		}, nil
+	}
+	mock.UpdatePhaseFunc = func(_ string, name string) error {
+		completedPhases[name] = true
+		return nil
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := NewWithSource(config, "", nil, false, mock)
+	l.SetReviewConfig(singleAgentReviewConfig())
+	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
+
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		// No phase_completed_index — only name-based
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: "Phase 1"
+  status: DONE
+  files_changed: ["main.go"]
+  summary: "Done"
+`, nil
+	}})
+
+	result, err := l.Run("test-fallback")
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+
+	// Should have called UpdatePhase (name-based), not UpdatePhaseByIndex
+	require.Len(t, mock.UpdatePhaseCalls, 1)
+	require.Equal(t, "Phase 1", mock.UpdatePhaseCalls[0].PhaseName)
+	require.Empty(t, mock.UpdatePhaseByIndexCalls)
+}
+
+func TestRunIndexBasedWithPlanSource(t *testing.T) {
+	tmpDir := t.TempDir()
+	planPath := tmpDir + "/test-plan.md"
+	content := `# Plan: Index Test
+
+## Tasks
+- [ ] Task 1: First task
+- [ ] Task 2: Second task
+`
+	err := os.WriteFile(planPath, []byte(content), 0644)
+	require.NoError(t, err)
+
+	planSource := source.NewPlanSource(planPath)
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
+	l := NewWithSource(config, tmpDir, nil, false, planSource)
+	l.SetReviewConfig(singleAgentReviewConfig())
+	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
+
+	invocation := 0
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		invocation++
+		if invocation == 1 {
+			return `PROGRAMMATOR_STATUS:
+  phase_completed_index: 1
+  status: CONTINUE
+  files_changed: ["file1.go"]
+  summary: "Completed first task by index"
+`, nil
+		}
+		return `PROGRAMMATOR_STATUS:
+  phase_completed_index: 2
+  status: DONE
+  files_changed: ["file2.go"]
+  summary: "Completed second task by index"
+`, nil
+	}})
+
+	result, err := l.Run(planPath)
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	require.Equal(t, 2, result.Iterations)
+
+	// Verify the plan file was updated on disk
+	savedContent, err := os.ReadFile(planPath)
+	require.NoError(t, err)
+	require.Contains(t, string(savedContent), "- [x] Task 1: First task")
+	require.Contains(t, string(savedContent), "- [x] Task 2: Second task")
+}
+
+func TestRecordPhaseProgress(t *testing.T) {
+	intPtr := func(v int) *int { return &v }
+
+	tests := []struct {
+		name             string
+		status           *parser.ParsedStatus
+		wantByIndex      bool // expect UpdatePhaseByIndex
+		wantByName       bool // expect UpdatePhase
+		wantIndex        int  // expected 0-based index
+		wantPhaseName    string
+		wantNoteContains string
+	}{
+		{
+			name: "index and name both set - uses index",
+			status: &parser.ParsedStatus{
+				PhaseCompletedIndex: intPtr(3),
+				PhaseCompleted:      "Run tests",
+				Summary:             "done",
+			},
+			wantByIndex:      true,
+			wantIndex:        2, // 3 (1-based) → 2 (0-based)
+			wantNoteContains: "Completed Run tests",
+		},
+		{
+			name: "index only - uses task #N label",
+			status: &parser.ParsedStatus{
+				PhaseCompletedIndex: intPtr(1),
+				Summary:             "done",
+			},
+			wantByIndex:      true,
+			wantIndex:        0,
+			wantNoteContains: "Completed task #1",
+		},
+		{
+			name: "name only - falls back to name-based",
+			status: &parser.ParsedStatus{
+				PhaseCompleted: "Build project",
+				Summary:        "done",
+			},
+			wantByName:       true,
+			wantPhaseName:    "Build project",
+			wantNoteContains: "Completed Build project",
+		},
+		{
+			name: "neither index nor name - records summary",
+			status: &parser.ParsedStatus{
+				Summary: "Still working on it",
+			},
+			wantNoteContains: "Still working on it",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := source.NewMockSource()
+			l := New(safety.Config{}, "", nil, false)
+
+			rc := &runContext{
+				workItemID: "test-1",
+				source:     mock,
+				state:      safety.NewState(),
+			}
+			rc.state.Iteration = 1
+
+			l.recordPhaseProgress(rc, tc.status)
+
+			if tc.wantByIndex {
+				require.Len(t, mock.UpdatePhaseByIndexCalls, 1)
+				require.Equal(t, tc.wantIndex, mock.UpdatePhaseByIndexCalls[0].Index)
+				require.Empty(t, mock.UpdatePhaseCalls)
+			} else if tc.wantByName {
+				require.Len(t, mock.UpdatePhaseCalls, 1)
+				require.Equal(t, tc.wantPhaseName, mock.UpdatePhaseCalls[0].PhaseName)
+				require.Empty(t, mock.UpdatePhaseByIndexCalls)
+			} else {
+				require.Empty(t, mock.UpdatePhaseByIndexCalls)
+				require.Empty(t, mock.UpdatePhaseCalls)
+			}
+
+			require.NotEmpty(t, mock.AddNoteCalls)
+			require.Contains(t, mock.AddNoteCalls[0].Note, tc.wantNoteContains)
+		})
+	}
+}
+
+func TestRecordPhaseProgress_IndexErrorLogsWarning(t *testing.T) {
+	mock := source.NewMockSource()
+	mock.UpdatePhaseByIndexFunc = func(_ string, _ int) error {
+		return fmt.Errorf("index out of range")
+	}
+
+	var logs []string
+	l := New(safety.Config{}, "", nil, false)
+	l.SetEventCallback(func(e event.Event) {
+		logs = append(logs, e.Text)
+	})
+
+	rc := &runContext{
+		workItemID: "test-1",
+		source:     mock,
+		state:      safety.NewState(),
+	}
+	rc.state.Iteration = 1
+
+	idx := 5
+	l.recordPhaseProgress(rc, &parser.ParsedStatus{
+		PhaseCompletedIndex: &idx,
+		Summary:             "done",
+	})
+
+	// Should have logged a warning about the error
+	var foundWarning bool
+	for _, log := range logs {
+		if strings.Contains(log, "Warning: failed to update phase by index") {
+			foundWarning = true
+			break
+		}
+	}
+	require.True(t, foundWarning, "expected warning log about index error, got: %v", logs)
+
+	// Note should still be added despite the error
+	require.NotEmpty(t, mock.AddNoteCalls)
+	require.Contains(t, mock.AddNoteCalls[0].Note, "Completed task #5")
+}
+
 // Tests for phaseless ticket execution
 
 func TestRunPhaselessTicket_CompletesOnDone(t *testing.T) {

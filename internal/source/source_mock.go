@@ -10,16 +10,21 @@ import (
 type MockSource struct {
 	mu sync.Mutex
 
-	GetFunc         func(id string) (*domain.WorkItem, error)
-	UpdatePhaseFunc func(id, phaseName string) error
-	AddNoteFunc     func(id, note string) error
-	SetStatusFunc   func(id, status string) error
-	TypeFunc        func() string
+	GetFunc                func(id string) (*domain.WorkItem, error)
+	UpdatePhaseFunc        func(id, phaseName string) error
+	UpdatePhaseByIndexFunc func(id string, index int) error
+	AddNoteFunc            func(id, note string) error
+	SetStatusFunc          func(id, status string) error
+	TypeFunc               func() string
 
-	GetCalls         []string
-	UpdatePhaseCalls []struct{ ID, PhaseName string }
-	AddNoteCalls     []struct{ ID, Note string }
-	SetStatusCalls   []struct{ ID, Status string }
+	GetCalls                []string
+	UpdatePhaseCalls        []struct{ ID, PhaseName string }
+	UpdatePhaseByIndexCalls []struct {
+		ID    string
+		Index int
+	}
+	AddNoteCalls   []struct{ ID, Note string }
+	SetStatusCalls []struct{ ID, Status string }
 }
 
 var _ Source = (*MockSource)(nil)
@@ -29,8 +34,12 @@ func NewMockSource() *MockSource {
 	return &MockSource{
 		GetCalls:         make([]string, 0),
 		UpdatePhaseCalls: make([]struct{ ID, PhaseName string }, 0),
-		AddNoteCalls:     make([]struct{ ID, Note string }, 0),
-		SetStatusCalls:   make([]struct{ ID, Status string }, 0),
+		UpdatePhaseByIndexCalls: make([]struct {
+			ID    string
+			Index int
+		}, 0),
+		AddNoteCalls:   make([]struct{ ID, Note string }, 0),
+		SetStatusCalls: make([]struct{ ID, Status string }, 0),
 	}
 }
 
@@ -44,6 +53,21 @@ func (m *MockSource) Get(id string) (*domain.WorkItem, error) {
 		return m.GetFunc(id)
 	}
 	return &domain.WorkItem{ID: id}, nil
+}
+
+// UpdatePhaseByIndex marks a phase as completed by index.
+func (m *MockSource) UpdatePhaseByIndex(id string, index int) error {
+	m.mu.Lock()
+	m.UpdatePhaseByIndexCalls = append(m.UpdatePhaseByIndexCalls, struct {
+		ID    string
+		Index int
+	}{id, index})
+	m.mu.Unlock()
+
+	if m.UpdatePhaseByIndexFunc != nil {
+		return m.UpdatePhaseByIndexFunc(id, index)
+	}
+	return nil
 }
 
 // UpdatePhase marks a phase as completed.

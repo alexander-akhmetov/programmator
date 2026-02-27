@@ -14,12 +14,13 @@ import (
 type Status = protocol.Status
 
 type ParsedStatus struct {
-	PhaseCompleted string   `yaml:"phase_completed"`
-	Status         Status   `yaml:"status"`
-	FilesChanged   []string `yaml:"files_changed"`
-	Summary        string   `yaml:"summary"`
-	Error          string   `yaml:"error,omitempty"`
-	CommitMade     bool     `yaml:"commit_made,omitempty"`
+	PhaseCompleted      string   `yaml:"phase_completed"`
+	PhaseCompletedIndex *int     `yaml:"phase_completed_index,omitempty"`
+	Status              Status   `yaml:"status"`
+	FilesChanged        []string `yaml:"files_changed"`
+	Summary             string   `yaml:"summary"`
+	Error               string   `yaml:"error,omitempty"`
+	CommitMade          bool     `yaml:"commit_made,omitempty"`
 }
 
 // IsValid checks if the parsed status has valid values.

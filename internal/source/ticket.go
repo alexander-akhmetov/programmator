@@ -1,6 +1,8 @@
 package source
 
 import (
+	"fmt"
+
 	"github.com/alexander-akhmetov/programmator/internal/domain"
 	"github.com/alexander-akhmetov/programmator/internal/ticket"
 )
@@ -34,6 +36,24 @@ func (s *TicketSource) Get(id string) (*domain.WorkItem, error) {
 // The underlying client handles phaseless tickets (empty/null phase names).
 func (s *TicketSource) UpdatePhase(id, phaseName string) error {
 	return s.client.UpdatePhase(id, phaseName)
+}
+
+// UpdatePhaseByIndex marks a phase as completed by its 0-based index in the ticket file.
+func (s *TicketSource) UpdatePhaseByIndex(id string, index int) error {
+	t, err := s.client.Get(id)
+	if err != nil {
+		return err
+	}
+
+	if index < 0 || index >= len(t.Phases) {
+		return fmt.Errorf("phase index out of range: %d (have %d phases)", index, len(t.Phases))
+	}
+
+	if t.Phases[index].Completed {
+		return nil
+	}
+
+	return s.client.UpdatePhase(id, t.Phases[index].Name)
 }
 
 // AddNote adds a progress note to the ticket.

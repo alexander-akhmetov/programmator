@@ -274,6 +274,80 @@ func TestParseCommitMade(t *testing.T) {
 	}
 }
 
+func TestParsePhaseCompletedIndex(t *testing.T) {
+	idx3 := 3
+	idx1 := 1
+
+	tests := []struct {
+		name      string
+		output    string
+		wantIndex *int
+		wantPhase string
+	}{
+		{
+			name: "index present",
+			output: `PROGRAMMATOR_STATUS:
+  phase_completed: "Phase 1"
+  phase_completed_index: 3
+  status: CONTINUE
+  files_changed: []
+  summary: "Done"
+`,
+			wantIndex: &idx3,
+			wantPhase: "Phase 1",
+		},
+		{
+			name: "index absent",
+			output: `PROGRAMMATOR_STATUS:
+  phase_completed: "Phase 1"
+  status: CONTINUE
+  files_changed: []
+  summary: "Done"
+`,
+			wantIndex: nil,
+			wantPhase: "Phase 1",
+		},
+		{
+			name: "index only, no phase name",
+			output: `PROGRAMMATOR_STATUS:
+  phase_completed: null
+  phase_completed_index: 1
+  status: CONTINUE
+  files_changed: []
+  summary: "Done"
+`,
+			wantIndex: &idx1,
+			wantPhase: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := Parse(tt.output)
+			if err != nil {
+				t.Fatalf("Parse() unexpected error: %v", err)
+			}
+			if got == nil {
+				t.Fatal("Parse() returned nil")
+			}
+			if got.PhaseCompleted != tt.wantPhase {
+				t.Errorf("PhaseCompleted = %q, want %q", got.PhaseCompleted, tt.wantPhase)
+			}
+			if tt.wantIndex == nil {
+				if got.PhaseCompletedIndex != nil {
+					t.Errorf("PhaseCompletedIndex = %d, want nil", *got.PhaseCompletedIndex)
+				}
+			} else {
+				if got.PhaseCompletedIndex == nil {
+					t.Errorf("PhaseCompletedIndex = nil, want %d", *tt.wantIndex)
+				} else if *got.PhaseCompletedIndex != *tt.wantIndex {
+					t.Errorf("PhaseCompletedIndex = %d, want %d", *got.PhaseCompletedIndex, *tt.wantIndex)
+				}
+			}
+		})
+	}
+}
+
 func TestParseDirect(t *testing.T) {
 	yaml := `phase_completed: "Phase 1"
 status: CONTINUE

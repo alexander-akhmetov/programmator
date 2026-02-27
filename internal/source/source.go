@@ -36,6 +36,11 @@ type PhaseUpdater interface {
 	UpdatePhase(id, phaseName string) error
 }
 
+// PhaseIndexUpdater marks a phase as completed by its 0-based index.
+type PhaseIndexUpdater interface {
+	UpdatePhaseByIndex(id string, index int) error
+}
+
 // StatusUpdater updates the work item's status (e.g. open, in_progress, closed).
 type StatusUpdater interface {
 	SetStatus(id, status string) error
@@ -66,6 +71,7 @@ type Mover interface {
 type Source interface {
 	Reader
 	PhaseUpdater
+	PhaseIndexUpdater
 	StatusUpdater
 	Noter
 	TypeProvider

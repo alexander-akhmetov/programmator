@@ -47,6 +47,20 @@ func (s *PlanSource) UpdatePhase(_ string, phaseName string) error {
 	return p.SaveFile()
 }
 
+// UpdatePhaseByIndex marks a task as completed by its 0-based index.
+func (s *PlanSource) UpdatePhaseByIndex(_ string, index int) error {
+	p, err := plan.ParseFile(s.filePath)
+	if err != nil {
+		return err
+	}
+
+	if err := p.MarkTaskCompleteByIndex(index); err != nil {
+		return err
+	}
+
+	return p.SaveFile()
+}
+
 // AddNote is a no-op for plan files.
 // Plan files don't have a notes section like tickets.
 func (s *PlanSource) AddNote(_, _ string) error {

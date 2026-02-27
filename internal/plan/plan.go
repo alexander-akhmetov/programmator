@@ -19,6 +19,10 @@ var (
 	ErrNoFilePath = errors.New("plan has no file path")
 	// ErrDestinationExists is returned when the move destination already exists.
 	ErrDestinationExists = errors.New("destination file already exists")
+	// ErrIndexOutOfRange is returned when a task index is out of range.
+	ErrIndexOutOfRange = errors.New("task index out of range")
+	// ErrTaskAlreadyComplete is returned when trying to complete an already-completed task.
+	ErrTaskAlreadyComplete = errors.New("task already completed")
 )
 
 // Task represents a single task within a plan.
@@ -199,6 +203,18 @@ func (p *Plan) MarkTaskComplete(taskName string) error {
 	}
 
 	return fmt.Errorf("%w: %s", ErrTaskNotFound, taskName)
+}
+
+// MarkTaskCompleteByIndex marks a task as completed by its 0-based index.
+func (p *Plan) MarkTaskCompleteByIndex(index int) error {
+	if index < 0 || index >= len(p.Tasks) {
+		return fmt.Errorf("%w: %d (have %d tasks)", ErrIndexOutOfRange, index, len(p.Tasks))
+	}
+	if p.Tasks[index].Completed {
+		return fmt.Errorf("%w: index %d (%s)", ErrTaskAlreadyComplete, index, p.Tasks[index].Name)
+	}
+	p.Tasks[index].Completed = true
+	return nil
 }
 
 // normalizeTaskName strips common prefixes and normalizes for comparison.
