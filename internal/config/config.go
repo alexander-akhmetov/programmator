@@ -376,12 +376,10 @@ func applyReviewExecutorOverlay(dst *ReviewExecutorConfig, src *ReviewExecutorCo
 	}
 }
 
-// applyEnvOverrides reads environment variables and applies them as config
-// overrides. Env vars sit between YAML files and CLI flags in precedence:
-// embedded → global file → local file → env → CLI flags.
-// YAML values take precedence: env is only used when YAML didn't set the field.
+// applyEnvOverrides applies environment variable overrides to the config.
+// Env vars override YAML: env > global file > local file > embedded.
 func (c *Config) applyEnvOverrides() {
-	if v := os.Getenv("CLAUDE_CONFIG_DIR"); v != "" && c.Claude.ConfigDir == "" {
+	if v := os.Getenv("CLAUDE_CONFIG_DIR"); v != "" {
 		c.Claude.ConfigDir = v
 		c.sources = append(c.sources, "env:CLAUDE_CONFIG_DIR")
 	}

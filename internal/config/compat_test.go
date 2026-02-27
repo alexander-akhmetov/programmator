@@ -44,7 +44,7 @@ func TestToExecutorConfig_Claude(t *testing.T) {
 	assert.Equal(t, "test-key", ec.Claude.AnthropicAPIKey)
 }
 
-func TestToExecutorConfig_Claude_EnvOverridesConfig(t *testing.T) {
+func TestToExecutorConfig_Claude_YAMLConfigDir(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "/from/env")
 	cfg := &Config{
 		Executor: "claude",
@@ -54,15 +54,14 @@ func TestToExecutorConfig_Claude_EnvOverridesConfig(t *testing.T) {
 	}
 
 	ec := cfg.ToExecutorConfig()
-	assert.Equal(t, "/from/env", ec.Claude.ClaudeConfigDir)
+	assert.Equal(t, "/from/yaml", ec.Claude.ClaudeConfigDir)
 }
 
-func TestToExecutorConfig_Claude_EnvFallback(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", "/from/env")
+func TestToExecutorConfig_Claude_NoConfigDir(t *testing.T) {
 	cfg := &Config{Executor: "claude"}
 
 	ec := cfg.ToExecutorConfig()
-	assert.Equal(t, "/from/env", ec.Claude.ClaudeConfigDir)
+	assert.Empty(t, ec.Claude.ClaudeConfigDir)
 }
 
 func TestToExecutorConfig_Pi(t *testing.T) {

@@ -29,9 +29,15 @@ func TestBuildEnv(t *testing.T) {
 			wantSet: map[string]string{"ANTHROPIC_API_KEY": "explicit-key"},
 		},
 		{
-			name:    "sets CLAUDE_CONFIG_DIR",
+			name:    "sets CLAUDE_CONFIG_DIR from config",
 			config:  EnvConfig{ClaudeConfigDir: "/custom/config"},
 			wantSet: map[string]string{"CLAUDE_CONFIG_DIR": "/custom/config"},
+		},
+		{
+			name:       "filters inherited CLAUDE_CONFIG_DIR",
+			setEnv:     map[string]string{"CLAUDE_CONFIG_DIR": "/inherited"},
+			config:     EnvConfig{},
+			wantAbsent: []string{"CLAUDE_CONFIG_DIR="},
 		},
 		{
 			name:   "empty config returns non-nil env",
