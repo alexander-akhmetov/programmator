@@ -4,6 +4,9 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 DATE    ?= $(shell date -u +%Y-%m-%d)
 LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
+GOCACHE_DIR ?= $(PWD)/.cache/go-build
+GOLANGCI_CACHE_DIR ?= $(PWD)/.cache/golangci-lint
+LINT_ENV := GOCACHE=$(GOCACHE_DIR) GOLANGCI_LINT_CACHE=$(GOLANGCI_CACHE_DIR)
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o programmator ./cmd/programmator
@@ -15,7 +18,8 @@ test-race:
 	go test -race ./...
 
 lint:
-	golangci-lint run
+	@mkdir -p $(GOCACHE_DIR) $(GOLANGCI_CACHE_DIR)
+	$(LINT_ENV) golangci-lint run ./...
 	go mod tidy -diff
 	go tool govulncheck ./...
 	go tool deadcode -test ./...

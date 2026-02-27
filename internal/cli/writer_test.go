@@ -3,11 +3,9 @@ package cli
 import (
 	"bytes"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
-	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 
@@ -222,8 +220,7 @@ func TestUpdateFooter_FrameRenderer(t *testing.T) {
 	w.UpdateFooter(state, item, safety.Config{MaxIterations: 10, StagnationLimit: 3})
 
 	output := buf.String()
-	// Should contain frame cursor positioning and footer content.
-	assert.Contains(t, output, "\033[1;1H")
+	// Should draw footer content.
 	assert.Contains(t, output, "test-sr")
 	assert.Contains(t, output, "Phase 1")
 	assert.Equal(t, len(w.lastFooter), w.footerLines)
@@ -276,7 +273,7 @@ func TestClearFooter(t *testing.T) {
 			w.ClearFooter()
 
 			output := buf.String()
-			if tt.wantOutput && w.footerLines > 0 {
+			if tt.wantOutput {
 				assert.Contains(t, output, "\033[")
 			} else if !tt.wantOutput {
 				assert.Empty(t, output)
@@ -294,15 +291,14 @@ func TestClearFooter_FrameRenderer(t *testing.T) {
 	item := &domain.WorkItem{ID: "t-sr"}
 	w.UpdateFooter(state, item, safety.Config{MaxIterations: 5})
 
-	assert.False(t, w.frameClosed)
 	buf.Reset()
 
 	w.ClearFooter()
 
 	output := buf.String()
-	assert.Contains(t, output, "\n")
-	assert.True(t, w.frameClosed)
+	assert.Contains(t, output, "\033[")
 	assert.Equal(t, 0, w.footerLines)
+	assert.Nil(t, w.lastFooter)
 }
 
 func TestSetProcessStats(t *testing.T) {
@@ -385,12 +381,17 @@ func TestWriteEvent_StreamingTextWithNewline(t *testing.T) {
 func TestWriteEvent_FrameRendererWrapsLongStreamingLines(t *testing.T) {
 	var buf bytes.Buffer
 	w := newTestWriterTTYWithHeight(&buf, 6)
-	w.width = 10
+	state := safety.NewState()
+	state.Iteration = 1
+	item := &domain.WorkItem{ID: "t-1", Phases: []domain.Phase{{Name: "Phase 1"}}}
+	w.UpdateFooter(state, item, safety.Config{MaxIterations: 10, StagnationLimit: 3})
+	buf.Reset()
 
 	w.WriteEvent(event.StreamingText(strings.Repeat("x", 25)))
 
-	assert.GreaterOrEqual(t, len(w.frameRows), 2)
-	assert.Equal(t, 5, utf8.RuneCountInString(w.frameCurrent.text))
+	output := buf.String()
+	assert.Contains(t, output, strings.Repeat("x", 25))
+	assert.True(t, w.midLine)
 }
 
 func TestWriteEvent_StreamingTextConvertsCarriageReturnToNewline(t *testing.T) {
@@ -495,14 +496,14 @@ func TestWriterFrameRenderer_HighLevelStickyFooter(t *testing.T) {
 
 	state.Iteration = 2
 	w.UpdateFooter(state, item, cfg)
+	footerSnapshot := strings.Join(stripANSISlice(w.lastFooter), "\n")
+	w.ClearFooter()
 
-	screen := simulateScreen(buf.String(), 40, 10)
-	footer := w.lastFooter
-	requireFooterAtBottom(t, screen, footer)
-
-	content := strings.Join(screen[:10-len(footer)], "\n")
-	assert.Contains(t, content, "command done")
-	assert.NotContains(t, content, "ticket-1")
+	output := stripANSISequences(buf.String())
+	assert.Contains(t, output, "command done")
+	assert.Contains(t, footerSnapshot, "ticket-1")
+	assert.Contains(t, footerSnapshot, "iter 2/10")
+	assert.Contains(t, footerSnapshot, "Phase 1")
 }
 
 func TestWriterFrameRenderer_HighLevelScrollAndFooter(t *testing.T) {
@@ -523,123 +524,66 @@ func TestWriterFrameRenderer_HighLevelScrollAndFooter(t *testing.T) {
 	for i := 1; i <= 25; i++ {
 		w.WriteEvent(event.ToolUse(fmt.Sprintf("Read file-%02d.go", i)))
 	}
+	footerSnapshot := strings.Join(stripANSISlice(w.lastFooter), "\n")
+	w.ClearFooter()
 
-	screen := simulateScreen(buf.String(), 30, 7)
-	footer := w.lastFooter
-	requireFooterAtBottom(t, screen, footer)
-
-	content := strings.Join(screen[:7-len(footer)], "\n")
-	assert.Contains(t, content, "file-25.go")
-	assert.NotContains(t, content, "file-01.go")
+	output := stripANSISequences(buf.String())
+	assert.Contains(t, output, "file-25.go")
+	assert.Contains(t, output, "file-01.go")
+	assert.Contains(t, footerSnapshot, "scroll-ticket")
 }
 
-func requireFooterAtBottom(t *testing.T, screen, footer []string) {
-	t.Helper()
-	for i := range footer {
-		row := len(screen) - len(footer) + i
-		assert.Equal(t, strings.TrimRight(footer[i], " "), strings.TrimRight(screen[row], " "))
+func TestWriterTeaMode_ChunkedStreamingRemainsInline(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf, true, 40, 8)
+
+	state := safety.NewState()
+	state.Iteration = 1
+	item := &domain.WorkItem{
+		ID: "chunk-ticket",
+		Phases: []domain.Phase{
+			{Name: "Phase 1"},
+		},
 	}
+	cfg := safety.Config{MaxIterations: 10, StagnationLimit: 3}
+
+	w.UpdateFooter(state, item, cfg)
+	w.WriteEvent(event.StreamingText("A"))
+	w.WriteEvent(event.StreamingText("N"))
+	w.WriteEvent(event.StreamingText("N"))
+	w.WriteEvent(event.StreamingText("O"))
+	w.WriteEvent(event.StreamingText("U"))
+	w.WriteEvent(event.StreamingText("N"))
+	w.WriteEvent(event.StreamingText("C"))
+	w.WriteEvent(event.StreamingText("E"))
+	w.WriteEvent(event.ToolResult("done"))
+	w.ClearFooter()
+
+	output := stripANSISequences(buf.String())
+	assert.Contains(t, output, "ANNOUNCE")
+	assert.NotContains(t, output, "A\nN\n")
+	assert.Contains(t, output, "done")
 }
 
-func simulateScreen(output string, width, height int) []string {
-	screen := make([][]rune, height)
-	for i := range screen {
-		screen[i] = []rune(strings.Repeat(" ", width))
-	}
+func TestWriterTeaMode_ClearFooterFlushesPendingStreaming(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf, true, 40, 8)
 
-	row, col := 1, 1
+	state := safety.NewState()
+	state.Iteration = 1
+	item := &domain.WorkItem{ID: "flush-ticket"}
+	w.UpdateFooter(state, item, safety.Config{MaxIterations: 10, StagnationLimit: 3})
+	w.WriteEvent(event.StreamingText("partial-line"))
+	w.ClearFooter()
 
-	for i := 0; i < len(output); {
-		if output[i] != '\x1b' {
-			r, size := utf8.DecodeRuneInString(output[i:])
-			if r == '\n' {
-				row++
-				col = 1
-				if row > height {
-					row = height
-				}
-			} else {
-				if row >= 1 && row <= height && col >= 1 && col <= width {
-					screen[row-1][col-1] = r
-				}
-				col++
-				if col > width {
-					col = width
-				}
-			}
-			i += size
-			continue
-		}
-
-		if i+1 >= len(output) || output[i+1] != '[' {
-			i++
-			continue
-		}
-
-		j := i + 2
-		for ; j < len(output); j++ {
-			if output[j] >= 0x40 && output[j] <= 0x7e {
-				break
-			}
-		}
-		if j >= len(output) {
-			break
-		}
-
-		params := output[i+2 : j]
-		cmd := output[j]
-
-		switch cmd {
-		case 'H', 'f':
-			row, col = parseCursorPosition(params)
-			if row < 1 {
-				row = 1
-			}
-			if row > height {
-				row = height
-			}
-			if col < 1 {
-				col = 1
-			}
-			if col > width {
-				col = width
-			}
-		case 'K':
-			// 2K = clear entire current line.
-			if params == "2" && row >= 1 && row <= height {
-				screen[row-1] = []rune(strings.Repeat(" ", width))
-				col = 1
-			}
-		}
-
-		i = j + 1
-	}
-
-	lines := make([]string, height)
-	for i := range screen {
-		lines[i] = strings.TrimRight(string(screen[i]), " ")
-	}
-	return lines
+	output := stripANSISequences(buf.String())
+	assert.Contains(t, output, "partial-line")
 }
 
-func parseCursorPosition(params string) (int, int) {
-	if params == "" {
-		return 1, 1
+func stripANSISlice(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		out = append(out, stripANSISequences(line))
 	}
-
-	parts := strings.Split(params, ";")
-	row, col := 1, 1
-
-	if len(parts) > 0 && parts[0] != "" {
-		if v, err := strconv.Atoi(parts[0]); err == nil {
-			row = v
-		}
-	}
-	if len(parts) > 1 && parts[1] != "" {
-		if v, err := strconv.Atoi(parts[1]); err == nil {
-			col = v
-		}
-	}
-
-	return row, col
+	return out
 }

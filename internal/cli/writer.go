@@ -5,8 +5,9 @@ import (
 	"io"
 	"strings"
 	"sync"
-	"unicode/utf8"
+	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 
 	"github.com/alexander-akhmetov/programmator/internal/domain"
@@ -25,21 +26,45 @@ const (
 	colorWhite   = 255 // values
 	colorMagenta = 205 // title, current phase
 	colorPink    = 212 // phase arrow
-
-	maxFrameHistoryRows = 6000
 )
 
-type frameRow struct {
-	text string
-	kind event.Kind
+type bubbleFooterMsg struct {
+	lines []string
+}
+
+type bubbleModel struct {
+	footer []string
+	ready  chan struct{}
+	once   sync.Once
+}
+
+func (m *bubbleModel) Init() tea.Cmd {
+	return func() tea.Msg {
+		if m.ready != nil {
+			m.once.Do(func() { close(m.ready) })
+		}
+		return nil
+	}
+}
+
+func (m *bubbleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if msg, ok := msg.(bubbleFooterMsg); ok {
+		m.footer = append([]string(nil), msg.lines...)
+	}
+	return m, nil
+}
+
+func (m *bubbleModel) View() string {
+	return strings.Join(m.footer, "\n")
 }
 
 // Writer prints events to stdout and redraws a sticky footer in TTY mode.
 // In non-TTY mode, it prints plain text without ANSI escapes or footer.
 //
-// In TTY mode with known terminal height, Writer uses a viewport model:
-// it stores content rows and footer rows, then redraws the full frame.
-// This keeps the footer stable independently of event source/executor.
+// In TTY mode, Writer uses inline Bubble Tea mode (no alt screen):
+// - content is printed above the program via tea.Printf/tea.Println
+// - View() renders sticky footer at the bottom
+// - terminal scrollback remains standard.
 type Writer struct {
 	out      io.Writer
 	isTTY    bool
@@ -48,20 +73,18 @@ type Writer struct {
 	mu       sync.Mutex
 	renderer *glamour.TermRenderer
 
-	// Footer state (used by both viewport and legacy mode).
 	footerLines int
 	lastFooter  []string
-
-	// Legacy mode state (TTY with unknown height).
-	midLine bool
-
-	// Viewport state (TTY with known height).
-	frameRows    []frameRow
-	frameCurrent frameRow
-	frameClosed  bool
+	midLine     bool
+	pendingLine string
 
 	pid   int
 	memKB int64
+
+	useTea    bool
+	tea       *tea.Program
+	teaDone   chan struct{}
+	teaActive bool
 }
 
 // NewWriter creates a Writer. If width is <= 0, defaults to 80.
@@ -75,6 +98,7 @@ func NewWriter(out io.Writer, isTTY bool, width, height int) *Writer {
 		isTTY:  isTTY,
 		width:  width,
 		height: height,
+		useTea: isTTY,
 	}
 
 	if isTTY {
@@ -90,14 +114,42 @@ func NewWriter(out io.Writer, isTTY bool, width, height int) *Writer {
 	return w
 }
 
-// useFrameRenderer reports whether the writer should render a full viewport
-// with sticky footer and internal scrolling.
-func (w *Writer) useFrameRenderer() bool {
-	return w.isTTY && w.height > 0 && !w.frameClosed
+func (w *Writer) colorEnabled() bool {
+	return w.isTTY
 }
 
-func (w *Writer) colorEnabled() bool {
-	return w.isTTY && !w.useFrameRenderer()
+func (w *Writer) ensureTeaLocked() {
+	if !w.useTea || !w.isTTY || w.teaActive {
+		return
+	}
+
+	ready := make(chan struct{})
+	model := &bubbleModel{ready: ready}
+	p := tea.NewProgram(
+		model,
+		tea.WithInput(nil),
+		tea.WithOutput(w.out),
+		// Let programmator's signal.NotifyContext own SIGINT/SIGTERM handling.
+		tea.WithoutSignalHandler(),
+	)
+	done := make(chan struct{})
+
+	go func() {
+		_, _ = p.Run()
+		close(done)
+	}()
+
+	select {
+	case <-ready:
+		w.tea = p
+		w.teaDone = done
+		w.teaActive = true
+	case <-done:
+		w.useTea = false
+	case <-time.After(2 * time.Second):
+		// Initialization should be quick; fallback to direct writer if not.
+		w.useTea = false
+	}
 }
 
 // WriteEvent prints a single event to the output stream.
@@ -105,205 +157,79 @@ func (w *Writer) WriteEvent(ev event.Event) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if w.frameClosed {
-		return
-	}
-
 	ev.Text = sanitizeTerminalText(ev.Text)
+	w.ensureTeaLocked()
 
-	if w.useFrameRenderer() {
-		w.writeEventFrame(ev)
-		w.renderFrame()
+	if w.teaActive {
+		if ev.Kind == event.KindStreamingText {
+			w.writeTeaStreamingLocked(ev.Text)
+			return
+		}
+
+		w.flushTeaPendingLocked()
+
+		line := w.formatEventLine(ev)
+		w.tea.Println(line)
 		return
 	}
 
-	// Legacy mode: erase footer before printing.
-	w.legacyEraseFooter()
+	// Fallback mode (non-TTY or Bubble Tea unavailable).
+	if !w.isTTY {
+		if ev.Kind == event.KindStreamingText {
+			fmt.Fprint(w.out, ev.Text)
+			w.midLine = !strings.HasSuffix(ev.Text, "\n")
+			return
+		}
+		if w.midLine {
+			fmt.Fprintln(w.out)
+			w.midLine = false
+		}
+		fmt.Fprintln(w.out, w.formatEventLine(ev))
+		return
+	}
 
-	// Streaming text: print inline without trailing newline.
+	w.legacyEraseFooter()
 	if ev.Kind == event.KindStreamingText {
 		fmt.Fprint(w.out, ev.Text)
 		w.midLine = !strings.HasSuffix(ev.Text, "\n")
-		w.footerLines = 0
+		w.legacyRedrawFooter()
 		return
 	}
-
-	// Transition from mid-line streaming to a structured event.
 	if w.midLine {
 		fmt.Fprintln(w.out)
 		w.midLine = false
 	}
-
-	var line string
-	switch ev.Kind {
-	case event.KindProg:
-		line = w.formatProg(ev.Text)
-	case event.KindToolUse:
-		line = w.formatTool(ev.Text)
-	case event.KindToolResult:
-		line = w.formatToolResult(ev.Text)
-	case event.KindReview:
-		line = w.formatReview(ev.Text)
-	case event.KindDiffAdd:
-		line = w.formatDiffAdd(ev.Text)
-	case event.KindDiffDel:
-		line = w.formatDiffDel(ev.Text)
-	case event.KindDiffCtx:
-		line = w.formatDiffCtx(ev.Text)
-	case event.KindDiffHunk:
-		line = w.formatDiffHunk(ev.Text)
-	case event.KindMarkdown:
-		line = w.formatMarkdown(ev.Text)
-	case event.KindIterationSeparator:
-		line = w.formatIterSep(ev.Text)
-	case event.KindStreamingText:
-		// handled above; unreachable
-	}
-
-	fmt.Fprintln(w.out, line)
+	fmt.Fprintln(w.out, w.formatEventLine(ev))
 	w.legacyRedrawFooter()
 }
 
-func (w *Writer) writeEventFrame(ev event.Event) {
-	if ev.Kind == event.KindStreamingText {
-		w.appendFrameText(ev.Text, event.KindStreamingText)
-		return
-	}
-
-	if w.frameCurrent.text != "" {
-		w.pushFrameRow(w.frameCurrent)
-		w.frameCurrent = frameRow{}
-	}
-
-	var line string
+func (w *Writer) formatEventLine(ev event.Event) string {
 	switch ev.Kind {
 	case event.KindProg:
-		line = w.formatProg(ev.Text)
+		return w.formatProg(ev.Text)
 	case event.KindToolUse:
-		line = w.formatTool(ev.Text)
+		return w.formatTool(ev.Text)
 	case event.KindToolResult:
-		line = w.formatToolResult(ev.Text)
+		return w.formatToolResult(ev.Text)
 	case event.KindReview:
-		line = w.formatReview(ev.Text)
+		return w.formatReview(ev.Text)
 	case event.KindDiffAdd:
-		line = w.formatDiffAdd(ev.Text)
+		return w.formatDiffAdd(ev.Text)
 	case event.KindDiffDel:
-		line = w.formatDiffDel(ev.Text)
+		return w.formatDiffDel(ev.Text)
 	case event.KindDiffCtx:
-		line = w.formatDiffCtx(ev.Text)
+		return w.formatDiffCtx(ev.Text)
 	case event.KindDiffHunk:
-		line = w.formatDiffHunk(ev.Text)
+		return w.formatDiffHunk(ev.Text)
 	case event.KindMarkdown:
-		line = w.formatMarkdown(ev.Text)
+		return w.formatMarkdown(ev.Text)
 	case event.KindIterationSeparator:
-		line = w.formatIterSep(ev.Text)
+		return w.formatIterSep(ev.Text)
 	case event.KindStreamingText:
-		// handled above; unreachable
+		return ev.Text
+	default:
+		return ev.Text
 	}
-
-	w.appendFrameText(line, ev.Kind)
-	w.appendFrameText("\n", ev.Kind)
-}
-
-func (w *Writer) appendFrameText(text string, kind event.Kind) {
-	if w.frameCurrent.text != "" && w.frameCurrent.kind != kind {
-		w.pushFrameRow(w.frameCurrent)
-		w.frameCurrent = frameRow{}
-	}
-
-	for {
-		idx := strings.IndexByte(text, '\n')
-		if idx < 0 {
-			w.appendFrameChunk(text, kind)
-			return
-		}
-
-		w.appendFrameChunk(text[:idx], kind)
-		w.pushFrameRow(w.frameCurrent)
-		w.frameCurrent = frameRow{}
-		text = text[idx+1:]
-	}
-}
-
-func (w *Writer) appendFrameChunk(chunk string, kind event.Kind) {
-	if chunk == "" {
-		if w.frameCurrent.text == "" {
-			w.frameCurrent.kind = kind
-		}
-		return
-	}
-
-	w.frameCurrent.kind = kind
-
-	r := []rune(w.frameCurrent.text + chunk)
-	for len(r) > w.width {
-		w.pushFrameRow(frameRow{text: string(r[:w.width]), kind: kind})
-		r = r[w.width:]
-	}
-	w.frameCurrent = frameRow{text: string(r), kind: kind}
-}
-
-func (w *Writer) pushFrameRow(row frameRow) {
-	row.text = trimRunes(row.text, w.width)
-	w.frameRows = append(w.frameRows, row)
-	if len(w.frameRows) > maxFrameHistoryRows {
-		drop := len(w.frameRows) - maxFrameHistoryRows
-		w.frameRows = w.frameRows[drop:]
-	}
-}
-
-func (w *Writer) renderFrame() {
-	if !w.useFrameRenderer() {
-		return
-	}
-
-	footerCount := len(w.lastFooter)
-	contentHeight := max(w.height-footerCount, 1)
-
-	// Always keep one editable content line (frameCurrent) visible.
-	totalContentRows := len(w.frameRows) + 1
-	start := max(totalContentRows-contentHeight, 0)
-
-	var buf strings.Builder
-	buf.WriteString("\033[?25l") // hide cursor while redrawing
-
-	for row := 1; row <= w.height; row++ {
-		fmt.Fprintf(&buf, "\033[%d;1H\033[2K", row)
-
-		var line string
-		if row <= contentHeight {
-			idx := start + (row - 1)
-			switch {
-			case idx < len(w.frameRows):
-				segment := w.frameRows[idx]
-				line = w.applyFrameContentStyle(segment.kind, segment.text)
-			case idx == len(w.frameRows):
-				line = w.applyFrameContentStyle(w.frameCurrent.kind, w.frameCurrent.text)
-			}
-		} else {
-			fidx := row - contentHeight - 1
-			if fidx >= 0 && fidx < len(w.lastFooter) {
-				line = w.applyFrameFooterStyle(fidx, w.lastFooter[fidx])
-			}
-		}
-
-		if line != "" {
-			buf.WriteString(line)
-		}
-	}
-
-	cursorRow := len(w.frameRows) - start + 1
-	cursorRow = max(cursorRow, 1)
-	cursorRow = min(cursorRow, contentHeight)
-
-	cursorCol := utf8.RuneCountInString(w.frameCurrent.text) + 1
-	cursorCol = max(cursorCol, 1)
-	cursorCol = min(cursorCol, max(w.width, 1))
-
-	fmt.Fprintf(&buf, "\033[%d;%dH", cursorRow, cursorCol)
-	buf.WriteString("\033[?25h") // show cursor
-
-	fmt.Fprint(w.out, buf.String())
 }
 
 // UpdateFooter redraws the sticky footer with current state.
@@ -315,35 +241,27 @@ func (w *Writer) UpdateFooter(state *safety.State, item *domain.WorkItem, cfg sa
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if w.frameClosed {
-		return
-	}
-
 	lines := w.buildFooter(state, item, cfg)
-
-	if w.useFrameRenderer() {
+	if w.height > 0 {
 		maxFooterLines := max(w.height-1, 0)
-		if maxFooterLines == 0 {
+		if maxFooterLines <= 0 {
 			return
 		}
-
-		normalized := make([]string, 0, len(lines))
-		for _, line := range lines {
-			normalized = append(normalized, trimRunes(sanitizeTerminalText(line), w.width))
+		if len(lines) > maxFooterLines {
+			lines = lines[:maxFooterLines]
 		}
-		if len(normalized) > maxFooterLines {
-			normalized = normalized[:maxFooterLines]
-		}
-
-		w.lastFooter = normalized
-		w.footerLines = len(normalized)
-		w.renderFrame()
-		return
 	}
 
 	w.lastFooter = lines
-	w.legacyEraseFooter()
 	w.footerLines = len(lines)
+
+	w.ensureTeaLocked()
+	if w.teaActive {
+		w.tea.Send(bubbleFooterMsg{lines: lines})
+		return
+	}
+
+	w.legacyEraseFooter()
 	for _, line := range lines {
 		fmt.Fprintln(w.out, line)
 	}
@@ -358,18 +276,66 @@ func (w *Writer) ClearFooter() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if w.useFrameRenderer() {
-		w.lastFooter = nil
+	if w.teaActive {
+		w.flushTeaPendingLocked()
+		w.tea.Send(bubbleFooterMsg{lines: nil})
+		w.tea.Quit()
+		done := w.teaDone
+		w.teaActive = false
+		w.tea = nil
+		w.teaDone = nil
 		w.footerLines = 0
-		w.renderFrame()
-		w.frameClosed = true
-		fmt.Fprint(w.out, "\n")
+		w.lastFooter = nil
+		w.midLine = false
+		w.pendingLine = ""
+		if done != nil {
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+			}
+		}
 		return
 	}
 
 	w.legacyEraseFooter()
 	w.footerLines = 0
 	w.lastFooter = nil
+
+	if w.midLine {
+		fmt.Fprintln(w.out)
+		w.midLine = false
+	}
+}
+
+func (w *Writer) writeTeaStreamingLocked(text string) {
+	if text == "" {
+		return
+	}
+
+	combined := w.pendingLine + text
+	parts := strings.Split(combined, "\n")
+	if len(parts) == 1 {
+		w.pendingLine = combined
+		w.midLine = true
+		return
+	}
+
+	for _, line := range parts[:len(parts)-1] {
+		w.tea.Println(line)
+	}
+
+	w.pendingLine = parts[len(parts)-1]
+	w.midLine = w.pendingLine != ""
+}
+
+func (w *Writer) flushTeaPendingLocked() {
+	if !w.teaActive || w.pendingLine == "" {
+		w.midLine = false
+		return
+	}
+	w.tea.Println(w.pendingLine)
+	w.pendingLine = ""
+	w.midLine = false
 }
 
 // SetProcessStats updates the PID and memory fields used by the footer.
@@ -380,8 +346,6 @@ func (w *Writer) SetProcessStats(pid int, memKB int64) {
 	w.pid = pid
 	w.memKB = memKB
 }
-
-// --- Legacy footer (no viewport mode) ---
 
 // legacyEraseFooter moves cursor up and clears footer lines. Must be called with mu held.
 func (w *Writer) legacyEraseFooter() {
@@ -411,14 +375,14 @@ func (w *Writer) legacyRedrawFooter() {
 func (w *Writer) buildFooter(state *safety.State, item *domain.WorkItem, cfg safety.Config) []string {
 	var lines []string
 
-	// Orange separator line (like Pi's status bar separator).
+	// Orange separator line.
 	sep := strings.Repeat("─", w.width)
 	lines = append(lines, w.style(colorOrange, sep))
 
 	// Status line: ID | iteration | stagnation | files
 	var parts []string
 	if item != nil {
-		parts = append(parts, w.styleBold(colorMagenta, item.ID))
+		parts = append(parts, w.styleBold(colorMagenta, sanitizeTerminalText(item.ID)))
 	}
 	if state != nil {
 		parts = append(parts, fmt.Sprintf("iter %s",
@@ -429,13 +393,14 @@ func (w *Writer) buildFooter(state *safety.State, item *domain.WorkItem, cfg saf
 			w.style(colorWhite, fmt.Sprintf("%d", len(state.TotalFilesChanged)))))
 	}
 	if len(parts) > 0 {
+		parts = sanitizeSlice(parts)
 		lines = append(lines, strings.Join(parts, w.style(colorDim, " | ")))
 	}
 
 	// Current phase
 	if item != nil {
 		if phase := item.CurrentPhase(); phase != nil {
-			lines = append(lines, w.style(colorPink, "-> ")+w.styleBold(colorPink, phase.Name))
+			lines = append(lines, w.style(colorPink, "-> ")+w.styleBold(colorPink, sanitizeTerminalText(phase.Name)))
 		} else if item.AllPhasesComplete() {
 			lines = append(lines, w.style(colorGreen, "all phases complete"))
 		}
@@ -449,15 +414,20 @@ func (w *Writer) buildFooter(state *safety.State, item *domain.WorkItem, cfg saf
 	return lines
 }
 
+func sanitizeSlice(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		out = append(out, sanitizeTerminalText(s))
+	}
+	return out
+}
+
 // Formatting methods per event kind.
 
 func (w *Writer) formatProg(text string) string {
 	prefix := "programmator: "
 	if w.colorEnabled() {
 		return fgBold(colorOrange, "▶ "+prefix) + text
-	}
-	if w.isTTY {
-		return "▶ " + prefix + text
 	}
 	return prefix + text
 }
@@ -512,7 +482,7 @@ func (w *Writer) formatDiffHunk(text string) string {
 }
 
 func (w *Writer) formatMarkdown(text string) string {
-	if w.renderer != nil && !w.useFrameRenderer() {
+	if w.renderer != nil {
 		if rendered, err := w.renderer.Render(text); err == nil {
 			return strings.TrimRight(rendered, "\n")
 		}
@@ -527,56 +497,7 @@ func (w *Writer) formatIterSep(text string) string {
 	return text
 }
 
-func (w *Writer) applyFrameContentStyle(kind event.Kind, text string) string {
-	if !w.isTTY || text == "" {
-		return text
-	}
-
-	switch kind {
-	case event.KindProg:
-		return fgBold(colorOrange, text)
-	case event.KindToolUse:
-		return fg(colorDim, text)
-	case event.KindToolResult:
-		return fg(colorDimmer, text)
-	case event.KindReview:
-		return fg(colorCyan, text)
-	case event.KindDiffAdd:
-		return fg(colorGreen, text)
-	case event.KindDiffDel:
-		return fg(colorRed, text)
-	case event.KindDiffCtx:
-		return fg(colorDim, text)
-	case event.KindDiffHunk:
-		return fg(colorCyan, text)
-	case event.KindIterationSeparator:
-		return bold(text)
-	default:
-		return text
-	}
-}
-
-func (w *Writer) applyFrameFooterStyle(index int, text string) string {
-	if !w.isTTY || text == "" {
-		return text
-	}
-
-	switch index {
-	case 0:
-		return fg(colorOrange, text)
-	case 1:
-		return fg(colorDim, text)
-	case 2:
-		if strings.Contains(text, "all phases complete") {
-			return fg(colorGreen, text)
-		}
-		return fg(colorPink, text)
-	default:
-		return fg(colorDim, text)
-	}
-}
-
-// style wraps text with 256-color foreground in color-enabled mode, plain otherwise.
+// style wraps text with 256-color foreground in TTY mode, plain otherwise.
 func (w *Writer) style(color int, text string) string {
 	if w.colorEnabled() {
 		return fg(color, text)
@@ -584,23 +505,12 @@ func (w *Writer) style(color int, text string) string {
 	return text
 }
 
-// styleBold wraps text with 256-color foreground and bold in color-enabled mode.
+// styleBold wraps text with 256-color foreground and bold in TTY mode.
 func (w *Writer) styleBold(color int, text string) string {
 	if w.colorEnabled() {
 		return fgBold(color, text)
 	}
 	return text
-}
-
-func trimRunes(s string, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	r := []rune(s)
-	if len(r) <= width {
-		return s
-	}
-	return string(r[:width])
 }
 
 // sanitizeTerminalText removes control sequences that can move the cursor or
