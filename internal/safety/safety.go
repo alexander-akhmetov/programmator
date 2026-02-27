@@ -2,8 +2,6 @@
 package safety
 
 import (
-	"os"
-	"strconv"
 	"time"
 )
 
@@ -32,41 +30,6 @@ type Config struct {
 	StagnationLimit     int
 	Timeout             int
 	MaxReviewIterations int
-}
-
-func ConfigFromEnv() Config {
-	cfg := Config{
-		MaxIterations:       DefaultMaxIterations,
-		StagnationLimit:     DefaultStagnationLimit,
-		Timeout:             DefaultTimeout,
-		MaxReviewIterations: DefaultMaxReviewIterations,
-	}
-
-	if v := os.Getenv("PROGRAMMATOR_MAX_ITERATIONS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.MaxIterations = n
-		}
-	}
-
-	if v := os.Getenv("PROGRAMMATOR_STAGNATION_LIMIT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.StagnationLimit = n
-		}
-	}
-
-	if v := os.Getenv("PROGRAMMATOR_TIMEOUT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Timeout = n
-		}
-	}
-
-	if v := os.Getenv("PROGRAMMATOR_MAX_REVIEW_ITERATIONS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.MaxReviewIterations = n
-		}
-	}
-
-	return cfg
 }
 
 type ModelTokens struct {

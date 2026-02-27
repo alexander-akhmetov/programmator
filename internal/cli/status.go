@@ -20,19 +20,6 @@ type sessionInfo struct {
 	PID        int    `json:"pid"`
 }
 
-var statusCmd = &cobra.Command{
-	Use:   "status",
-	Short: "Show active loop status",
-	Long: `Show the status of any active programmator session.
-
-Displays information about the currently running loop including:
-- Ticket ID being worked on
-- Working directory
-- Start time
-- Process ID`,
-	RunE: runStatus,
-}
-
 func runStatus(_ *cobra.Command, _ []string) error {
 	path := sessionFilePath()
 

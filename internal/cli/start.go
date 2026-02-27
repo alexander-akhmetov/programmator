@@ -18,7 +18,6 @@ var (
 	startMaxIterations   int
 	startStagnationLimit int
 	startTimeout         int
-	startReviewOnly      bool
 
 	// Git workflow flags
 	startAutoCommit         bool
@@ -45,10 +44,9 @@ In non-TTY mode (pipes, CI), output is plain text without ANSI escapes.`,
 
 func init() {
 	startCmd.Flags().StringVarP(&startWorkingDir, "dir", "d", "", "Working directory for Claude (default: current directory)")
-	startCmd.Flags().IntVarP(&startMaxIterations, "max-iterations", "n", 0, "Maximum iterations (overrides PROGRAMMATOR_MAX_ITERATIONS)")
-	startCmd.Flags().IntVar(&startStagnationLimit, "stagnation-limit", 0, "Stagnation limit (overrides PROGRAMMATOR_STAGNATION_LIMIT)")
-	startCmd.Flags().IntVar(&startTimeout, "timeout", 0, "Timeout per Claude invocation in seconds (overrides PROGRAMMATOR_TIMEOUT)")
-	startCmd.Flags().BoolVar(&startReviewOnly, "review-only", false, "Run only the code review phase (skip task phases)")
+	startCmd.Flags().IntVarP(&startMaxIterations, "max-iterations", "n", 0, "Maximum iterations")
+	startCmd.Flags().IntVar(&startStagnationLimit, "stagnation-limit", 0, "Stagnation limit")
+	startCmd.Flags().IntVar(&startTimeout, "timeout", 0, "Timeout per Claude invocation in seconds")
 
 	startCmd.Flags().BoolVar(&startAutoCommit, "auto-commit", false, "Auto-commit changes after each phase completion")
 	startCmd.Flags().BoolVar(&startMoveCompletedPlans, "move-completed", false, "Move completed plan files to plans/completed/")
@@ -73,11 +71,6 @@ func runStart(_ *cobra.Command, args []string) error {
 		return err
 	}
 
-	if err := writeSessionFile(sourceID, wd); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not write session file: %v\n", err)
-	}
-	defer removeSessionFile()
-
 	promptBuilder, err := prompt.NewBuilder(cfg.Prompts)
 	if err != nil {
 		return fmt.Errorf("failed to create prompt builder: %w", err)
@@ -91,7 +84,6 @@ func runStart(_ *cobra.Command, args []string) error {
 
 	runCfg := RunConfig{
 		SafetyConfig:  cfg.ToSafetyConfig(),
-		ReviewOnly:    startReviewOnly,
 		ReviewConfig:  cfg.ToReviewConfig(),
 		PromptBuilder: promptBuilder,
 		TicketCommand: cfg.TicketCommand,

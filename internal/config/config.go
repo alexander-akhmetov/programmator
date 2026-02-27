@@ -1,6 +1,6 @@
 // Package config provides unified configuration management for programmator.
 // Configuration is loaded from multiple sources with the following precedence:
-// embedded defaults → global file → env vars → local file → CLI flags
+// embedded defaults → global file → local file → CLI flags
 package config
 
 import (
@@ -9,7 +9,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 
 	"github.com/alexander-akhmetov/programmator/internal/dirs"
 	"github.com/alexander-akhmetov/programmator/internal/review"
@@ -25,18 +24,6 @@ var validExecutors = map[string]bool{
 	"":       true, // empty defaults to "claude"
 }
 
-// ReviewPhase is deprecated. Kept only for migration from old configs.
-// Use ReviewConfig.Agents instead.
-type ReviewPhase struct {
-	Name           string               `yaml:"name"`
-	IterationLimit int                  `yaml:"iteration_limit,omitempty"`
-	IterationPct   int                  `yaml:"iteration_pct,omitempty"`
-	SeverityFilter []string             `yaml:"severity_filter,omitempty"`
-	Agents         []review.AgentConfig `yaml:"agents"`
-	Parallel       bool                 `yaml:"parallel"`
-	Validate       bool                 `yaml:"validate,omitempty"`
-}
-
 // ClaudeConfig holds Claude executor configuration.
 type ClaudeConfig struct {
 	Flags           string `yaml:"flags"`
@@ -49,9 +36,6 @@ type ReviewConfig struct {
 	MaxIterations int                  `yaml:"max_iterations"`
 	Parallel      bool                 `yaml:"parallel"`
 	Agents        []review.AgentConfig `yaml:"agents,omitempty"`
-
-	// Deprecated: Phases is kept only for migration. Ignored at runtime when Agents is set.
-	Phases []ReviewPhase `yaml:"phases,omitempty"`
 
 	// Set tracking for merge
 	MaxIterationsSet bool `yaml:"-"`
@@ -94,9 +78,6 @@ type Config struct {
 	// Review settings (nested)
 	Review ReviewConfig `yaml:"review"`
 
-	// TUI settings
-	HideTips bool `yaml:"hide_tips"`
-
 	// Prompts (loaded separately, not from YAML)
 	Prompts *Prompts `yaml:"-"`
 
@@ -104,7 +85,6 @@ type Config struct {
 	MaxIterationsSet   bool `yaml:"-"`
 	StagnationLimitSet bool `yaml:"-"`
 	TimeoutSet         bool `yaml:"-"`
-	HideTipsSet        bool `yaml:"-"`
 	PlanExecutorSet    bool `yaml:"-"`
 
 	// Private: track where config was loaded from
@@ -167,7 +147,7 @@ func Load() (*Config, error) {
 // Local config (.programmator/) overrides global config (~/.config/programmator/) per-field.
 // If localDir is empty, only global config is used.
 func LoadWithDirs(globalDir, localDir string) (*Config, error) {
-	// Load in order: embedded → global → env → local
+	// Load in order: embedded → global → local
 	// Each layer only overwrites fields that were explicitly set
 
 	// 1. Start with embedded defaults
@@ -186,10 +166,7 @@ func LoadWithDirs(globalDir, localDir string) (*Config, error) {
 		return nil, fmt.Errorf("load global config: %w", err)
 	}
 
-	// 3. Apply environment variables (between global and local)
-	cfg.applyEnv()
-
-	// 4. Merge local config (highest file precedence)
+	// 3. Merge local config (highest file precedence)
 	if localDir != "" {
 		localPath := filepath.Join(localDir, "config.yaml")
 		if localCfg, err := loadFile(localPath); err == nil {
@@ -268,17 +245,12 @@ func parseConfigWithTracking(data []byte) (*Config, error) {
 	if _, ok := raw["timeout"]; ok {
 		cfg.TimeoutSet = true
 	}
-	if _, ok := raw["hide_tips"]; ok {
-		cfg.HideTipsSet = true
-	}
 	if _, ok := raw["plan_executor"]; ok {
 		cfg.PlanExecutorSet = true
 	}
 
 	// Track review fields
 	if review, ok := raw["review"].(map[string]any); ok {
-		// Silently ignore legacy "passes" key; users should migrate to "agents".
-		delete(review, "passes")
 		if _, ok := review["max_iterations"]; ok {
 			cfg.Review.MaxIterationsSet = true
 		}
@@ -298,79 +270,6 @@ func parseConfigWithTracking(data []byte) (*Config, error) {
 	}
 
 	return cfg, nil
-}
-
-// applyEnv applies environment variables to the config.
-// Env vars sit between global and local config in precedence.
-func (c *Config) applyEnv() {
-	if v := os.Getenv("PROGRAMMATOR_MAX_ITERATIONS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			c.MaxIterations = n
-			c.MaxIterationsSet = true
-			c.sources = append(c.sources, "env:PROGRAMMATOR_MAX_ITERATIONS")
-		} else {
-			log.Printf("warning: ignoring invalid PROGRAMMATOR_MAX_ITERATIONS=%q: %v", v, err)
-		}
-	}
-
-	if v := os.Getenv("PROGRAMMATOR_STAGNATION_LIMIT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			c.StagnationLimit = n
-			c.StagnationLimitSet = true
-			c.sources = append(c.sources, "env:PROGRAMMATOR_STAGNATION_LIMIT")
-		} else {
-			log.Printf("warning: ignoring invalid PROGRAMMATOR_STAGNATION_LIMIT=%q: %v", v, err)
-		}
-	}
-
-	if v := os.Getenv("PROGRAMMATOR_TIMEOUT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			c.Timeout = n
-			c.TimeoutSet = true
-			c.sources = append(c.sources, "env:PROGRAMMATOR_TIMEOUT")
-		} else {
-			log.Printf("warning: ignoring invalid PROGRAMMATOR_TIMEOUT=%q: %v", v, err)
-		}
-	}
-
-	if v := os.Getenv("PROGRAMMATOR_EXECUTOR"); v != "" {
-		if validExecutors[v] {
-			c.Executor = v
-			c.sources = append(c.sources, "env:PROGRAMMATOR_EXECUTOR")
-		} else {
-			log.Printf("warning: ignoring invalid PROGRAMMATOR_EXECUTOR=%q: unknown executor (supported: claude)", v)
-		}
-	}
-
-	if v := os.Getenv("PROGRAMMATOR_CLAUDE_FLAGS"); v != "" {
-		c.Claude.Flags = v
-		c.sources = append(c.sources, "env:PROGRAMMATOR_CLAUDE_FLAGS")
-	}
-
-	if v := os.Getenv("CLAUDE_CONFIG_DIR"); v != "" {
-		c.Claude.ConfigDir = v
-		c.sources = append(c.sources, "env:CLAUDE_CONFIG_DIR")
-	}
-
-	if v := os.Getenv("PROGRAMMATOR_ANTHROPIC_API_KEY"); v != "" {
-		c.Claude.AnthropicAPIKey = v
-		c.sources = append(c.sources, "env:PROGRAMMATOR_ANTHROPIC_API_KEY")
-	}
-
-	if v := os.Getenv("PROGRAMMATOR_TICKET_COMMAND"); v != "" {
-		c.TicketCommand = v
-		c.sources = append(c.sources, "env:PROGRAMMATOR_TICKET_COMMAND")
-	}
-
-	if v := os.Getenv("PROGRAMMATOR_MAX_REVIEW_ITERATIONS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			c.Review.MaxIterations = n
-			c.Review.MaxIterationsSet = true
-			c.sources = append(c.sources, "env:PROGRAMMATOR_MAX_REVIEW_ITERATIONS")
-		} else {
-			log.Printf("warning: ignoring invalid PROGRAMMATOR_MAX_REVIEW_ITERATIONS=%q: %v", v, err)
-		}
-	}
 }
 
 // isValidCommandName checks that a command name contains only safe characters.
@@ -406,10 +305,6 @@ func (c *Config) mergeFrom(src *Config) {
 		c.Timeout = src.Timeout
 		c.TimeoutSet = true
 	}
-	if src.HideTipsSet {
-		c.HideTips = src.HideTips
-		c.HideTipsSet = true
-	}
 	if src.Executor != "" {
 		c.Executor = src.Executor
 	}
@@ -443,10 +338,6 @@ func (c *Config) mergeFrom(src *Config) {
 	if len(src.Review.Agents) > 0 {
 		c.Review.Agents = src.Review.Agents
 	}
-	if len(src.Review.Phases) > 0 {
-		c.Review.Phases = src.Review.Phases
-	}
-
 	// Git config merge
 	if src.Git.AutoCommitSet {
 		c.Git.AutoCommit = src.Git.AutoCommit

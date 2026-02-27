@@ -28,9 +28,6 @@ func TestStartCmdFlags(t *testing.T) {
 	timeoutFlag := flags.Lookup("timeout")
 	require.NotNil(t, timeoutFlag)
 
-	reviewOnlyFlag := flags.Lookup("review-only")
-	require.NotNil(t, reviewOnlyFlag)
-
 	autoCommitFlag := flags.Lookup("auto-commit")
 	require.NotNil(t, autoCommitFlag)
 

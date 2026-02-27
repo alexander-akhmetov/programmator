@@ -17,7 +17,6 @@ type Engine struct {
 	ReviewIterations int  // total review iterations completed
 	PendingReviewFix bool // true when Claude should fix review issues
 	ReviewPassed     bool // true when review has passed
-	ReviewOnly       bool // true for review-only mode (skips task phases)
 	MaxReviewIter    int  // from review.max_iterations; 0 means unlimited
 }
 

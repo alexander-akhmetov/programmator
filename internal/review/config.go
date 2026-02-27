@@ -2,9 +2,6 @@
 package review
 
 import (
-	"os"
-	"strconv"
-
 	"github.com/alexander-akhmetov/programmator/internal/llm"
 )
 
@@ -52,17 +49,4 @@ func DefaultAgents() []AgentConfig {
 		{Name: "linter", Focus: []string{"lint errors", "formatting", "static analysis"}},
 		{Name: "claudemd", Focus: []string{"CLAUDE.md compliance", "project conventions"}},
 	}
-}
-
-// ConfigFromEnv loads config from environment or uses defaults.
-func ConfigFromEnv() Config {
-	cfg := DefaultConfig()
-
-	if v := os.Getenv("PROGRAMMATOR_MAX_REVIEW_ITERATIONS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.MaxIterations = n
-		}
-	}
-
-	return cfg
 }

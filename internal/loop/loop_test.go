@@ -40,7 +40,7 @@ func TestNewLoop(t *testing.T) {
 		Timeout:         60,
 	}
 
-	l := New(config, "/tmp", nil, nil, false)
+	l := New(config, "/tmp", nil, false)
 
 	if l == nil {
 		t.Fatal("New() returned nil")
@@ -58,7 +58,7 @@ func TestNewLoop(t *testing.T) {
 
 func TestLoopStop(t *testing.T) {
 	config := safety.Config{}
-	l := New(config, "", nil, nil, false)
+	l := New(config, "", nil, false)
 
 	l.Stop()
 
@@ -72,7 +72,7 @@ func TestLoopStop(t *testing.T) {
 
 func TestInvokeClaudePrintCapturesStderr(t *testing.T) {
 	config := safety.Config{MaxIterations: 1, StagnationLimit: 1, Timeout: 10}
-	l := New(config, "", nil, nil, false)
+	l := New(config, "", nil, false)
 
 	// Override the claude binary with a script that writes to stderr and exits 1
 	origPath := os.Getenv("PATH")
@@ -92,7 +92,7 @@ func TestInvokeClaudePrintCapturesStderr(t *testing.T) {
 
 func TestInvokeClaudePrintErrorWithoutStderr(t *testing.T) {
 	config := safety.Config{MaxIterations: 1, StagnationLimit: 1, Timeout: 10}
-	l := New(config, "", nil, nil, false)
+	l := New(config, "", nil, false)
 
 	origPath := os.Getenv("PATH")
 	tmpDir := t.TempDir()
@@ -136,7 +136,7 @@ func TestStateCallback(t *testing.T) {
 	}
 
 	config := safety.Config{}
-	l := New(config, "", nil, stateCallback, false)
+	l := New(config, "", stateCallback, false)
 
 	if l.onStateChange == nil {
 		t.Fatal("onStateChange callback should be set")
@@ -158,29 +158,10 @@ func TestStateCallback(t *testing.T) {
 	}
 }
 
-func TestLoopLog(t *testing.T) {
-	var logOutput string
-	onOutput := func(text string) {
-		logOutput = text
-	}
-
-	config := safety.Config{}
-	l := New(config, "", onOutput, nil, false)
-
-	l.log("test message")
-
-	if !strings.Contains(logOutput, protocol.MarkerProg) {
-		t.Error("log output should contain [PROG] marker")
-	}
-	if !strings.Contains(logOutput, "test message") {
-		t.Error("log output should contain the message")
-	}
-}
-
 func TestLoopLogEvent(t *testing.T) {
 	var received []event.Event
 	config := safety.Config{}
-	l := New(config, "", nil, nil, false)
+	l := New(config, "", nil, false)
 	l.SetEventCallback(func(e event.Event) {
 		received = append(received, e)
 	})
@@ -196,7 +177,7 @@ func TestLoopLogEvent(t *testing.T) {
 func TestLoopLogNoCallback(t *testing.T) {
 	_ = t // test passes if no panic occurs; named param allows future assertions
 	config := safety.Config{}
-	l := New(config, "", nil, nil, false)
+	l := New(config, "", nil, false)
 
 	l.log("test message")
 }
@@ -259,7 +240,7 @@ func TestRunAllPhasesCompleteAtStart(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 	l.SetReviewConfig(singleAgentReviewConfig())
 	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
@@ -278,7 +259,7 @@ func TestRunGetTicketError(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 
 	result, err := l.Run("nonexistent")
 
@@ -299,7 +280,7 @@ func TestRunStopRequested(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 
 	l.Stop()
 
@@ -328,7 +309,7 @@ func TestRunStateCallbackCalled(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithSource(config, "", nil, stateCallback, false, mock)
+	l := NewWithSource(config, "", stateCallback, false, mock)
 	l.SetReviewConfig(singleAgentReviewConfig())
 	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
@@ -339,7 +320,7 @@ func TestRunStateCallbackCalled(t *testing.T) {
 
 func TestNewWithSourceNil(t *testing.T) {
 	config := safety.Config{MaxIterations: 10}
-	l := NewWithSource(config, "/tmp", nil, nil, false, nil)
+	l := NewWithSource(config, "/tmp", nil, false, nil)
 
 	require.NotNil(t, l)
 	require.Nil(t, l.source)
@@ -358,7 +339,7 @@ func TestRunWithMockInvokerDone(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 	l.SetReviewConfig(singleAgentReviewConfig())
 	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
@@ -394,7 +375,7 @@ func TestRunWithMockInvokerBlocked(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 
 	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
@@ -436,7 +417,7 @@ func TestRunWithMockInvokerNoStatus(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 5, Timeout: 60}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 	l.SetReviewConfig(singleAgentReviewConfig())
 	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
@@ -466,7 +447,7 @@ func TestRunWithMockInvokerError(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 	l.SetReviewConfig(singleAgentReviewConfig())
 
 	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
@@ -494,7 +475,7 @@ func TestRunMaxIterations(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 3, StagnationLimit: 10, Timeout: 60}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 
 	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
@@ -525,7 +506,7 @@ func TestRunStagnation(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 2, Timeout: 60}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 
 	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
@@ -556,7 +537,7 @@ func TestRunFilesChanged(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 3, StagnationLimit: 10, Timeout: 60}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 
 	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		invocation++
@@ -596,7 +577,7 @@ func TestRunGetTicketErrorDuringLoop(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 
 	result, err := l.Run("test-123")
 
@@ -605,7 +586,7 @@ func TestRunGetTicketErrorDuringLoop(t *testing.T) {
 }
 
 func TestSetInvoker(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
+	l := New(safety.Config{}, "", nil, false)
 
 	require.Nil(t, l.invoker)
 
@@ -629,7 +610,7 @@ func TestRunParseError(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 
 	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
 		return `PROGRAMMATOR_STATUS:
@@ -656,7 +637,7 @@ func TestRunContextCancellation(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 
 	invocations := 0
 	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
@@ -702,7 +683,7 @@ func createMockReviewRunner(t *testing.T, hasIssues bool, issueCount int) *revie
 		},
 	}
 
-	runner := review.NewRunner(cfg, nil)
+	runner := review.NewRunner(cfg)
 	runner.SetAgentFactory(func(agentCfg review.AgentConfig, _ string) review.Agent {
 		mock := review.NewMockAgent(agentCfg.Name)
 		// Validators should return empty results
@@ -745,7 +726,7 @@ func createMockReviewRunnerFunc(t *testing.T, resultFunc func() (hasIssues bool,
 		},
 	}
 
-	runner := review.NewRunner(cfg, nil)
+	runner := review.NewRunner(cfg)
 	runner.SetAgentFactory(func(agentCfg review.AgentConfig, _ string) review.Agent {
 		mock := review.NewMockAgent(agentCfg.Name)
 		// Validators should return empty results
@@ -780,7 +761,7 @@ func createMockReviewRunnerFunc(t *testing.T, resultFunc func() (hasIssues bool,
 }
 
 func TestSetReviewConfig(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
+	l := New(safety.Config{}, "", nil, false)
 
 	cfg := review.Config{
 		MaxIterations: 5,
@@ -788,15 +769,6 @@ func TestSetReviewConfig(t *testing.T) {
 	l.SetReviewConfig(cfg)
 
 	require.Equal(t, 5, l.reviewConfig.MaxIterations)
-}
-
-func TestSetReviewOnly(t *testing.T) {
-	l := New(safety.Config{}, "", nil, nil, false)
-
-	require.False(t, l.reviewOnly)
-
-	l.SetReviewOnly(true)
-	require.True(t, l.reviewOnly)
 }
 
 func TestRunWithPlanSource_UpdatesCheckboxes(t *testing.T) {
@@ -814,7 +786,7 @@ func TestRunWithPlanSource_UpdatesCheckboxes(t *testing.T) {
 
 	planSource := source.NewPlanSource(planPath)
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithSource(config, tmpDir, nil, nil, false, planSource)
+	l := NewWithSource(config, tmpDir, nil, false, planSource)
 	l.SetReviewConfig(singleAgentReviewConfig())
 	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
@@ -866,7 +838,7 @@ func TestRunPhaselessTicket_CompletesOnDone(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 5, Timeout: 60}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 	l.SetReviewConfig(singleAgentReviewConfig())
 	reviewCalls := 0
 	l.SetReviewRunner(createMockReviewRunnerFunc(t, func() (bool, int) {
@@ -911,7 +883,7 @@ func TestRunPhaselessTicket_ContinuesUntilDone(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 5, Timeout: 60}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 	l.SetReviewConfig(singleAgentReviewConfig())
 	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
@@ -961,7 +933,7 @@ func TestRunPhaselessTicket_SafetyLimitsStillApply(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 2, Timeout: 60}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 	l.SetReviewConfig(singleAgentReviewConfig())
 	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
@@ -994,7 +966,7 @@ func TestRunPhaselessTicket_BlockedHandled(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 5, Timeout: 60}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 	l.SetReviewConfig(singleAgentReviewConfig())
 	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
@@ -1030,7 +1002,7 @@ func TestHandleMultiPhaseReview_IterationLimitOneAllowsFix(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 50, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 50}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 
 	l.SetReviewConfig(review.Config{
 		MaxIterations: 50,
@@ -1081,7 +1053,7 @@ func TestMainLoopUsesReviewFixPromptWhenPendingFix(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 50, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 50}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 
 	l.SetReviewConfig(review.Config{
 		MaxIterations: 50,
@@ -1140,7 +1112,7 @@ func TestMainLoopUsesPromptBuilderForTaskPrompt(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 2, StagnationLimit: 10, Timeout: 60}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 	l.SetReviewConfig(singleAgentReviewConfig())
 	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
@@ -1184,7 +1156,7 @@ func TestReviewUsesMaxIterations(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 100, StagnationLimit: 50, Timeout: 60, MaxReviewIterations: 100}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 
 	// Set review config with low MaxIterations
 	l.SetReviewConfig(review.Config{
@@ -1229,7 +1201,7 @@ func TestReviewMaxIterationsOnly_NoPhaseIterationBudgets(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 100, StagnationLimit: 50, Timeout: 60, MaxReviewIterations: 100}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 
 	// Set review config with max_iterations=3 — this single limit controls the review loop
 	l.SetReviewConfig(review.Config{
@@ -1275,7 +1247,7 @@ func TestRun_MaxReviewIterOneRunsOneReview(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 100, StagnationLimit: 50, Timeout: 60, MaxReviewIterations: 100}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 
 	l.SetReviewConfig(review.Config{
 		MaxIterations: 1,
@@ -1319,7 +1291,7 @@ func TestRunReview_AgentErrorsDoNotConsumeIterationBudget(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 100, StagnationLimit: 50, Timeout: 60, MaxReviewIterations: 100}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 
 	l.SetReviewConfig(review.Config{
 		MaxIterations: 2,
@@ -1370,7 +1342,7 @@ func TestRunReview_UnlimitedIterations(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 100, StagnationLimit: 50, Timeout: 60, MaxReviewIterations: 100}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 
 	// MaxIterations=0 means unlimited
 	l.SetReviewConfig(review.Config{
@@ -1418,7 +1390,7 @@ func createMockReviewRunnerWithErrors(t *testing.T, resultFunc func() (agentErro
 		},
 	}
 
-	runner := review.NewRunner(cfg, nil)
+	runner := review.NewRunner(cfg)
 	runner.SetAgentFactory(func(agentCfg review.AgentConfig, _ string) review.Agent {
 		mock := review.NewMockAgent(agentCfg.Name)
 		if agentCfg.Name == "simplification-validator" || agentCfg.Name == "issue-validator" {
@@ -1472,7 +1444,7 @@ func TestReviewAgentErrorsHaveRetryLimit(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 10}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 
 	l.SetReviewConfig(review.Config{
 		MaxIterations: 5,
@@ -1594,7 +1566,7 @@ func TestRunPhaseCompletionTriggersReviewRunner(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 5, Timeout: 60, MaxReviewIterations: 10}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 
 	l.SetReviewConfig(review.Config{
 		MaxIterations: 3,
@@ -1640,7 +1612,7 @@ func TestRunResultDurationTracked(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 	l.SetReviewConfig(singleAgentReviewConfig())
 	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
 
@@ -1666,7 +1638,7 @@ func TestRunRecentSummariesPopulated(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 3, StagnationLimit: 10, Timeout: 60}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 
 	invocation := 0
 	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
@@ -1687,37 +1659,6 @@ func TestRunRecentSummariesPopulated(t *testing.T) {
 	require.GreaterOrEqual(t, len(result.RecentSummaries), 2, "should have summaries from multiple iterations")
 }
 
-// TestRunOutputCallbackDuringRun verifies that the output callback receives messages
-// during a full Run cycle (not just RunReviewOnly).
-func TestRunOutputCallbackDuringRun(t *testing.T) {
-	mock := source.NewMockSource()
-	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
-		return &domain.WorkItem{
-			ID:    "test-output",
-			Title: "Test Output Callback",
-			Phases: []domain.Phase{
-				{Name: "Phase 1", Completed: true},
-			},
-		}, nil
-	}
-
-	var outputCalls int
-	onOutput := func(_ string) {
-		outputCalls++
-	}
-
-	config := safety.Config{MaxIterations: 10, StagnationLimit: 3, Timeout: 60}
-	l := NewWithSource(config, "", onOutput, nil, false, mock)
-	l.SetReviewConfig(singleAgentReviewConfig())
-	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
-
-	result, err := l.Run("test-output")
-
-	require.NoError(t, err)
-	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
-	require.Greater(t, outputCalls, 0, "output callback should be called during Run")
-}
-
 // TestRunEventEmissionDuringFullRun verifies that events are emitted during Run
 // when an event callback is set.
 func TestRunEventEmissionDuringFullRun(t *testing.T) {
@@ -1734,7 +1675,7 @@ func TestRunEventEmissionDuringFullRun(t *testing.T) {
 
 	var receivedEvents []event.Event
 	config := safety.Config{MaxIterations: 10, StagnationLimit: 5, Timeout: 60}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 	l.SetEventCallback(func(e event.Event) {
 		receivedEvents = append(receivedEvents, e)
 	})
@@ -1782,7 +1723,7 @@ func TestRunReviewFixCycleInMainLoop(t *testing.T) {
 	}
 
 	config := safety.Config{MaxIterations: 50, StagnationLimit: 10, Timeout: 60, MaxReviewIterations: 50}
-	l := NewWithSource(config, "", nil, nil, false, mock)
+	l := NewWithSource(config, "", nil, false, mock)
 
 	l.SetReviewConfig(review.Config{
 		MaxIterations: 10,
@@ -1834,7 +1775,7 @@ func TestConsecutiveInvocationFailures(t *testing.T) {
 	}
 
 	cfg := safety.Config{MaxIterations: 20, StagnationLimit: 20, Timeout: 60}
-	l := NewWithSource(cfg, "", nil, nil, false, mock)
+	l := NewWithSource(cfg, "", nil, false, mock)
 	l.SetReviewConfig(review.Config{
 		MaxIterations: 10,
 		Agents:        []review.AgentConfig{{Name: "test"}},
@@ -1979,7 +1920,7 @@ func TestHandleToolResult(t *testing.T) {
 			var eventReceived event.Event
 			var eventCalled bool
 
-			l := New(safety.Config{}, "/tmp", nil, nil, false)
+			l := New(safety.Config{}, "/tmp", nil, false)
 
 			if tc.wantEvent {
 				l.onEvent = func(e event.Event) {
@@ -1999,20 +1940,6 @@ func TestHandleToolResult(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestHandleToolResultWithOutputCallback(t *testing.T) {
-	// When only onOutput is set (no onEvent), output callback should be used
-	var outputText string
-	l := New(safety.Config{}, "/tmp", nil, nil, false)
-	l.onOutput = func(text string) {
-		outputText = text
-	}
-
-	l.handleToolResult("Read", "line1\nline2\n")
-
-	require.Contains(t, outputText, "Read 2 lines")
-	require.Contains(t, outputText, protocol.MarkerToolRes)
 }
 
 func TestOutputToolUse(t *testing.T) {
@@ -2064,7 +1991,7 @@ func TestOutputToolUse(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var eventReceived event.Event
 
-			l := New(safety.Config{}, "/tmp", nil, nil, false)
+			l := New(safety.Config{}, "/tmp", nil, false)
 			l.onEvent = func(e event.Event) {
 				eventReceived = e
 			}
@@ -2077,22 +2004,8 @@ func TestOutputToolUse(t *testing.T) {
 	}
 }
 
-func TestOutputToolUseWithOutputCallback(t *testing.T) {
-	// When only onOutput is set (no onEvent), output callback should be used
-	var outputText string
-	l := New(safety.Config{}, "/tmp", nil, nil, false)
-	l.onOutput = func(text string) {
-		outputText = text
-	}
-
-	l.outputToolUse("Read", map[string]any{"file_path": "/foo/bar.go"})
-
-	require.Contains(t, outputText, "Read /foo/bar.go")
-	require.Contains(t, outputText, protocol.MarkerTool)
-}
-
 func TestOutputToolUseNoCallback(_ *testing.T) {
-	l := New(safety.Config{}, "/tmp", nil, nil, false)
+	l := New(safety.Config{}, "/tmp", nil, false)
 	// No callbacks set - should not panic
 	l.outputToolUse("Read", map[string]any{"file_path": "/foo.go"})
 }
@@ -2164,7 +2077,7 @@ func TestOutputEditDiff(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var events []event.Event
 
-			l := New(safety.Config{}, "/tmp", nil, nil, false)
+			l := New(safety.Config{}, "/tmp", nil, false)
 			l.onEvent = func(e event.Event) {
 				events = append(events, e)
 			}
@@ -2202,31 +2115,10 @@ func TestOutputEditDiff(t *testing.T) {
 	}
 }
 
-func TestOutputEditDiffWithOutputCallback(t *testing.T) {
-	var outputs []string
-
-	l := New(safety.Config{}, "/tmp", nil, nil, false)
-	l.onOutput = func(text string) {
-		outputs = append(outputs, text)
-	}
-	// Note: onEvent is nil, so onOutput should be used
-
-	l.outputEditDiff(map[string]any{
-		"old_string": "old\n",
-		"new_string": "new\n",
-	})
-
-	require.NotEmpty(t, outputs, "should output via onOutput callback")
-
-	// Check for diff markers in output
-	combined := strings.Join(outputs, "")
-	require.Contains(t, combined, protocol.MarkerDiffAt, "should contain diff marker")
-}
-
 func TestOutputToolUseTriggersEditDiff(t *testing.T) {
 	var events []event.Event
 
-	l := New(safety.Config{}, "/tmp", nil, nil, false)
+	l := New(safety.Config{}, "/tmp", nil, false)
 	l.onEvent = func(e event.Event) {
 		events = append(events, e)
 	}

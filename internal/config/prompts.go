@@ -21,7 +21,6 @@ type Prompts struct {
 	Phased      string // Template for phased execution (has checkboxed tasks)
 	Phaseless   string // Template for phaseless execution (single task)
 	ReviewFirst string // Template for review fix prompt
-	PlanCreate  string // Template for interactive plan creation
 }
 
 // promptLoader handles loading prompts with fallback chain.
@@ -59,11 +58,6 @@ func (p *promptLoader) Load(globalDir, localDir string) (*Prompts, error) {
 	prompts.ReviewFirst, err = p.loadPromptWithLocalFallback(localDir, globalDir, "review_first.md")
 	if err != nil {
 		return nil, fmt.Errorf("load review_first prompt: %w", err)
-	}
-
-	prompts.PlanCreate, err = p.loadPromptWithLocalFallback(localDir, globalDir, "plan_create.md")
-	if err != nil {
-		return nil, fmt.Errorf("load plan_create prompt: %w", err)
 	}
 
 	return &prompts, nil

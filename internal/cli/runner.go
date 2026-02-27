@@ -20,7 +20,6 @@ import (
 // RunConfig holds all configuration needed to run the loop.
 type RunConfig struct {
 	SafetyConfig      safety.Config
-	ReviewOnly        bool
 	ReviewConfig      review.Config
 	PromptBuilder     *prompt.Builder
 	TicketCommand     string
@@ -41,11 +40,9 @@ func Run(ctx context.Context, sourceID, workingDir string, cfg RunConfig) (*loop
 
 	w := NewWriter(out, cfg.IsTTY, cfg.TermWidth)
 
-	// Create loop with nil output callback — events go through the event callback.
 	l := loop.New(
 		cfg.SafetyConfig,
 		workingDir,
-		nil,
 		func(state *safety.State, workItem *domain.WorkItem, _ []string) {
 			w.UpdateFooter(state, workItem, cfg.SafetyConfig)
 		},
@@ -59,7 +56,6 @@ func Run(ctx context.Context, sourceID, workingDir string, cfg RunConfig) (*loop
 		w.SetProcessStats(pid, memoryKB)
 	})
 
-	l.SetReviewOnly(cfg.ReviewOnly)
 	l.SetReviewConfig(cfg.ReviewConfig)
 	if cfg.PromptBuilder != nil {
 		l.SetPromptBuilder(cfg.PromptBuilder)

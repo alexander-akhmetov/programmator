@@ -23,8 +23,6 @@ go install ./cmd/programmator
 go run ./cmd/programmator start <ticket-id>      # ticket
 go run ./cmd/programmator start ./plan.md        # plan file
 go run ./cmd/programmator start ./plan.md --auto-commit  # with auto git workflow
-go run ./cmd/programmator status
-go run ./cmd/programmator plan create "description"  # interactive plan creation
 go run ./cmd/programmator config show             # show resolved config
 
 # Lint (matches CI: golangci-lint + govulncheck + deadcode + go mod tidy)
@@ -36,7 +34,6 @@ make fmt
 # E2E test prep
 make e2e-prep                     # Create toy project for plan-based run
 make e2e-review                   # Create toy project for review mode
-make e2e-plan                     # Create toy project for plan creation
 ```
 
 ## Architecture
@@ -60,13 +57,13 @@ main.go (entry) → Loop.Run() → [for each iteration]:
 - **internal/loop/loop.go**: Main orchestration. Manages iteration state, invokes Claude via `llm.Invoker`, handles streaming JSON output. Supports process memory monitoring and auto-commit after phases.
 - **internal/llm/**: Claude CLI invocation layer. Defines `Invoker` interface, streaming JSON parser, environment filtering (strips `ANTHROPIC_API_KEY`), and hook support.
 - **internal/domain/**: Core model types (`WorkItem`, `Phase`).
-- **internal/protocol/**: Cross-package constants — status values (`CONTINUE`, `DONE`, `BLOCKED`, `REVIEW_PASS`, `REVIEW_FAIL`), signal markers for plan creation, and source type identifiers.
+- **internal/protocol/**: Cross-package constants — status values (`CONTINUE`, `DONE`, `BLOCKED`, `REVIEW_PASS`, `REVIEW_FAIL`) and source type identifiers.
 - **internal/source/**: Abstraction layer for work sources. `Source` interface with `TicketSource` and `PlanSource` implementations.
 - **internal/source/detect.go**: Auto-detects source type from CLI argument (file path → plan, otherwise → ticket).
 - **internal/ticket/client.go**: Wrapper around external `ticket` CLI. Parses markdown tickets with checkbox phases (`- [ ]`/`- [x]`). Has mock implementation for testing.
 - **internal/plan/plan.go**: Parses standalone markdown plan files with checkbox tasks and optional validation commands. Supports `MoveTo()` for completed plan lifecycle.
 - **internal/prompt/builder.go**: Builds prompts using Go `text/template` with named variables. Loads templates from embedded defaults, global, or local override files.
-- **internal/parser/parser.go**: Extracts and parses `PROGRAMMATOR_STATUS` YAML block from Claude output. Status values: CONTINUE, DONE, BLOCKED. Also parses `<<<PROGRAMMATOR:QUESTION>>>` and `<<<PROGRAMMATOR:PLAN_READY>>>` signals for interactive plan creation.
+- **internal/parser/parser.go**: Extracts and parses `PROGRAMMATOR_STATUS` YAML block from Claude output. Status values: CONTINUE, DONE, BLOCKED.
 - **internal/review/**: Code review pipeline. Runs parallel review agents, collects structured issues, validates findings, and builds fix prompts.
 - **internal/event/**: Typed event system for communication between loop, CLI, and other components.
 - **internal/safety/safety.go**: Exit conditions: max iterations, stagnation (no file changes), repeated errors.
@@ -110,29 +107,11 @@ PROGRAMMATOR_STATUS:
 
 ## Configuration
 
-Unified YAML config with multi-level merge: embedded defaults → `~/.config/programmator/config.yaml` → env vars → `.programmator/config.yaml` → CLI flags. Run `programmator config show` to see resolved values.
-
-### Environment Variables (Legacy)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PROGRAMMATOR_MAX_ITERATIONS` | 50 | Loop limit |
-| `PROGRAMMATOR_STAGNATION_LIMIT` | 3 | Exit after N iterations with no file changes |
-| `PROGRAMMATOR_TIMEOUT` | 900 | Seconds per executor invocation |
-| `PROGRAMMATOR_EXECUTOR` | `claude` | Which executor to use (only "claude" supported) |
-| `PROGRAMMATOR_CLAUDE_FLAGS` | `""` | Flags passed to Claude |
-| `TICKETS_DIR` | `~/.tickets` | Where ticket files live |
-| `CLAUDE_CONFIG_DIR` | - | Custom Claude config directory |
-| `PROGRAMMATOR_TICKET_COMMAND` | `tk` | Binary name for the ticket CLI (`tk` or `ticket`) |
-| `PROGRAMMATOR_MAX_REVIEW_ITERATIONS` | 3 | Maximum review fix iterations |
-| `PROGRAMMATOR_ANTHROPIC_API_KEY` | - | Anthropic API key forwarded to Claude (`ANTHROPIC_API_KEY` is filtered from inherited env) |
-| `XDG_CONFIG_HOME` | `~/.config` | Base directory for config files (programmator uses `$XDG_CONFIG_HOME/programmator/`) |
-| `XDG_STATE_HOME` | `~/.local/state` | Base directory for state files (programmator uses `$XDG_STATE_HOME/programmator/` for logs and session) |
-| `PROGRAMMATOR_STATE_DIR` | - | Override state directory (takes precedence over `XDG_STATE_HOME`) |
+Unified YAML config with multi-level merge: embedded defaults → `~/.config/programmator/config.yaml` → `.programmator/config.yaml` → CLI flags. Run `programmator config show` to see resolved values.
 
 ### Prompt Templates
 
-Prompts use Go `text/template` syntax. Override by placing files in `~/.config/programmator/prompts/` (global) or `.programmator/prompts/` (local). Templates: `phased.md`, `phaseless.md`, `review_first.md`, `plan_create.md`.
+Prompts use Go `text/template` syntax. Override by placing files in `~/.config/programmator/prompts/` (global) or `.programmator/prompts/` (local). Templates: `phased.md`, `phaseless.md`, `review_first.md`.
 
 ## Testing
 

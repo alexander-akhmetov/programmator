@@ -77,9 +77,7 @@ func runReview(_ *cobra.Command, _ []string) error {
 
 	reviewConfig := cfg.ToReviewConfig()
 
-	runner := review.NewRunner(reviewConfig, func(text string) {
-		fmt.Print(text)
-	})
+	runner := review.NewRunner(reviewConfig)
 
 	result, err := runner.RunIteration(context.Background(), wd, filesChanged)
 	if err != nil {

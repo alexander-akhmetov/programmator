@@ -558,7 +558,7 @@ func createNoIssueReviewRunner(t *testing.T) *review.Runner {
 		},
 	}
 
-	runner := review.NewRunner(cfg, nil)
+	runner := review.NewRunner(cfg)
 	runner.SetAgentFactory(func(agentCfg review.AgentConfig, _ string) review.Agent {
 		mock := review.NewMockAgent(agentCfg.Name)
 		mock.SetReviewFunc(func(_ context.Context, _ string, _ []string) (*review.Result, error) {
@@ -611,7 +611,7 @@ func TestLoopRunWithPlanSource(t *testing.T) {
 	}
 
 	// Create loop with fake invoker
-	loop := New(safetyConfig, dir, nil, nil, false)
+	loop := New(safetyConfig, dir, nil, false)
 	loop.SetInvoker(invoker)
 
 	// Set up PlanSource
@@ -717,7 +717,7 @@ func TestLoopRunWithTwoTaskPlan(t *testing.T) {
 	}
 
 	// Create loop with fake invoker
-	loop := New(safetyConfig, dir, nil, nil, false)
+	loop := New(safetyConfig, dir, nil, false)
 	loop.SetInvoker(invoker)
 
 	// Set up PlanSource
@@ -845,7 +845,7 @@ func TestLoopRunWithAutoBranch(t *testing.T) {
 		MaxReviewIterations: 3,
 	}
 
-	loop := New(safetyConfig, dir, nil, nil, false)
+	loop := New(safetyConfig, dir, nil, false)
 	loop.SetInvoker(invoker)
 	loop.SetSource(source.NewPlanSource(planPath))
 	loop.SetReviewRunner(createNoIssueReviewRunner(t))
@@ -924,7 +924,7 @@ func TestLoopRunWithAutoCommit(t *testing.T) {
 		MaxReviewIterations: 3,
 	}
 
-	loop := New(safetyConfig, dir, nil, nil, false)
+	loop := New(safetyConfig, dir, nil, false)
 	loop.SetInvoker(invoker)
 	loop.SetSource(source.NewPlanSource(planPath))
 	loop.SetReviewRunner(createNoIssueReviewRunner(t))
@@ -990,7 +990,7 @@ func TestLoopRunWithAutoBranchAndAutoCommit(t *testing.T) {
 		MaxReviewIterations: 3,
 	}
 
-	loop := New(safetyConfig, dir, nil, nil, false)
+	loop := New(safetyConfig, dir, nil, false)
 	loop.SetInvoker(invoker)
 	loop.SetSource(source.NewPlanSource(planPath))
 	loop.SetReviewRunner(createNoIssueReviewRunner(t))
@@ -1074,7 +1074,7 @@ func TestLoopRunAutoCommitSkipsWhenNoFiles(t *testing.T) {
 		MaxReviewIterations: 3,
 	}
 
-	loop := New(safetyConfig, dir, nil, nil, false)
+	loop := New(safetyConfig, dir, nil, false)
 	loop.SetInvoker(invoker)
 	loop.SetSource(source.NewPlanSource(planPath))
 	loop.SetReviewRunner(createNoIssueReviewRunner(t))
@@ -1128,7 +1128,7 @@ func TestLoopRunMoveCompletedPlan(t *testing.T) {
 		MaxReviewIterations: 3,
 	}
 
-	loop := New(safetyConfig, dir, nil, nil, false)
+	loop := New(safetyConfig, dir, nil, false)
 	loop.SetInvoker(invoker)
 	loop.SetSource(source.NewPlanSource(planPath))
 	loop.SetReviewRunner(createNoIssueReviewRunner(t))
@@ -1186,7 +1186,7 @@ func TestLoopRunMoveCompletedPlanCustomDir(t *testing.T) {
 		MaxReviewIterations: 3,
 	}
 
-	loop := New(safetyConfig, dir, nil, nil, false)
+	loop := New(safetyConfig, dir, nil, false)
 	loop.SetInvoker(invoker)
 	loop.SetSource(source.NewPlanSource(planPath))
 	loop.SetReviewRunner(createNoIssueReviewRunner(t))
@@ -1246,7 +1246,7 @@ func TestLoopRunMoveCompletedPlanWithAutoCommit(t *testing.T) {
 		MaxReviewIterations: 3,
 	}
 
-	loop := New(safetyConfig, dir, nil, nil, false)
+	loop := New(safetyConfig, dir, nil, false)
 	loop.SetInvoker(invoker)
 	loop.SetSource(source.NewPlanSource(planPath))
 	loop.SetReviewRunner(createNoIssueReviewRunner(t))
@@ -1311,7 +1311,7 @@ func TestLoopRunMoveCompletedPlanDisabled(t *testing.T) {
 		MaxReviewIterations: 3,
 	}
 
-	loop := New(safetyConfig, dir, nil, nil, false)
+	loop := New(safetyConfig, dir, nil, false)
 	loop.SetInvoker(invoker)
 	loop.SetSource(source.NewPlanSource(planPath))
 	loop.SetReviewRunner(createNoIssueReviewRunner(t))

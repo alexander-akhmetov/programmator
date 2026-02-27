@@ -35,9 +35,6 @@ func TestStatusIsValid(t *testing.T) {
 func TestConstants(t *testing.T) {
 	assert.Equal(t, "PROGRAMMATOR_STATUS", StatusBlockKey)
 	assert.Equal(t, "REVIEW_RESULT", ReviewResultBlockKey)
-	assert.Equal(t, "<<<PROGRAMMATOR:QUESTION>>>", SignalQuestion)
-	assert.Equal(t, "<<<PROGRAMMATOR:PLAN_READY>>>", SignalPlanReady)
-	assert.Equal(t, "<<<PROGRAMMATOR:END>>>", SignalEnd)
 	assert.Equal(t, "null", NullPhase)
 	assert.Equal(t, "plan", SourceTypePlan)
 	assert.Equal(t, "ticket", SourceTypeTicket)
