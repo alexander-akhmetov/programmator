@@ -14,7 +14,7 @@ hide_tips: false # Hide sidebar tips section
 
 # Executor settings
 executor: claude # Which coding agent to use (only "claude" supported for now)
-plan_executor: "" # Executor override for plan creation (empty = use global executor)
+plan_executor: "" # Executor override for plan creation (empty = use global executor, must be "claude")
 
 # Claude executor settings
 claude:

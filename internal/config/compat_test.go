@@ -149,15 +149,15 @@ func TestToReviewConfig_NoAgentsNoPhases(t *testing.T) {
 
 func TestPlanExecutorOrDefault(t *testing.T) {
 	t.Run("returns PlanExecutor when set", func(t *testing.T) {
-		cfg := &Config{Executor: "claude", PlanExecutor: "codex"}
-		assert.Equal(t, "codex", cfg.PlanExecutorOrDefault())
+		cfg := &Config{Executor: "claude", PlanExecutor: "other-claude"}
+		assert.Equal(t, "other-claude", cfg.PlanExecutorOrDefault())
 	})
 	t.Run("falls back to Executor when PlanExecutor is empty", func(t *testing.T) {
 		cfg := &Config{Executor: "claude"}
 		assert.Equal(t, "claude", cfg.PlanExecutorOrDefault())
 	})
 	t.Run("local config can clear PlanExecutor back to empty", func(t *testing.T) {
-		global := &Config{Executor: "claude", PlanExecutor: "codex", PlanExecutorSet: true}
+		global := &Config{Executor: "claude", PlanExecutor: "other-claude", PlanExecutorSet: true}
 		local := &Config{PlanExecutor: "", PlanExecutorSet: true}
 		global.mergeFrom(local)
 		assert.Equal(t, "", global.PlanExecutor)
