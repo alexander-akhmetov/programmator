@@ -68,11 +68,6 @@ func runConfigShow(_ *cobra.Command, _ []string) error {
 
 	fmt.Println("## Executor Settings")
 	fmt.Printf("  executor: %s\n", cfg.Executor)
-	if cfg.PlanExecutor != "" {
-		fmt.Printf("  plan_executor: %s\n", cfg.PlanExecutor)
-	} else {
-		fmt.Printf("  plan_executor: (inherits executor)\n")
-	}
 	fmt.Println()
 
 	fmt.Println("## Claude Settings")

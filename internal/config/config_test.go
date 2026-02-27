@@ -13,7 +13,6 @@ func TestLoadEmbedded(t *testing.T) {
 	cfg, err := loadEmbedded()
 	require.NoError(t, err)
 
-	// Check defaults from embedded config
 	assert.Equal(t, 50, cfg.MaxIterations)
 	assert.Equal(t, 3, cfg.StagnationLimit)
 	assert.Equal(t, 900, cfg.Timeout)
@@ -27,7 +26,6 @@ func TestLoadEmbedded(t *testing.T) {
 func TestLoadWithDirs_GlobalOnly(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create global config
 	err := os.WriteFile(
 		filepath.Join(tmpDir, "config.yaml"),
 		[]byte("max_iterations: 100\nstagnation_limit: 5\n"),
@@ -47,7 +45,6 @@ func TestLoadWithDirs_LocalOverridesGlobal(t *testing.T) {
 	globalDir := t.TempDir()
 	localDir := t.TempDir()
 
-	// Create global config
 	err := os.WriteFile(
 		filepath.Join(globalDir, "config.yaml"),
 		[]byte("max_iterations: 100\nstagnation_limit: 5\n"),
@@ -55,7 +52,6 @@ func TestLoadWithDirs_LocalOverridesGlobal(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Create local config that overrides max_iterations
 	err = os.WriteFile(
 		filepath.Join(localDir, "config.yaml"),
 		[]byte("max_iterations: 25\n"),
@@ -69,6 +65,32 @@ func TestLoadWithDirs_LocalOverridesGlobal(t *testing.T) {
 	assert.Equal(t, 25, cfg.MaxIterations)  // from local
 	assert.Equal(t, 5, cfg.StagnationLimit) // from global
 	assert.Equal(t, 900, cfg.Timeout)       // from embedded default
+}
+
+func TestLoadWithDirs_LocalOverridesWithZero(t *testing.T) {
+	globalDir := t.TempDir()
+	localDir := t.TempDir()
+
+	err := os.WriteFile(
+		filepath.Join(globalDir, "config.yaml"),
+		[]byte("max_iterations: 100\nstagnation_limit: 5\n"),
+		0o600,
+	)
+	require.NoError(t, err)
+
+	// Local explicitly sets stagnation_limit to 0
+	err = os.WriteFile(
+		filepath.Join(localDir, "config.yaml"),
+		[]byte("stagnation_limit: 0\n"),
+		0o600,
+	)
+	require.NoError(t, err)
+
+	cfg, err := LoadWithDirs(globalDir, localDir)
+	require.NoError(t, err)
+
+	assert.Equal(t, 100, cfg.MaxIterations) // from global
+	assert.Equal(t, 0, cfg.StagnationLimit) // local overrides to 0
 }
 
 func TestApplyCLIFlags(t *testing.T) {
@@ -86,7 +108,6 @@ func TestApplyCLIFlagsZeroNoOverride(t *testing.T) {
 	cfg, err := loadEmbedded()
 	require.NoError(t, err)
 
-	// Zero values should not override
 	cfg.ApplyCLIFlags(0, 0, 0)
 
 	assert.Equal(t, 50, cfg.MaxIterations)  // unchanged
@@ -159,43 +180,7 @@ func TestSources(t *testing.T) {
 	assert.Contains(t, sources, filepath.Join(localDir, "config.yaml"))
 }
 
-func TestParseConfigWithTracking(t *testing.T) {
-	data := []byte(`
-max_iterations: 100
-`)
-	cfg, err := parseConfigWithTracking(data)
-	require.NoError(t, err)
-
-	assert.True(t, cfg.MaxIterationsSet)
-	assert.False(t, cfg.StagnationLimitSet) // not set in YAML
-	assert.False(t, cfg.TimeoutSet)         // not set in YAML
-}
-
-func TestIsValidCommandName(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  bool
-	}{
-		{"simple", "codex", true},
-		{"with dashes", "my-codex", true},
-		{"with dots", "codex.v2", true},
-		{"with underscore", "my_codex", true},
-		{"empty", "", false},
-		{"with slash", "/usr/bin/codex", false},
-		{"with space", "codex cmd", false},
-		{"with semicolon", "codex;rm", false},
-		{"with ampersand", "codex&&echo", false},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, isValidCommandName(tc.input))
-		})
-	}
-}
-
-func TestMergeFrom_Executor(t *testing.T) {
+func TestApplyOverlay_Executor(t *testing.T) {
 	tests := []struct {
 		name         string
 		baseExec     string
@@ -219,14 +204,14 @@ func TestMergeFrom_Executor(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			base := &Config{Executor: tc.baseExec}
-			override := &Config{Executor: tc.overrideExec}
-			base.mergeFrom(override)
+			overlay := &configOverlay{Executor: tc.overrideExec}
+			base.applyOverlay(overlay)
 			assert.Equal(t, tc.wantExec, base.Executor)
 		})
 	}
 }
 
-func TestMergeFrom_ClaudeConfig(t *testing.T) {
+func TestApplyOverlay_ClaudeConfig(t *testing.T) {
 	base := &Config{
 		Claude: ClaudeConfig{
 			Flags:           "--verbose",
@@ -235,21 +220,38 @@ func TestMergeFrom_ClaudeConfig(t *testing.T) {
 		},
 	}
 
-	override := &Config{
+	overlay := &configOverlay{
 		Claude: ClaudeConfig{
 			Flags: "--model opus",
-			// ConfigDir and AnthropicAPIKey empty — should not override
 		},
 	}
 
-	base.mergeFrom(override)
+	base.applyOverlay(overlay)
 	assert.Equal(t, "--model opus", base.Claude.Flags)
 	assert.Equal(t, "/base/dir", base.Claude.ConfigDir)
 	assert.Equal(t, "base-key", base.Claude.AnthropicAPIKey)
 }
 
+func TestApplyOverlay_PointerFields(t *testing.T) {
+	base := &Config{
+		MaxIterations:   50,
+		StagnationLimit: 3,
+		Timeout:         900,
+	}
+
+	zero := 0
+	overlay := &configOverlay{
+		MaxIterations: &zero, // explicitly set to 0
+		// StagnationLimit: nil — not set
+	}
+
+	base.applyOverlay(overlay)
+	assert.Equal(t, 0, base.MaxIterations)   // overridden to 0
+	assert.Equal(t, 3, base.StagnationLimit) // unchanged (nil)
+	assert.Equal(t, 900, base.Timeout)       // unchanged (nil)
+}
+
 func TestLoadWithDirs_ExecutorConfig(t *testing.T) {
-	// Clear env vars that could interfere
 	for _, key := range []string{"CLAUDE_CONFIG_DIR", "PROGRAMMATOR_CLAUDE_FLAGS", "PROGRAMMATOR_ANTHROPIC_API_KEY", "PROGRAMMATOR_EXECUTOR"} {
 		saved := os.Getenv(key)
 		t.Cleanup(func() { os.Setenv(key, saved) })

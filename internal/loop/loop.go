@@ -1070,9 +1070,7 @@ func (l *Loop) SetProcessStatsCallback(cb ProcessStatsCallback) {
 	l.onProcessStats = cb
 }
 
-// SetEventCallback sets the typed event handler. When set, the loop emits
-// structured events for prog/tool/review/diff messages instead of (or in
-// addition to) the legacy marker-prefixed strings on OutputCallback.
+// SetEventCallback sets the typed event handler for structured loop events.
 func (l *Loop) SetEventCallback(cb EventCallback) {
 	l.onEvent = cb
 }
