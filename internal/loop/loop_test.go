@@ -1133,6 +1133,36 @@ func TestRecordPhaseProgress(t *testing.T) {
 			wantNoteContains: "Completed Build project",
 		},
 		{
+			name: "zero index with name - falls back to name-based",
+			status: &parser.ParsedStatus{
+				PhaseCompletedIndex: intPtr(0),
+				PhaseCompleted:      "Build project",
+				Summary:             "done",
+			},
+			wantByName:       true,
+			wantPhaseName:    "Build project",
+			wantNoteContains: "Completed Build project",
+		},
+		{
+			name: "negative index with name - falls back to name-based",
+			status: &parser.ParsedStatus{
+				PhaseCompletedIndex: intPtr(-1),
+				PhaseCompleted:      "Deploy",
+				Summary:             "done",
+			},
+			wantByName:       true,
+			wantPhaseName:    "Deploy",
+			wantNoteContains: "Completed Deploy",
+		},
+		{
+			name: "zero index without name - records summary",
+			status: &parser.ParsedStatus{
+				PhaseCompletedIndex: intPtr(0),
+				Summary:             "Still working on it",
+			},
+			wantNoteContains: "Still working on it",
+		},
+		{
 			name: "neither index nor name - records summary",
 			status: &parser.ParsedStatus{
 				Summary: "Still working on it",

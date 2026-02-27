@@ -124,6 +124,104 @@ func TestTicketSource_UpdatePhase_Phaseless(t *testing.T) {
 	assert.Empty(t, mock.updatedPhases)
 }
 
+func TestTicketSource_UpdatePhaseByIndex(t *testing.T) {
+	tests := []struct {
+		name           string
+		phases         []domain.Phase
+		index          int
+		wantErr        string
+		wantPhaseName  string
+		wantNoUpdateCall bool
+	}{
+		{
+			name: "valid index",
+			phases: []domain.Phase{
+				{Name: "Phase 1", Completed: false},
+				{Name: "Phase 2", Completed: false},
+			},
+			index:         0,
+			wantPhaseName: "Phase 1",
+		},
+		{
+			name: "last index",
+			phases: []domain.Phase{
+				{Name: "Phase 1", Completed: false},
+				{Name: "Phase 2", Completed: false},
+			},
+			index:         1,
+			wantPhaseName: "Phase 2",
+		},
+		{
+			name: "already completed - no-op",
+			phases: []domain.Phase{
+				{Name: "Phase 1", Completed: true},
+				{Name: "Phase 2", Completed: false},
+			},
+			index:            0,
+			wantNoUpdateCall: true,
+		},
+		{
+			name: "negative index",
+			phases: []domain.Phase{
+				{Name: "Phase 1", Completed: false},
+			},
+			index:   -1,
+			wantErr: "phase index out of range: -1",
+		},
+		{
+			name: "index too large",
+			phases: []domain.Phase{
+				{Name: "Phase 1", Completed: false},
+			},
+			index:   1,
+			wantErr: "phase index out of range: 1",
+		},
+		{
+			name:    "empty phases",
+			phases:  nil,
+			index:   0,
+			wantErr: "phase index out of range: 0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := newMockTicketClient()
+			mock.tickets["t-1"] = &ticket.Ticket{
+				ID:     "t-1",
+				Title:  "Test",
+				Phases: tt.phases,
+			}
+
+			src := NewTicketSource(mock, "")
+			err := src.UpdatePhaseByIndex("t-1", tt.index)
+
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+
+			if tt.wantNoUpdateCall {
+				assert.Empty(t, mock.updatedPhases)
+			} else {
+				require.Len(t, mock.updatedPhases, 1)
+				assert.Equal(t, "t-1", mock.updatedPhases[0].ID)
+				assert.Equal(t, tt.wantPhaseName, mock.updatedPhases[0].PhaseName)
+			}
+		})
+	}
+}
+
+func TestTicketSource_UpdatePhaseByIndex_GetError(t *testing.T) {
+	mock := newMockTicketClient()
+	mock.returnError = errors.New("get failed")
+	src := NewTicketSource(mock, "")
+
+	err := src.UpdatePhaseByIndex("t-1", 0)
+	require.ErrorContains(t, err, "get failed")
+}
+
 func TestTicketSource_AddNote(t *testing.T) {
 	mock := newMockTicketClient()
 	source := NewTicketSource(mock, "")

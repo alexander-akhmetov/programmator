@@ -521,7 +521,7 @@ func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) 
 
 // recordPhaseProgress records phase completion or progress notes.
 func (l *Loop) recordPhaseProgress(rc *runContext, status *parser.ParsedStatus) {
-	if status.PhaseCompletedIndex != nil {
+	if status.PhaseCompletedIndex != nil && *status.PhaseCompletedIndex >= 1 {
 		// Index-based completion: convert 1-based (from agent) to 0-based.
 		idx := *status.PhaseCompletedIndex - 1
 		l.log(fmt.Sprintf("Phase completed by index: %d", *status.PhaseCompletedIndex))
@@ -537,6 +537,22 @@ func (l *Loop) recordPhaseProgress(rc *runContext, status *parser.ParsedStatus) 
 
 		if err := l.autoCommitPhase(phaseName, status.FilesChanged); err != nil {
 			l.log(fmt.Sprintf("Warning: auto-commit failed: %v", err))
+		}
+	} else if status.PhaseCompletedIndex != nil {
+		// Invalid index (< 1): log and fall back to name-based if available.
+		l.log(fmt.Sprintf("Warning: received invalid phase_completed_index %d, ignoring", *status.PhaseCompletedIndex))
+		if status.PhaseCompleted != "" {
+			l.log(fmt.Sprintf("Phase completed (fallback by name): %s", status.PhaseCompleted))
+			if err := rc.source.UpdatePhase(rc.workItemID, status.PhaseCompleted); err != nil {
+				l.log(fmt.Sprintf("Warning: failed to update phase '%s': %v", status.PhaseCompleted, err))
+			}
+			l.addNote(rc, fmt.Sprintf("progress: [iter %d] Completed %s", rc.state.Iteration, status.PhaseCompleted))
+
+			if err := l.autoCommitPhase(status.PhaseCompleted, status.FilesChanged); err != nil {
+				l.log(fmt.Sprintf("Warning: auto-commit failed: %v", err))
+			}
+		} else {
+			l.addNote(rc, fmt.Sprintf("progress: [iter %d] %s", rc.state.Iteration, status.Summary))
 		}
 	} else if status.PhaseCompleted != "" {
 		// Fall back to name-based matching for backwards compat.
