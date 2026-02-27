@@ -172,8 +172,70 @@ func handlePiToolExecutionEnd(event *piEvent, opts InvokeOptions) {
 	if opts.OnToolResult == nil || event.ToolName == "" {
 		return
 	}
-	resultStr := fmt.Sprintf("%v", event.Result)
-	opts.OnToolResult(event.ToolName, resultStr)
+	opts.OnToolResult(event.ToolName, extractToolResultText(event.Result))
+}
+
+// extractToolResultText extracts human-readable text from a Pi tool result.
+// Pi returns results in two shapes:
+//   - {content: [{text: "...", type: "text"}, ...]}           (single object)
+//   - [{content: [{text: "...", type: "text"}, ...]}, ...]    (array of objects)
+//
+// Falls back to JSON marshaling for unknown shapes.
+func extractToolResultText(result any) string {
+	if result == nil {
+		return ""
+	}
+
+	// Try plain string first.
+	if s, ok := result.(string); ok {
+		return s
+	}
+
+	// Extract text from content blocks within a single map.
+	if texts := extractContentTexts(result); len(texts) > 0 {
+		return strings.Join(texts, "\n")
+	}
+
+	// Try array of maps.
+	if items, ok := result.([]any); ok {
+		var texts []string
+		for _, item := range items {
+			texts = append(texts, extractContentTexts(item)...)
+		}
+		if len(texts) > 0 {
+			return strings.Join(texts, "\n")
+		}
+	}
+
+	// Fallback: compact JSON.
+	b, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Sprintf("%v", result)
+	}
+	return string(b)
+}
+
+// extractContentTexts extracts text strings from a {content: [{text: "...", type: "text"}]} map.
+func extractContentTexts(v any) []string {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil
+	}
+	contentList, ok := m["content"].([]any)
+	if !ok {
+		return nil
+	}
+	var texts []string
+	for _, c := range contentList {
+		block, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		if text, ok := block["text"].(string); ok {
+			texts = append(texts, text)
+		}
+	}
+	return texts
 }
 
 func handlePiAgentEnd(event *piEvent, opts InvokeOptions) {

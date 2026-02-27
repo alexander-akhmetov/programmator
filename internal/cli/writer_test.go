@@ -2,9 +2,12 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 
@@ -202,7 +205,7 @@ func TestUpdateFooter(t *testing.T) {
 	}
 }
 
-func TestUpdateFooter_ScrollRegion(t *testing.T) {
+func TestUpdateFooter_FrameRenderer(t *testing.T) {
 	var buf bytes.Buffer
 	w := newTestWriterTTYWithHeight(&buf, 40)
 
@@ -219,13 +222,30 @@ func TestUpdateFooter_ScrollRegion(t *testing.T) {
 	w.UpdateFooter(state, item, safety.Config{MaxIterations: 10, StagnationLimit: 3})
 
 	output := buf.String()
-	// Should contain DECSTBM (scroll region set).
-	assert.Contains(t, output, "\033[1;")
-	assert.Contains(t, output, "r")
-	// Should contain footer content.
+	// Should contain frame cursor positioning and footer content.
+	assert.Contains(t, output, "\033[1;1H")
 	assert.Contains(t, output, "test-sr")
 	assert.Contains(t, output, "Phase 1")
-	assert.True(t, w.scrollSet)
+	assert.Equal(t, len(w.lastFooter), w.footerLines)
+}
+
+func TestUpdateFooter_FrameRendererClampsFooterToTerminalHeight(t *testing.T) {
+	var buf bytes.Buffer
+	w := newTestWriterTTYWithHeight(&buf, 2)
+
+	state := safety.NewState()
+	state.Iteration = 1
+	item := &domain.WorkItem{
+		ID: "tiny-term",
+		Phases: []domain.Phase{
+			{Name: "Phase 1"},
+		},
+	}
+
+	w.UpdateFooter(state, item, safety.Config{MaxIterations: 10, StagnationLimit: 3})
+
+	assert.Equal(t, 1, w.footerLines)
+	assert.Len(t, w.lastFooter, 1)
 }
 
 func TestClearFooter(t *testing.T) {
@@ -265,7 +285,7 @@ func TestClearFooter(t *testing.T) {
 	}
 }
 
-func TestClearFooter_ScrollRegion(t *testing.T) {
+func TestClearFooter_FrameRenderer(t *testing.T) {
 	var buf bytes.Buffer
 	w := newTestWriterTTYWithHeight(&buf, 40)
 
@@ -274,15 +294,14 @@ func TestClearFooter_ScrollRegion(t *testing.T) {
 	item := &domain.WorkItem{ID: "t-sr"}
 	w.UpdateFooter(state, item, safety.Config{MaxIterations: 5})
 
-	assert.True(t, w.scrollSet)
+	assert.False(t, w.frameClosed)
 	buf.Reset()
 
 	w.ClearFooter()
 
 	output := buf.String()
-	// Should reset scroll region.
-	assert.Contains(t, output, "\033[r")
-	assert.False(t, w.scrollSet)
+	assert.Contains(t, output, "\n")
+	assert.True(t, w.frameClosed)
 	assert.Equal(t, 0, w.footerLines)
 }
 
@@ -363,6 +382,38 @@ func TestWriteEvent_StreamingTextWithNewline(t *testing.T) {
 	assert.False(t, w.midLine)
 }
 
+func TestWriteEvent_FrameRendererWrapsLongStreamingLines(t *testing.T) {
+	var buf bytes.Buffer
+	w := newTestWriterTTYWithHeight(&buf, 6)
+	w.width = 10
+
+	w.WriteEvent(event.StreamingText(strings.Repeat("x", 25)))
+
+	assert.GreaterOrEqual(t, len(w.frameRows), 2)
+	assert.Equal(t, 5, utf8.RuneCountInString(w.frameCurrent.text))
+}
+
+func TestWriteEvent_StreamingTextConvertsCarriageReturnToNewline(t *testing.T) {
+	var buf bytes.Buffer
+	w := newTestWriter(&buf)
+
+	w.WriteEvent(event.StreamingText("line1\rline2"))
+
+	assert.Equal(t, "line1\nline2", buf.String())
+	assert.True(t, w.midLine)
+}
+
+func TestWriteEvent_StripsANSISequences(t *testing.T) {
+	var buf bytes.Buffer
+	w := newTestWriter(&buf)
+
+	w.WriteEvent(event.ToolResult("\x1b[31mred\x1b[0m output"))
+
+	output := buf.String()
+	assert.Contains(t, output, "red output")
+	assert.NotContains(t, output, "\x1b")
+}
+
 func TestWriteEvent_StreamingToStructuredTransition(t *testing.T) {
 	var buf bytes.Buffer
 	w := newTestWriter(&buf)
@@ -373,6 +424,11 @@ func TestWriteEvent_StreamingToStructuredTransition(t *testing.T) {
 	output := buf.String()
 	assert.Contains(t, output, "partial\n")
 	assert.Contains(t, output, "programmator:")
+}
+
+func TestSanitizeTerminalText(t *testing.T) {
+	got := sanitizeTerminalText("a\r\nb\rc\x1b[31mred\x1b[0m\x00")
+	assert.Equal(t, "a\nb\ncred", got)
 }
 
 func TestNewWriter(t *testing.T) {
@@ -415,4 +471,175 @@ func TestFooterHasOrangeSeparator(t *testing.T) {
 	// The separator should use the orange color (208).
 	assert.Contains(t, output, "─")
 	assert.Contains(t, output, "\033[38;5;208m")
+}
+
+func TestWriterFrameRenderer_HighLevelStickyFooter(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf, true, 40, 10)
+
+	state := safety.NewState()
+	state.Iteration = 1
+	item := &domain.WorkItem{
+		ID: "ticket-1",
+		Phases: []domain.Phase{
+			{Name: "Phase 1"},
+		},
+	}
+	cfg := safety.Config{MaxIterations: 10, StagnationLimit: 3}
+
+	w.UpdateFooter(state, item, cfg)
+	w.WriteEvent(event.ToolUse("Bash " + strings.Repeat("echo very-long-command ", 4)))
+	w.WriteEvent(event.StreamingText("stream " + strings.Repeat("x", 120)))
+	w.WriteEvent(event.StreamingText("\n"))
+	w.WriteEvent(event.ToolResult("command done"))
+
+	state.Iteration = 2
+	w.UpdateFooter(state, item, cfg)
+
+	screen := simulateScreen(buf.String(), 40, 10)
+	footer := w.lastFooter
+	requireFooterAtBottom(t, screen, footer)
+
+	content := strings.Join(screen[:10-len(footer)], "\n")
+	assert.Contains(t, content, "command done")
+	assert.NotContains(t, content, "ticket-1")
+}
+
+func TestWriterFrameRenderer_HighLevelScrollAndFooter(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf, true, 30, 7)
+
+	state := safety.NewState()
+	state.Iteration = 1
+	item := &domain.WorkItem{
+		ID: "scroll-ticket",
+		Phases: []domain.Phase{
+			{Name: "Phase 1"},
+		},
+	}
+	cfg := safety.Config{MaxIterations: 50, StagnationLimit: 3}
+
+	w.UpdateFooter(state, item, cfg)
+	for i := 1; i <= 25; i++ {
+		w.WriteEvent(event.ToolUse(fmt.Sprintf("Read file-%02d.go", i)))
+	}
+
+	screen := simulateScreen(buf.String(), 30, 7)
+	footer := w.lastFooter
+	requireFooterAtBottom(t, screen, footer)
+
+	content := strings.Join(screen[:7-len(footer)], "\n")
+	assert.Contains(t, content, "file-25.go")
+	assert.NotContains(t, content, "file-01.go")
+}
+
+func requireFooterAtBottom(t *testing.T, screen, footer []string) {
+	t.Helper()
+	for i := range footer {
+		row := len(screen) - len(footer) + i
+		assert.Equal(t, strings.TrimRight(footer[i], " "), strings.TrimRight(screen[row], " "))
+	}
+}
+
+func simulateScreen(output string, width, height int) []string {
+	screen := make([][]rune, height)
+	for i := range screen {
+		screen[i] = []rune(strings.Repeat(" ", width))
+	}
+
+	row, col := 1, 1
+
+	for i := 0; i < len(output); {
+		if output[i] != '\x1b' {
+			r, size := utf8.DecodeRuneInString(output[i:])
+			if r == '\n' {
+				row++
+				col = 1
+				if row > height {
+					row = height
+				}
+			} else {
+				if row >= 1 && row <= height && col >= 1 && col <= width {
+					screen[row-1][col-1] = r
+				}
+				col++
+				if col > width {
+					col = width
+				}
+			}
+			i += size
+			continue
+		}
+
+		if i+1 >= len(output) || output[i+1] != '[' {
+			i++
+			continue
+		}
+
+		j := i + 2
+		for ; j < len(output); j++ {
+			if output[j] >= 0x40 && output[j] <= 0x7e {
+				break
+			}
+		}
+		if j >= len(output) {
+			break
+		}
+
+		params := output[i+2 : j]
+		cmd := output[j]
+
+		switch cmd {
+		case 'H', 'f':
+			row, col = parseCursorPosition(params)
+			if row < 1 {
+				row = 1
+			}
+			if row > height {
+				row = height
+			}
+			if col < 1 {
+				col = 1
+			}
+			if col > width {
+				col = width
+			}
+		case 'K':
+			// 2K = clear entire current line.
+			if params == "2" && row >= 1 && row <= height {
+				screen[row-1] = []rune(strings.Repeat(" ", width))
+				col = 1
+			}
+		}
+
+		i = j + 1
+	}
+
+	lines := make([]string, height)
+	for i := range screen {
+		lines[i] = strings.TrimRight(string(screen[i]), " ")
+	}
+	return lines
+}
+
+func parseCursorPosition(params string) (int, int) {
+	if params == "" {
+		return 1, 1
+	}
+
+	parts := strings.Split(params, ";")
+	row, col := 1, 1
+
+	if len(parts) > 0 && parts[0] != "" {
+		if v, err := strconv.Atoi(parts[0]); err == nil {
+			row = v
+		}
+	}
+	if len(parts) > 1 && parts[1] != "" {
+		if v, err := strconv.Atoi(parts[1]); err == nil {
+			col = v
+		}
+	}
+
+	return row, col
 }

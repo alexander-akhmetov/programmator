@@ -32,13 +32,3 @@ func Log(label string) {
 	fmt.Fprintf(os.Stderr, "[TIMING] %s: +%dms (total: %dms)\n", label, sinceLast.Milliseconds(), sinceStart.Milliseconds())
 	lastTime = now
 }
-
-// Start resets the timing start point
-func Start() {
-	if !enabled {
-		return
-	}
-	startTime = time.Now()
-	lastTime = startTime
-	fmt.Fprintf(os.Stderr, "[TIMING] === Startup timing enabled ===\n")
-}
