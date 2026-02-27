@@ -26,6 +26,7 @@ const (
 	colorWhite   = 255 // values
 	colorMagenta = 205 // title, current phase
 	colorPink    = 212 // phase arrow
+	colorLime    = 154 // elapsed timer
 )
 
 type bubbleFooterMsg struct {
@@ -398,7 +399,11 @@ func (w *Writer) buildFooter(state *safety.State, item *domain.WorkItem, cfg saf
 	}
 	if len(parts) > 0 {
 		parts = sanitizeSlice(parts)
-		lines = append(lines, strings.Join(parts, w.style(colorDim, " | ")))
+		statusLine := strings.Join(parts, w.style(colorDim, " | "))
+		if state != nil && !state.StartTime.IsZero() {
+			statusLine += w.style(colorDim, " | ") + w.style(colorLime, formatElapsed(time.Since(state.StartTime)))
+		}
+		lines = append(lines, statusLine)
 	}
 
 	// Current phase

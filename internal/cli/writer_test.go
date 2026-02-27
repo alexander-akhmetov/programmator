@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -983,6 +984,58 @@ func TestColorizeStartingLine(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUpdateFooter_ElapsedTimer(t *testing.T) {
+	t.Run("TTY footer contains elapsed timer text", func(t *testing.T) {
+		var buf bytes.Buffer
+		w := newTestWriterTTY(&buf)
+
+		state := safety.NewState()
+		state.StartTime = time.Now().Add(-76 * time.Second) // 1m 16s ago
+		state.Iteration = 2
+		item := &domain.WorkItem{ID: "timer-test"}
+		cfg := safety.Config{MaxIterations: 10, StagnationLimit: 3}
+
+		w.UpdateFooter(state, item, cfg)
+
+		output := buf.String()
+		stripped := stripANSISequences(output)
+		assert.Regexp(t, `1m 1[67]s`, stripped, "expected elapsed ~1m16s in footer")
+	})
+
+	t.Run("TTY footer uses lime color for elapsed", func(t *testing.T) {
+		var buf bytes.Buffer
+		w := newTestWriterTTY(&buf)
+
+		state := safety.NewState()
+		state.StartTime = time.Now().Add(-45 * time.Second)
+		state.Iteration = 1
+		item := &domain.WorkItem{ID: "lime-test"}
+		cfg := safety.Config{MaxIterations: 10, StagnationLimit: 3}
+
+		w.UpdateFooter(state, item, cfg)
+
+		output := buf.String()
+		// Lime color 154 should appear as ANSI escape \033[38;5;154m
+		assert.Contains(t, output, "\033[38;5;154m")
+	})
+
+	t.Run("non-TTY footer omits elapsed", func(t *testing.T) {
+		var buf bytes.Buffer
+		w := newTestWriter(&buf)
+
+		state := safety.NewState()
+		state.StartTime = time.Now().Add(-30 * time.Second)
+		state.Iteration = 1
+		item := &domain.WorkItem{ID: "no-tty"}
+		cfg := safety.Config{MaxIterations: 10, StagnationLimit: 3}
+
+		w.UpdateFooter(state, item, cfg)
+
+		// Non-TTY produces no footer at all
+		assert.Empty(t, buf.String())
+	})
 }
 
 func stripANSISlice(lines []string) []string {
