@@ -2,8 +2,6 @@
 package tui
 
 import (
-	"strings"
-
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/alexander-akhmetov/programmator/internal/domain"
@@ -64,7 +62,6 @@ func (t *TUI) SetHideTips(hide bool) {
 
 func (t *TUI) SetExecutorConfig(cfg llm.ExecutorConfig) {
 	t.executorConfig = &cfg
-	t.model.claudeFlags = strings.Join(cfg.ExtraFlags, " ")
 	t.model.claudeConfigDir = cfg.Claude.ClaudeConfigDir
 }
 

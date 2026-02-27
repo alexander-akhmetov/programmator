@@ -24,10 +24,6 @@ func TestRunCmdFlags(t *testing.T) {
 	require.NotNil(t, dirFlag)
 	assert.Equal(t, "d", dirFlag.Shorthand)
 
-	skipPermFlag := flags.Lookup("dangerously-skip-permissions")
-	require.NotNil(t, skipPermFlag)
-	assert.Equal(t, "false", skipPermFlag.DefValue)
-
 	printFlag := flags.Lookup("print")
 	require.NotNil(t, printFlag)
 	assert.Equal(t, "false", printFlag.DefValue)
@@ -130,23 +126,17 @@ func TestBuildPromptArgsOverrideStdin(t *testing.T) {
 
 // NOTE: Do not add t.Parallel() - this test mutates package-level variables.
 func TestBuildCommonFlags(t *testing.T) {
-	origSkip := runSkipPermissions
 	origTurns := runMaxTurns
 	defer func() {
-		runSkipPermissions = origSkip
 		runMaxTurns = origTurns
 	}()
 
-	runSkipPermissions = false
 	runMaxTurns = 0
 	assert.Empty(t, buildCommonFlags())
 
-	runSkipPermissions = true
 	runMaxTurns = 10
 	flags := buildCommonFlags()
-	assert.Contains(t, flags, "--dangerously-skip-permissions")
-	assert.Contains(t, flags, "--max-turns")
-	assert.Contains(t, flags, "10")
+	assert.Equal(t, []string{"--max-turns", "10"}, flags)
 }
 
 type errReader struct{}

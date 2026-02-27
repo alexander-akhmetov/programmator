@@ -47,7 +47,6 @@ type Model struct {
 	claudeMemKB     int64
 	tipIndex        int
 	hideTips        bool
-	claudeFlags     string
 	claudeConfigDir string
 }
 

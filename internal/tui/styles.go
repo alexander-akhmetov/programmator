@@ -42,10 +42,6 @@ var (
 			Foreground(lipgloss.Color("196")).
 			Bold(true)
 
-	dangerStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196")).
-			Bold(true)
-
 	toolStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241"))
 
