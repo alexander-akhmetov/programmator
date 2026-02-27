@@ -5,26 +5,32 @@ import (
 	_ "embed"
 )
 
-//go:embed quality.md
-var QualityPrompt string
+//go:embed bug_shallow.md
+var BugShallowPrompt string
 
-//go:embed security.md
-var SecurityPrompt string
+//go:embed bug_deep.md
+var BugDeepPrompt string
 
-//go:embed linter.md
-var LinterPrompt string
+//go:embed architect.md
+var ArchitectPrompt string
 
-//go:embed implementation.md
-var ImplementationPrompt string
+//go:embed silent_failures.md
+var SilentFailuresPrompt string
 
-//go:embed testing.md
-var TestingPrompt string
+//go:embed type_design.md
+var TypeDesignPrompt string
+
+//go:embed comments.md
+var CommentsPrompt string
 
 //go:embed simplification.md
 var SimplificationPrompt string
 
 //go:embed claudemd.md
 var ClaudeMDPrompt string
+
+//go:embed linter.md
+var LinterPrompt string
 
 //go:embed simplification_validator.md
 var SimplificationValidatorPrompt string

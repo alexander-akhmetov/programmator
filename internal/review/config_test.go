@@ -11,27 +11,28 @@ func TestDefaultConfig(t *testing.T) {
 
 	require.Equal(t, DefaultMaxIterations, cfg.MaxIterations)
 	require.True(t, cfg.Parallel)
-	require.Len(t, cfg.Agents, 8)
+	require.Len(t, cfg.Agents, 9)
 
 	// Verify expected agent names
 	names := make([]string, len(cfg.Agents))
 	for i, a := range cfg.Agents {
 		names[i] = a.Name
 	}
-	require.Contains(t, names, "error-handling")
-	require.Contains(t, names, "logic")
-	require.Contains(t, names, "security")
-	require.Contains(t, names, "implementation")
-	require.Contains(t, names, "testing")
+	require.Contains(t, names, "bug-shallow")
+	require.Contains(t, names, "bug-deep")
+	require.Contains(t, names, "architect")
 	require.Contains(t, names, "simplification")
-	require.Contains(t, names, "linter")
+	require.Contains(t, names, "silent-failures")
 	require.Contains(t, names, "claudemd")
+	require.Contains(t, names, "type-design")
+	require.Contains(t, names, "comments")
+	require.Contains(t, names, "linter")
 }
 
 func TestDefaultAgents(t *testing.T) {
 	agents := DefaultAgents()
 
-	require.Len(t, agents, 8)
+	require.Len(t, agents, 9)
 
 	// Each agent should have a name and focus areas
 	for _, a := range agents {

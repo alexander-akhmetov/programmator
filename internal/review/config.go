@@ -38,13 +38,14 @@ func DefaultConfig() Config {
 // DefaultAgents returns the default agent list for reviews.
 func DefaultAgents() []AgentConfig {
 	return []AgentConfig{
-		{Name: "error-handling", Focus: []string{"error handling", "resource management", "concurrency", "race conditions"}},
-		{Name: "logic", Focus: []string{"logic errors", "edge cases", "off-by-one", "incorrect conditionals", "nil handling"}},
-		{Name: "security", Focus: []string{"input validation", "secrets", "injection"}},
-		{Name: "implementation", Focus: []string{"requirement coverage", "wiring", "completeness"}},
-		{Name: "testing", Focus: []string{"test coverage", "fake tests", "edge cases"}},
-		{Name: "simplification", Focus: []string{"over-engineering", "unnecessary abstractions"}},
-		{Name: "linter", Focus: []string{"lint errors", "formatting", "static analysis"}},
-		{Name: "claudemd", Focus: []string{"CLAUDE.md compliance", "project conventions"}},
+		{Name: "bug-shallow", Focus: []string{"obvious bugs visible in diff only"}},
+		{Name: "bug-deep", Focus: []string{"bugs in introduced code requiring context", "security", "resource leaks", "concurrency"}},
+		{Name: "architect", Focus: []string{"architectural fit", "better approaches", "coupling"}},
+		{Name: "simplification", Focus: []string{"over-engineering", "unnecessary complexity"}},
+		{Name: "silent-failures", Focus: []string{"silent failures", "swallowed errors", "inadequate logging"}},
+		{Name: "claudemd", Focus: []string{"CLAUDE.md compliance"}},
+		{Name: "type-design", Focus: []string{"type/interface design quality"}},
+		{Name: "comments", Focus: []string{"comment accuracy and value"}},
+		{Name: "linter", Focus: []string{"lint errors", "formatting"}},
 	}
 }
