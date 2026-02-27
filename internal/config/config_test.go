@@ -20,7 +20,9 @@ func TestLoadEmbedded(t *testing.T) {
 	assert.Equal(t, "", cfg.Claude.Flags)
 	assert.Equal(t, 3, cfg.Review.MaxIterations)
 	assert.True(t, cfg.Review.Parallel)
-	assert.Len(t, cfg.Review.Agents, 9)
+	assert.Empty(t, cfg.Review.Agents)
+	assert.True(t, cfg.Review.Validators.Issue)
+	assert.True(t, cfg.Review.Validators.Simplification)
 }
 
 func TestLoadWithDirs_GlobalOnly(t *testing.T) {
@@ -329,24 +331,32 @@ pi:
 
 func TestValidate(t *testing.T) {
 	tests := []struct {
-		name     string
-		executor string
-		wantErr  bool
+		name           string
+		executor       string
+		reviewExecutor string
+		wantErr        bool
 	}{
 		{name: "claude is valid", executor: "claude", wantErr: false},
 		{name: "pi is valid", executor: "pi", wantErr: false},
 		{name: "empty is valid", executor: "", wantErr: false},
 		{name: "unknown is invalid", executor: "gpt", wantErr: true},
 		{name: "typo is invalid", executor: "cladue", wantErr: true},
+		{name: "review executor valid", executor: "pi", reviewExecutor: "claude", wantErr: false},
+		{name: "review executor invalid", executor: "pi", reviewExecutor: "gpt", wantErr: true},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := &Config{Executor: tc.executor}
+			cfg := &Config{
+				Executor: tc.executor,
+				Review: ReviewConfig{
+					Executor: ReviewExecutorConfig{Name: tc.reviewExecutor},
+				},
+			}
 			err := cfg.Validate()
 			if tc.wantErr {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), "unknown executor")
+				assert.Contains(t, err.Error(), "unknown")
 			} else {
 				require.NoError(t, err)
 			}

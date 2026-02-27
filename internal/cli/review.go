@@ -75,7 +75,10 @@ func runReview(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("invalid config: %w", err)
 	}
 
-	reviewConfig := cfg.ToReviewConfig()
+	reviewConfig, err := cfg.ToReviewConfig()
+	if err != nil {
+		return fmt.Errorf("invalid review config: %w", err)
+	}
 
 	runner := review.NewRunner(reviewConfig)
 

@@ -23,6 +23,8 @@ go install ./cmd/programmator
 go run ./cmd/programmator start <ticket-id>      # ticket
 go run ./cmd/programmator start ./plan.md        # plan file
 go run ./cmd/programmator start ./plan.md --auto-commit  # with auto git workflow
+go run ./cmd/programmator run "explain this codebase"    # one-off prompt
+go run ./cmd/programmator review                          # standalone review
 go run ./cmd/programmator config show             # show resolved config
 
 # Lint (matches CI: golangci-lint + govulncheck + deadcode + go mod tidy)
@@ -67,8 +69,8 @@ main.go (entry) → Loop.Run() → [for each iteration]:
 - **internal/review/**: Code review pipeline. Runs parallel review agents, collects structured issues, validates findings, and builds fix prompts.
 - **internal/event/**: Typed event system for communication between loop, CLI, and other components.
 - **internal/safety/safety.go**: Exit conditions: max iterations, stagnation (no file changes), repeated errors.
-- **internal/cli/**: CLI with streaming stdout event log, sticky ANSI footer, markdown rendering via glamour, and all command definitions (start, run, review, plan, status, config).
-- **internal/config/**: Unified YAML configuration with multi-level merge (embedded defaults → global → env vars → local → CLI flags). Includes prompt template loading with fallback chain.
+- **internal/cli/**: CLI with streaming stdout event log, sticky ANSI footer, markdown rendering via glamour, and commands (`start`, `run`, `review`, `config`).
+- **internal/config/**: Unified YAML configuration with multi-level merge (embedded defaults → global → local → CLI flags). Includes prompt template loading with fallback chain.
 - **internal/dirs/**: XDG Base Directory Specification paths. Central source of truth for `ConfigDir()`, `StateDir()`, `LogsDir()`.
 - **internal/git/repo.go**: Git operations wrapper (`Repo` struct) for branch creation, checkout, add, commit, and file moves. Used by auto-commit workflow.
 

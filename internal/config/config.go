@@ -41,11 +41,29 @@ type PiConfig struct {
 	APIKey    string `yaml:"api_key"`
 }
 
+// ReviewExecutorConfig holds review-specific executor overrides.
+type ReviewExecutorConfig struct {
+	Name   string       `yaml:"name"`
+	Claude ClaudeConfig `yaml:"claude"`
+	Pi     PiConfig     `yaml:"pi"`
+}
+
+// ReviewValidatorsConfig controls validation passes that run after review agents within each iteration.
+type ReviewValidatorsConfig struct {
+	Issue          bool `yaml:"issue"`
+	Simplification bool `yaml:"simplification"`
+}
+
 // ReviewConfig holds review-specific configuration.
 type ReviewConfig struct {
-	MaxIterations int                  `yaml:"max_iterations"`
-	Parallel      bool                 `yaml:"parallel"`
-	Agents        []review.AgentConfig `yaml:"agents,omitempty"`
+	MaxIterations int                    `yaml:"max_iterations"`
+	Parallel      bool                   `yaml:"parallel"`
+	Executor      ReviewExecutorConfig   `yaml:"executor,omitempty"`
+	Include       []string               `yaml:"include,omitempty"`
+	Exclude       []string               `yaml:"exclude,omitempty"`
+	Overrides     []review.AgentConfig   `yaml:"overrides,omitempty"`
+	Agents        []review.AgentConfig   `yaml:"agents,omitempty"`
+	Validators    ReviewValidatorsConfig `yaml:"validators"`
 }
 
 // GitConfig holds git workflow configuration.
@@ -95,9 +113,19 @@ type configOverlay struct {
 }
 
 type reviewOverlay struct {
-	MaxIterations *int                 `yaml:"max_iterations"`
-	Parallel      *bool                `yaml:"parallel"`
-	Agents        []review.AgentConfig `yaml:"agents,omitempty"`
+	MaxIterations *int                    `yaml:"max_iterations"`
+	Parallel      *bool                   `yaml:"parallel"`
+	Executor      *ReviewExecutorConfig   `yaml:"executor,omitempty"`
+	Include       []string                `yaml:"include,omitempty"`
+	Exclude       []string                `yaml:"exclude,omitempty"`
+	Overrides     []review.AgentConfig    `yaml:"overrides,omitempty"`
+	Agents        []review.AgentConfig    `yaml:"agents,omitempty"`
+	Validators    reviewValidatorsOverlay `yaml:"validators,omitempty"`
+}
+
+type reviewValidatorsOverlay struct {
+	Issue          *bool `yaml:"issue"`
+	Simplification *bool `yaml:"simplification"`
 }
 
 type gitOverlay struct {
@@ -126,6 +154,9 @@ func (c *Config) ConfigDir() string {
 func (c *Config) Validate() error {
 	if !validExecutors[c.Executor] {
 		return fmt.Errorf("unknown executor %q (supported: claude, pi)", c.Executor)
+	}
+	if c.Review.Executor.Name != "" && !validExecutors[c.Review.Executor.Name] {
+		return fmt.Errorf("unknown review.executor.name %q (supported: claude, pi)", c.Review.Executor.Name)
 	}
 	return nil
 }
@@ -273,8 +304,26 @@ func (c *Config) applyOverlay(o *configOverlay) {
 	if o.Review.Parallel != nil {
 		c.Review.Parallel = *o.Review.Parallel
 	}
-	if len(o.Review.Agents) > 0 {
+	if o.Review.Executor != nil {
+		applyReviewExecutorOverlay(&c.Review.Executor, o.Review.Executor)
+	}
+	if o.Review.Include != nil {
+		c.Review.Include = o.Review.Include
+	}
+	if o.Review.Exclude != nil {
+		c.Review.Exclude = o.Review.Exclude
+	}
+	if o.Review.Overrides != nil {
+		c.Review.Overrides = o.Review.Overrides
+	}
+	if o.Review.Agents != nil {
 		c.Review.Agents = o.Review.Agents
+	}
+	if o.Review.Validators.Issue != nil {
+		c.Review.Validators.Issue = *o.Review.Validators.Issue
+	}
+	if o.Review.Validators.Simplification != nil {
+		c.Review.Validators.Simplification = *o.Review.Validators.Simplification
 	}
 
 	// Git
@@ -289,6 +338,40 @@ func (c *Config) applyOverlay(o *configOverlay) {
 	}
 	if o.Git.BranchPrefix != "" {
 		c.Git.BranchPrefix = o.Git.BranchPrefix
+	}
+}
+
+func applyReviewExecutorOverlay(dst *ReviewExecutorConfig, src *ReviewExecutorConfig) {
+	if src.Name != "" {
+		dst.Name = src.Name
+	}
+
+	if src.Claude.Flags != "" {
+		dst.Claude.Flags = src.Claude.Flags
+	}
+	if src.Claude.ConfigDir != "" {
+		dst.Claude.ConfigDir = src.Claude.ConfigDir
+	}
+	if src.Claude.AnthropicAPIKey != "" {
+		log.Printf("warning: review.executor.claude.anthropic_api_key loaded from config file — ensure this is a trusted source")
+		dst.Claude.AnthropicAPIKey = src.Claude.AnthropicAPIKey
+	}
+
+	if src.Pi.Flags != "" {
+		dst.Pi.Flags = src.Pi.Flags
+	}
+	if src.Pi.ConfigDir != "" {
+		dst.Pi.ConfigDir = src.Pi.ConfigDir
+	}
+	if src.Pi.Provider != "" {
+		dst.Pi.Provider = src.Pi.Provider
+	}
+	if src.Pi.Model != "" {
+		dst.Pi.Model = src.Pi.Model
+	}
+	if src.Pi.APIKey != "" {
+		log.Printf("warning: review.executor.pi.api_key loaded from config file — ensure this is a trusted source")
+		dst.Pi.APIKey = src.Pi.APIKey
 	}
 }
 

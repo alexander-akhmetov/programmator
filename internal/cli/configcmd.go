@@ -91,9 +91,37 @@ func runConfigShow(_ *cobra.Command, _ []string) error {
 	fmt.Println("## Review Settings")
 	fmt.Printf("  max_iterations: %d\n", cfg.Review.MaxIterations)
 	fmt.Printf("  parallel:       %t\n", cfg.Review.Parallel)
+	fmt.Printf("  validators:\n")
+	fmt.Printf("    issue:          %t\n", cfg.Review.Validators.Issue)
+	fmt.Printf("    simplification: %t\n", cfg.Review.Validators.Simplification)
+	if cfg.Review.Executor.Name != "" {
+		fmt.Printf("  executor override: %s\n", cfg.Review.Executor.Name)
+	}
+	if len(cfg.Review.Include) > 0 {
+		fmt.Printf("  include: %s\n", strings.Join(cfg.Review.Include, ", "))
+	}
+	if len(cfg.Review.Exclude) > 0 {
+		fmt.Printf("  exclude: %s\n", strings.Join(cfg.Review.Exclude, ", "))
+	}
+	if len(cfg.Review.Overrides) > 0 {
+		fmt.Println("  overrides:")
+		for _, agent := range cfg.Review.Overrides {
+			fmt.Printf("    - %s\n", agent.Name)
+		}
+	}
 	if len(cfg.Review.Agents) > 0 {
-		fmt.Println("  agents:")
+		fmt.Println("  custom agents (review.agents):")
 		for _, agent := range cfg.Review.Agents {
+			fmt.Printf("    - %s\n", agent.Name)
+		}
+	}
+
+	reviewCfg, err := cfg.ToReviewConfig()
+	if err != nil {
+		fmt.Printf("  resolved_agents: (error: %v)\n", err)
+	} else {
+		fmt.Println("  resolved_agents:")
+		for _, agent := range reviewCfg.Agents {
 			fmt.Printf("    - %s\n", agent.Name)
 			if len(agent.Focus) > 0 {
 				fmt.Printf("        focus: %s\n", strings.Join(agent.Focus, ", "))

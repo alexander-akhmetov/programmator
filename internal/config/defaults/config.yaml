@@ -7,7 +7,7 @@
 # Loop settings
 max_iterations: 50 # Maximum loop iterations before forced exit
 stagnation_limit: 3 # Exit after N consecutive iterations with no file changes
-timeout: 900 # Seconds per Claude invocation
+timeout: 900 # Seconds per executor invocation
 
 # Executor settings
 executor: claude # Which coding agent to use ("claude" or "pi")
@@ -41,41 +41,30 @@ review:
   max_iterations: 3 # Maximum review fix iterations
   parallel: true # Run agents in parallel
 
-  agents:
-    - name: bug-shallow
-      focus:
-        - obvious bugs visible in diff only
-    - name: bug-deep
-      focus:
-        - bugs in introduced code requiring context
-        - security
-        - resource leaks
-        - concurrency
-    - name: architect
-      focus:
-        - architectural fit
-        - better approaches
-        - coupling
-    - name: simplification
-      focus:
-        - over-engineering
-        - unnecessary complexity
-    - name: silent-failures
-      focus:
-        - silent failures
-        - swallowed errors
-        - inadequate logging
-    - name: claudemd
-      focus:
-        - CLAUDE.md compliance
-    - name: type-design
-      focus:
-        - type/interface design quality
-    - name: comments
-      focus:
-        - comment accuracy and value
-    - name: tests-and-linters
-      focus:
-        - test failures
-        - lint errors
-        - formatting
+  # Optional review-specific executor override.
+  # If name is empty, review uses top-level executor/claude/pi settings.
+  executor:
+    name: "" # "claude" or "pi"
+    claude:
+      flags: "" # Example: "--model opus"
+      config_dir: ""
+      anthropic_api_key: ""
+    pi:
+      flags: ""
+      config_dir: ""
+      provider: ""
+      model: ""
+      api_key: ""
+
+  # Agent selection strategy (auto-detected):
+  # - If review.agents is non-empty, use exactly that list (custom mode).
+  # - Otherwise, start from built-in default agents and apply include/exclude/overrides.
+  include: [] # Subset of default agent names; empty = all defaults
+  exclude: [] # Remove specific default agents by name
+  overrides: [] # Per-default-agent overrides (name + optional focus/prompt/prompt_file)
+  agents: [] # Explicit custom agents (replaces defaults when non-empty)
+
+  # Optional validator passes after primary review agents.
+  validators:
+    issue: true # Run false-positive validator for non-simplification findings
+    simplification: true # Run value validator for simplification findings

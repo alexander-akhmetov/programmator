@@ -14,11 +14,6 @@ func TestToSafetyConfig(t *testing.T) {
 		StagnationLimit: 5,
 		Timeout:         600,
 		Executor:        "claude",
-		Claude: ClaudeConfig{
-			Flags:           "--verbose",
-			ConfigDir:       "/custom/dir",
-			AnthropicAPIKey: "test-key",
-		},
 		Review: ReviewConfig{
 			MaxIterations: 10,
 		},
@@ -31,7 +26,7 @@ func TestToSafetyConfig(t *testing.T) {
 	assert.Equal(t, 10, sc.MaxReviewIterations)
 }
 
-func TestToExecutorConfig(t *testing.T) {
+func TestToExecutorConfig_Claude(t *testing.T) {
 	cfg := &Config{
 		Executor: "claude",
 		Claude: ClaudeConfig{
@@ -46,59 +41,6 @@ func TestToExecutorConfig(t *testing.T) {
 	assert.Equal(t, []string{"--verbose", "--dangerously-skip-permissions"}, ec.ExtraFlags)
 	assert.Equal(t, "/custom/dir", ec.Claude.ClaudeConfigDir)
 	assert.Equal(t, "test-key", ec.Claude.AnthropicAPIKey)
-}
-
-func TestToReviewConfig_WithAgents(t *testing.T) {
-	cfg := &Config{
-		Timeout: 600,
-		Claude: ClaudeConfig{
-			Flags:           "--verbose",
-			ConfigDir:       "/custom/config",
-			AnthropicAPIKey: "test-api-key",
-		},
-		Review: ReviewConfig{
-			MaxIterations: 5,
-			Parallel:      true,
-			Agents: []review.AgentConfig{
-				{Name: "quality", Focus: []string{"bugs"}, Prompt: "custom.md"},
-				{Name: "security", Focus: []string{"injection"}},
-			},
-		},
-	}
-
-	rc := cfg.ToReviewConfig()
-	assert.Equal(t, 5, rc.MaxIterations)
-	assert.Equal(t, 600, rc.Timeout)
-	assert.True(t, rc.Parallel)
-	require.Len(t, rc.Agents, 2)
-	assert.Equal(t, "quality", rc.Agents[0].Name)
-	assert.Equal(t, "custom.md", rc.Agents[0].Prompt)
-	assert.Equal(t, "security", rc.Agents[1].Name)
-	assert.Equal(t, "/custom/config", rc.ExecutorConfig.Claude.ClaudeConfigDir)
-	assert.Equal(t, "test-api-key", rc.ExecutorConfig.Claude.AnthropicAPIKey)
-	assert.Contains(t, rc.ExecutorConfig.ExtraFlags, "--dangerously-skip-permissions")
-}
-
-func TestToReviewConfig_NoAgentsNoPhases(t *testing.T) {
-	cfg := &Config{
-		Timeout: 300,
-		Review: ReviewConfig{
-			MaxIterations: 3,
-		},
-	}
-
-	rc := cfg.ToReviewConfig()
-	assert.Equal(t, 3, rc.MaxIterations)
-	assert.Empty(t, rc.Agents)
-}
-
-func TestToSafetyConfig_ZeroValues(t *testing.T) {
-	cfg := &Config{}
-	sc := cfg.ToSafetyConfig()
-	assert.Equal(t, 0, sc.MaxIterations)
-	assert.Equal(t, 0, sc.StagnationLimit)
-	assert.Equal(t, 0, sc.Timeout)
-	assert.Equal(t, 0, sc.MaxReviewIterations)
 }
 
 func TestToExecutorConfig_Pi(t *testing.T) {
@@ -143,8 +85,156 @@ func TestToExecutorConfig_AlwaysSkipPermissions(t *testing.T) {
 	})
 }
 
-func TestToReviewConfig_AlwaysSkipPermissions(t *testing.T) {
-	cfg := &Config{}
-	rc := cfg.ToReviewConfig()
+func TestToReviewConfig_WithCustomAgents(t *testing.T) {
+	cfg := &Config{
+		Executor: "claude",
+		Timeout:  600,
+		Claude: ClaudeConfig{
+			Flags:           "--verbose",
+			ConfigDir:       "/custom/config",
+			AnthropicAPIKey: "test-api-key",
+		},
+		Review: ReviewConfig{
+			MaxIterations: 5,
+			Parallel:      true,
+			Agents: []review.AgentConfig{
+				{Name: "my-review", Focus: []string{"custom"}, Prompt: "inline prompt"},
+			},
+			Validators: ReviewValidatorsConfig{
+				Issue:          false,
+				Simplification: true,
+			},
+		},
+	}
+
+	rc, err := cfg.ToReviewConfig()
+	require.NoError(t, err)
+	assert.Equal(t, 5, rc.MaxIterations)
+	assert.Equal(t, 600, rc.Timeout)
+	assert.True(t, rc.Parallel)
+	assert.False(t, rc.ValidateIssues)
+	assert.True(t, rc.ValidateSimplifications)
+	require.Len(t, rc.Agents, 1)
+	assert.Equal(t, "my-review", rc.Agents[0].Name)
+	assert.Equal(t, "inline prompt", rc.Agents[0].Prompt)
+	assert.Equal(t, "/custom/config", rc.ExecutorConfig.Claude.ClaudeConfigDir)
+	assert.Equal(t, "test-api-key", rc.ExecutorConfig.Claude.AnthropicAPIKey)
 	assert.Contains(t, rc.ExecutorConfig.ExtraFlags, "--dangerously-skip-permissions")
+}
+
+func TestToReviewConfig_DefaultAgentsSelectedByIncludeExclude(t *testing.T) {
+	cfg := &Config{
+		Review: ReviewConfig{
+			Include: []string{"bug-shallow", "bug-deep", "architect"},
+			Exclude: []string{"architect"},
+		},
+	}
+
+	rc, err := cfg.ToReviewConfig()
+	require.NoError(t, err)
+	require.Len(t, rc.Agents, 2)
+	assert.Equal(t, "bug-shallow", rc.Agents[0].Name)
+	assert.Equal(t, "bug-deep", rc.Agents[1].Name)
+}
+
+func TestToReviewConfig_DefaultAgentOverride(t *testing.T) {
+	cfg := &Config{
+		Review: ReviewConfig{
+			Overrides: []review.AgentConfig{
+				{
+					Name:       "bug-deep",
+					PromptFile: "my_prompt.md",
+				},
+			},
+		},
+	}
+
+	rc, err := cfg.ToReviewConfig()
+	require.NoError(t, err)
+
+	var found *review.AgentConfig
+	for i := range rc.Agents {
+		if rc.Agents[i].Name == "bug-deep" {
+			found = &rc.Agents[i]
+			break
+		}
+	}
+	require.NotNil(t, found)
+	assert.Equal(t, "my_prompt.md", found.PromptFile)
+}
+
+func TestToReviewConfig_UsesReviewExecutorOverride(t *testing.T) {
+	cfg := &Config{
+		Executor: "pi",
+		Pi: PiConfig{
+			Provider: "anthropic",
+			Model:    "sonnet",
+		},
+		Review: ReviewConfig{
+			Executor: ReviewExecutorConfig{
+				Name: "claude",
+				Claude: ClaudeConfig{
+					Flags: "--model opus",
+				},
+			},
+		},
+	}
+
+	rc, err := cfg.ToReviewConfig()
+	require.NoError(t, err)
+	assert.Equal(t, "claude", rc.ExecutorConfig.Name)
+	assert.Contains(t, rc.ExecutorConfig.ExtraFlags, "--model")
+	assert.Contains(t, rc.ExecutorConfig.ExtraFlags, "opus")
+	assert.Contains(t, rc.ExecutorConfig.ExtraFlags, "--dangerously-skip-permissions")
+}
+
+func TestToReviewConfig_ValidationErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     *Config
+		wantErr string
+	}{
+		{
+			name: "rejects mixed custom and default selectors",
+			cfg: &Config{
+				Review: ReviewConfig{
+					Agents:  []review.AgentConfig{{Name: "custom"}},
+					Include: []string{"bug-shallow"},
+				},
+			},
+			wantErr: "cannot be combined",
+		},
+		{
+			name: "rejects unknown include",
+			cfg: &Config{
+				Review: ReviewConfig{
+					Include: []string{"not-a-real-agent"},
+				},
+			},
+			wantErr: "unknown default agent",
+		},
+		{
+			name: "rejects prompt and prompt_file together",
+			cfg: &Config{
+				Review: ReviewConfig{
+					Agents: []review.AgentConfig{
+						{
+							Name:       "custom",
+							Prompt:     "inline",
+							PromptFile: "file.md",
+						},
+					},
+				},
+			},
+			wantErr: "mutually exclusive",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := tc.cfg.ToReviewConfig()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
 }

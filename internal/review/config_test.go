@@ -11,6 +11,8 @@ func TestDefaultConfig(t *testing.T) {
 
 	require.Equal(t, DefaultMaxIterations, cfg.MaxIterations)
 	require.True(t, cfg.Parallel)
+	require.True(t, cfg.ValidateIssues)
+	require.True(t, cfg.ValidateSimplifications)
 	require.Len(t, cfg.Agents, 9)
 
 	// Verify expected agent names

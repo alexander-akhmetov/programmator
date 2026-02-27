@@ -9,7 +9,6 @@ Programmator renders prompts from Go `text/template` files and sends them to the
 | [phased.md](../internal/config/defaults/prompts/phased.md) | Work item has checkbox phases |
 | [phaseless.md](../internal/config/defaults/prompts/phaseless.md) | Work item has no phases (single task) |
 | [review_first.md](../internal/config/defaults/prompts/review_first.md) | Review fix prompt (issues found by agents) |
-| [plan_create.md](../internal/config/defaults/prompts/plan_create.md) | Interactive plan creation |
 
 ## Override Order
 
@@ -46,15 +45,6 @@ Only create the templates you want to override. Missing files fall through to th
 | `{{.FilesList}}` | string | Formatted list of files to review |
 | `{{.IssuesMarkdown}}` | string | Markdown-formatted issues to fix |
 | `{{.AutoCommit}}` | bool | Whether auto-commit is enabled |
-
-### plan_create.md
-
-| Variable | Type | Description |
-|----------|------|-------------|
-| `{{.Description}}` | string | User's description of what to accomplish |
-| `{{.PreviousAnswers}}` | string | Formatted Q&A from previous interactions (may be empty) |
-
-Use `{{if .PreviousAnswers}}...{{end}}` to include the previous answers section only when it exists.
 
 ## Creating an Override
 
@@ -121,16 +111,21 @@ PROGRAMMATOR_STATUS:
 ## Review Agent Prompts
 
 The review system uses embedded prompts in `internal/review/prompts/` by default.
-You can override an agent prompt by setting `review.agents[].prompt` in config.
-The prompt text is used directly; it is not loaded from a file.
+You can override prompts with:
+- `review.overrides[].prompt` or `review.agents[].prompt` (inline text)
+- `review.overrides[].prompt_file` or `review.agents[].prompt_file` (file path, relative paths resolved from working directory)
+
+When `review.agents` is non-empty, it replaces default agents.
+When `review.agents` is empty, defaults are used and can be filtered by `review.include` / `review.exclude`.
 
 | Agent | Prompt | Focus |
 |-------|--------|-------|
-| error-handling | [quality.md](../internal/review/prompts/quality.md) | Bugs, logic errors, race conditions, error handling |
-| logic | [quality.md](../internal/review/prompts/quality.md) | Second quality pass for coverage |
-| security | [security.md](../internal/review/prompts/security.md) | Injection, crypto, auth, data protection |
-| implementation | [implementation.md](../internal/review/prompts/implementation.md) | Requirement coverage, wiring, completeness |
-| testing | [testing.md](../internal/review/prompts/testing.md) | Missing tests, fake tests, edge cases |
+| bug-shallow | [bug_shallow.md](../internal/review/prompts/bug_shallow.md) | Obvious bugs in diff only |
+| bug-deep | [bug_deep.md](../internal/review/prompts/bug_deep.md) | Context-aware bugs, security, leaks, concurrency |
+| architect | [architect.md](../internal/review/prompts/architect.md) | Architectural fit, alternatives, coupling |
 | simplification | [simplification.md](../internal/review/prompts/simplification.md) | Over-engineering, unnecessary abstractions |
-| linter | [linter.md](../internal/review/prompts/linter.md) | Auto-detect project type, run linters, report findings |
-| claudemd | [claudemd.md](../internal/review/prompts/claudemd.md) | CLAUDE.md accuracy and completeness |
+| silent-failures | [silent_failures.md](../internal/review/prompts/silent_failures.md) | Swallowed errors, missing logging |
+| claudemd | [claudemd.md](../internal/review/prompts/claudemd.md) | CLAUDE.md compliance |
+| type-design | [type_design.md](../internal/review/prompts/type_design.md) | Type/interface design quality |
+| comments | [comments.md](../internal/review/prompts/comments.md) | Comment/doc accuracy |
+| tests-and-linters | [linter.md](../internal/review/prompts/linter.md) | Tests, linters, formatting |

@@ -47,29 +47,6 @@ programmator review
 
 **What to verify:** Review identifies the issues and performs fix iterations. Check `git log --oneline` for fix commits and verify the code quality improves.
 
-### Plan creation (`make e2e-plan`)
-
-Creates `/tmp/programmator-plan-test/` — a basic Go web server for testing interactive plan generation.
-
-**Project includes:**
-- Health check and items API endpoints
-- Stub handlers package
-- User and Item models
-
-**Run it:**
-```bash
-make e2e-plan
-cd /tmp/programmator-plan-test
-programmator plan create "Add user authentication with JWT"
-```
-
-**Other prompts to try:**
-- `"Add rate limiting to the API"`
-- `"Add database persistence with SQLite"`
-- `"Add request logging middleware"`
-
-**What to verify:** Claude generates a structured plan file with checkbox tasks and validation commands.
-
 ## Creating a New E2E Test
 
 1. Create a new script in `scripts/`:

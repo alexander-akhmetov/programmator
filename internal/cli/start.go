@@ -84,7 +84,6 @@ func runStart(_ *cobra.Command, args []string) error {
 
 	runCfg := RunConfig{
 		SafetyConfig:  cfg.ToSafetyConfig(),
-		ReviewConfig:  cfg.ToReviewConfig(),
 		PromptBuilder: promptBuilder,
 		TicketCommand: cfg.TicketCommand,
 		GitWorkflowConfig: loop.GitWorkflowConfig{
@@ -98,6 +97,12 @@ func runStart(_ *cobra.Command, args []string) error {
 		IsTTY:          isTTY,
 		TermWidth:      termWidth,
 	}
+
+	reviewCfg, err := cfg.ToReviewConfig()
+	if err != nil {
+		return fmt.Errorf("invalid review config: %w", err)
+	}
+	runCfg.ReviewConfig = reviewCfg
 
 	_, err = Run(context.Background(), sourceID, wd, runCfg)
 	if err != nil {
