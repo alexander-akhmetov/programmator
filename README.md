@@ -10,15 +10,36 @@ Coding agents are interactive — they require you to watch, approve, and guide 
 
 Programmator splits work into isolated sessions with fresh context windows. Each task runs independently, gets reviewed by parallel agents, and can be auto-committed on completion with no supervision needed.
 
-## Quick Start
+## Install with Claude Code
 
-**Requirements:**
-- Go 1.26.0+
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI or [pi coding agent](https://github.com/badlogic/pi-mono) CLI
+The plugin can help you install and configure programmator.
+
+**1. Install the plugin:**
+
+```bash
+claude plugin marketplace add alexander-akhmetov/programmator
+claude plugin install -s user programmator
+```
+
+**2. Ask Claude to install and configure programmator:**
+
+Claude will help you install the binary, verify your executor is available, and optionally create a config file. Just ask — for example: *"install and configure programmator"*.
+
+**3. Use it:**
+
+Create plans manually or use `/plan-to-file` to convert Claude Code plans. Then run `programmator start ./plan.md`.
+
+## Manual Install
+
+Download a binary from [GitHub Releases](https://github.com/alexander-akhmetov/programmator/releases), or install with Go (requires 1.26+):
 
 ```bash
 go install github.com/alexander-akhmetov/programmator/cmd/programmator@latest
 ```
+
+You'll also need at least one executor: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [pi coding agent](https://github.com/badlogic/pi-mono).
+
+## Quick Start
 
 Write a plan file (`plan.md`):
 ```markdown
@@ -40,13 +61,71 @@ programmator start ./plan.md
 
 Programmator picks up the first unchecked task, invokes Claude Code to complete it, marks it done, and moves to the next. After all tasks complete, it runs a multi-agent code review. When everything passes (or safety limits are hit), it stops.
 
+## Examples
+
+### Use pi coding agent instead of Claude Code
+
+Create `~/.config/programmator/config.yaml`:
+
+```yaml
+executor: pi
+pi:
+  provider: anthropic
+  model: sonnet
+```
+
+Then `programmator start ./plan.md` uses pi for all tasks instead of Claude Code.
+
+### Minimal config: your own executor + one custom review agent
+
+By default, programmator runs 9 review agents after task completion. You can replace them all with a single custom one:
+
+```yaml
+executor: pi
+pi:
+  provider: openai
+  model: gpt-4o
+
+review:
+  agents:
+    - name: code-review
+      focus:
+        - correctness
+        - error handling
+        - test coverage
+```
+
+This runs pi for coding and a single `code-review` agent for the final review pass. You can also point to a full custom prompt file:
+
+```yaml
+review:
+  agents:
+    - name: code-review
+      prompt_file: ".programmator/prompts/review/code-review.md"
+```
+
+### Code with pi, review with Claude Opus
+
+```yaml
+executor: pi
+pi:
+  provider: anthropic
+  model: sonnet
+
+review:
+  executor:
+    name: claude
+    claude:
+      flags: "--model opus"
+```
+
 ## How It Works
 
 Each iteration:
 1. Reads the plan file and finds the first uncompleted task
 2. Builds a prompt with the task context and instructions
-3. Invokes Claude Code in a fresh session
-4. Parses Claude's `PROGRAMMATOR_STATUS` output block (YAML with status, files changed, summary)
+3. Invokes the configured executor in a fresh session
+4. Parses the executor's `PROGRAMMATOR_STATUS` output block (YAML with status, files changed, summary)
 5. Updates the task checkbox and logs progress
 6. Checks safety limits, then loops back
 
@@ -119,7 +198,7 @@ programmator config show                  # show resolved config
 - **Max iterations**: Prevents runaway loops (default: 50)
 - **Stagnation detection**: Exits if no files change for N iterations (default: 3)
 - **Error repetition**: Exits if same error occurs 3 times
-- **Timeout**: Kills Claude if a single invocation takes too long (default: 900s)
+- **Timeout**: Kills the executor if a single invocation takes too long (default: 900s)
 - **Ctrl+C**: Graceful stop after current iteration
 
 ## Auto Git Workflow
@@ -176,47 +255,6 @@ See resolved values with `programmator config show`.
 
 </details>
 
-### Review Configuration Examples
-
-1. **Coding with PI, review with Claude Opus + one custom reviewer**
-```yaml
-executor: pi
-pi:
-  provider: anthropic
-  model: sonnet
-
-review:
-  executor:
-    name: claude
-    claude:
-      flags: "--model opus"
-  agents:
-    - name: custom-review
-      focus:
-        - bug risks
-        - architecture
-      prompt_file: ".programmator/prompts/review/custom-review.md"
-```
-
-2. **Default 9 reviewers, override one prompt**
-```yaml
-review:
-  overrides:
-    - name: bug-deep
-      prompt_file: ".programmator/prompts/review/bug-deep.md"
-```
-
-3. **Use only 5 default reviewers**
-```yaml
-review:
-  include:
-    - bug-shallow
-    - bug-deep
-    - architect
-    - tests-and-linters
-    - claudemd
-```
-
 <details>
 <summary>Environment variables</summary>
 
@@ -245,22 +283,11 @@ Available templates: `phased.md`, `phaseless.md`, `review_first.md`. See [prompt
 
 ## Claude Code Plugin
 
-Programmator ships a Claude Code plugin with commands for converting plans between formats.
+The plugin (see [Install with Claude Code](#install-with-claude-code)) provides:
 
-### Installation
-
-```bash
-# Add the marketplace (one-time)
-/plugin marketplace add alexander-akhmetov/programmator
-
-# Install the plugin
-/plugin install programmator@alexander-akhmetov-programmator
-```
-
-### Commands
-
-- **`/plan-to-ticket`** — Reads the most recent Claude Code plan (`~/.claude/plans/*.md`), extracts phases, and creates a programmator ticket via the `ticket` CLI.
-- **`/plan-to-file`** — Reads the most recent Claude Code plan and converts it into a programmator-compatible plan file (`plan.md`) in the current directory, ready for `programmator start ./plan.md`.
+- **`/setup`** — Guided install and configuration of programmator.
+- **`/plan-to-file`** — Convert the most recent Claude Code plan into a programmator plan file (`plan.md`), ready for `programmator start ./plan.md`.
+- **`/plan-to-ticket`** — Convert the most recent Claude Code plan into a programmator ticket (requires `ticket` CLI).
 
 ## Documentation
 
@@ -274,7 +301,7 @@ Programmator ships a Claude Code plugin with commands for converting plans betwe
 go build ./...                # Build
 go test ./...                 # Run tests
 go test -race ./...           # Run tests with race detector
-golangci-lint run             # Lint
+make lint                     # Lint (golangci-lint + govulncheck + deadcode + go mod tidy)
 
 # E2E test prep (creates toy projects in /tmp)
 make e2e-prep                 # Plan-based run

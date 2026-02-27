@@ -1,12 +1,13 @@
 {
   "name": "programmator",
-  "owner": { "name": "alexander-akhmetov" },
-  "description": "Programmator tools",
+  "owner": {
+    "name": "alexander-akhmetov"
+  },
   "plugins": [
     {
       "name": "programmator",
-      "source": "./claude/plugins/programmator",
-      "description": "Programmator tools",
+      "source": "./",
+      "description": "Autonomous coding agent orchestrator with multi-agent code review",
       "version": "1.0.0"
     }
   ]

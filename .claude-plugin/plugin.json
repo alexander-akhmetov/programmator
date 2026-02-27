@@ -1,0 +1,10 @@
+{
+  "name": "programmator",
+  "description": "Autonomous coding agent orchestrator with multi-agent code review",
+  "version": "1.0.0",
+  "author": {
+    "name": "alexander-akhmetov"
+  },
+  "repository": "https://github.com/alexander-akhmetov/programmator",
+  "license": "MIT"
+}
