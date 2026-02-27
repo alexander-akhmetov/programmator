@@ -76,9 +76,10 @@ func flattenPhaseAgents(phases []ReviewPhase) []review.AgentConfig {
 			}
 			seen[a.Name] = struct{}{}
 			result = append(result, review.AgentConfig{
-				Name:   a.Name,
-				Focus:  a.Focus,
-				Prompt: a.Prompt,
+				Name:     a.Name,
+				Executor: a.Executor,
+				Focus:    a.Focus,
+				Prompt:   a.Prompt,
 			})
 		}
 	}

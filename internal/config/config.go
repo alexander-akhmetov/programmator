@@ -81,8 +81,9 @@ type Config struct {
 	Timeout         int `yaml:"timeout"` // seconds
 
 	// Executor settings
-	Executor string       `yaml:"executor"`
-	Claude   ClaudeConfig `yaml:"claude"`
+	Executor     string       `yaml:"executor"`
+	PlanExecutor string       `yaml:"plan_executor"` // executor override for plan creation (empty = use global Executor)
+	Claude       ClaudeConfig `yaml:"claude"`
 
 	// Ticket settings
 	TicketCommand string `yaml:"ticket_command"` // Binary name for the ticket CLI (default: tk)
@@ -104,6 +105,7 @@ type Config struct {
 	StagnationLimitSet bool `yaml:"-"`
 	TimeoutSet         bool `yaml:"-"`
 	HideTipsSet        bool `yaml:"-"`
+	PlanExecutorSet    bool `yaml:"-"`
 
 	// Private: track where config was loaded from
 	configDir string
@@ -124,6 +126,14 @@ func (c *Config) LocalDir() string {
 // ConfigDir returns the global config directory.
 func (c *Config) ConfigDir() string {
 	return c.configDir
+}
+
+// PlanExecutorOrDefault returns PlanExecutor if set, otherwise falls back to Executor.
+func (c *Config) PlanExecutorOrDefault() string {
+	if c.PlanExecutor != "" {
+		return c.PlanExecutor
+	}
+	return c.Executor
 }
 
 // Validate checks the configuration for invalid values.
@@ -260,6 +270,9 @@ func parseConfigWithTracking(data []byte) (*Config, error) {
 	}
 	if _, ok := raw["hide_tips"]; ok {
 		cfg.HideTipsSet = true
+	}
+	if _, ok := raw["plan_executor"]; ok {
+		cfg.PlanExecutorSet = true
 	}
 
 	// Track review fields
@@ -399,6 +412,10 @@ func (c *Config) mergeFrom(src *Config) {
 	}
 	if src.Executor != "" {
 		c.Executor = src.Executor
+	}
+	if src.PlanExecutorSet {
+		c.PlanExecutor = src.PlanExecutor
+		c.PlanExecutorSet = true
 	}
 	if src.Claude.Flags != "" {
 		c.Claude.Flags = src.Claude.Flags

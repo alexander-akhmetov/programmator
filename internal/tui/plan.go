@@ -90,8 +90,9 @@ func runPlanCreate(_ *cobra.Command, args []string) error {
 	// Create input collector
 	collector := NewTerminalCollector()
 
-	// Run the plan creation loop
+	// Run the plan creation loop — use plan-specific executor if configured
 	execConfig := cfg.ToExecutorConfig()
+	execConfig.Name = cfg.PlanExecutorOrDefault()
 	creator := &planCreator{
 		description:    description,
 		workDir:        wd,

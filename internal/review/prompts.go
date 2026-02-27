@@ -31,6 +31,13 @@ func GetDefaultPrompt(agentName string) string {
 	}
 }
 
+// GetDefaultPromptForAgent returns the default prompt for an agent config.
+// Currently delegates to GetDefaultPrompt; the Executor field is reserved
+// for future executor backends.
+func GetDefaultPromptForAgent(cfg AgentConfig) string {
+	return GetDefaultPrompt(cfg.Name)
+}
+
 const defaultGenericPrompt = `# Code Review
 
 You are a code review agent. Review the specified files for issues.

@@ -69,6 +69,11 @@ func runConfigShow(_ *cobra.Command, _ []string) error {
 
 	fmt.Println("## Executor Settings")
 	fmt.Printf("  executor: %s\n", cfg.Executor)
+	if cfg.PlanExecutor != "" {
+		fmt.Printf("  plan_executor: %s\n", cfg.PlanExecutor)
+	} else {
+		fmt.Printf("  plan_executor: (inherits executor)\n")
+	}
 	fmt.Println()
 
 	fmt.Println("## Claude Settings")
@@ -96,6 +101,9 @@ func runConfigShow(_ *cobra.Command, _ []string) error {
 		fmt.Println("  agents:")
 		for _, agent := range cfg.Review.Agents {
 			fmt.Printf("    - %s\n", agent.Name)
+			if agent.Executor != "" {
+				fmt.Printf("        executor: %s\n", agent.Executor)
+			}
 			if len(agent.Focus) > 0 {
 				fmt.Printf("        focus: %s\n", strings.Join(agent.Focus, ", "))
 			}

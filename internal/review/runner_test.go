@@ -159,6 +159,28 @@ func TestDefaultAgentFactory_EmptyEnvConfig(t *testing.T) {
 	require.Equal(t, llm.EnvConfig{}, claudeAgent.envConfig)
 }
 
+func TestDefaultAgentFactory_AlwaysCreatesClaude(t *testing.T) {
+	cfg := Config{MaxIterations: 3}
+	runner := NewRunner(cfg, nil)
+
+	tests := []struct {
+		name     string
+		agentCfg AgentConfig
+	}{
+		{"explicit executor=claude", AgentConfig{Name: "test", Executor: "claude"}},
+		{"empty executor defaults to claude", AgentConfig{Name: "test"}},
+		{"custom name defaults to claude", AgentConfig{Name: "custom-agent"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			agent := runner.defaultAgentFactory(tc.agentCfg, "prompt")
+			_, isClaude := agent.(*ClaudeAgent)
+			require.True(t, isClaude)
+		})
+	}
+}
+
 func TestIssueFingerprint(t *testing.T) {
 	t.Run("deterministic across calls", func(t *testing.T) {
 		issue := Issue{
