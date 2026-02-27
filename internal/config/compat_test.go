@@ -165,7 +165,6 @@ func TestPlanExecutorOrDefault(t *testing.T) {
 	})
 }
 
-
 func TestToSafetyConfig_ZeroValues(t *testing.T) {
 	cfg := &Config{}
 	sc := cfg.ToSafetyConfig()
