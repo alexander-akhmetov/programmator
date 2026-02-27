@@ -70,8 +70,8 @@ Create `~/.config/programmator/config.yaml`:
 ```yaml
 executor: pi
 pi:
-  provider: anthropic
-  model: sonnet
+  provider: anthropic # optional
+  model: sonnet       # optional
 ```
 
 Then `programmator start ./plan.md` uses pi for all tasks instead of Claude Code.
