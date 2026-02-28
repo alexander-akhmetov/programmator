@@ -1,27 +1,28 @@
-package llm
+package claude
 
 import (
 	"context"
 	"os"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/alexander-akhmetov/programmator/internal/llm"
 	"github.com/alexander-akhmetov/programmator/internal/protocol"
 )
 
-func TestClaudeInvokerTextMode(t *testing.T) {
-	// Create a fake claude binary that echoes stdin
+func TestInvokerTextMode(t *testing.T) {
 	tmpDir := t.TempDir()
 	script := "#!/bin/sh\ncat\n"
 	err := os.WriteFile(tmpDir+"/claude", []byte(script), 0o755)
 	require.NoError(t, err)
-	origPath := os.Getenv("PATH")
-	t.Setenv("PATH", tmpDir+":"+origPath)
+	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
 
-	inv := NewClaudeInvoker(EnvConfig{})
+	inv := New(Config{})
 	var collected []string
-	opts := InvokeOptions{
+	opts := llm.InvokeOptions{
 		OnOutput: func(text string) {
 			collected = append(collected, text)
 		},
@@ -33,25 +34,22 @@ func TestClaudeInvokerTextMode(t *testing.T) {
 	require.Len(t, collected, 1)
 }
 
-func TestClaudeInvokerWorkingDir(t *testing.T) {
+func TestInvokerWorkingDir(t *testing.T) {
 	tmpDir := t.TempDir()
-	// Script that prints the current working directory
 	script := "#!/bin/sh\ncat >/dev/null\npwd\n"
 	err := os.WriteFile(tmpDir+"/claude", []byte(script), 0o755)
 	require.NoError(t, err)
-	origPath := os.Getenv("PATH")
-	t.Setenv("PATH", tmpDir+":"+origPath)
+	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
 
 	workDir := t.TempDir()
-	inv := NewClaudeInvoker(EnvConfig{})
-	res, err := inv.Invoke(context.Background(), "test", InvokeOptions{WorkingDir: workDir})
+	inv := New(Config{})
+	res, err := inv.Invoke(context.Background(), "test", llm.InvokeOptions{WorkingDir: workDir})
 	require.NoError(t, err)
 	require.Contains(t, res.Text, workDir)
 }
 
-func TestClaudeInvokerStreamingMode(t *testing.T) {
+func TestInvokerStreamingMode(t *testing.T) {
 	tmpDir := t.TempDir()
-	// Script outputs stream-json events
 	script := `#!/bin/sh
 cat >/dev/null
 echo '{"type":"system","subtype":"init","model":"test-model"}'
@@ -61,16 +59,15 @@ echo '{"type":"result","result":"final","modelUsage":{"test-model":{"inputTokens
 `
 	err := os.WriteFile(tmpDir+"/claude", []byte(script), 0o755)
 	require.NoError(t, err)
-	origPath := os.Getenv("PATH")
-	t.Setenv("PATH", tmpDir+":"+origPath)
+	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
 
-	inv := NewClaudeInvoker(EnvConfig{})
+	inv := New(Config{})
 
 	var textCollected []string
 	var model string
 	var finalModel string
 	var finalInput, finalOutput int
-	opts := InvokeOptions{
+	opts := llm.InvokeOptions{
 		Streaming: true,
 		OnOutput: func(text string) {
 			textCollected = append(textCollected, text)
@@ -92,55 +89,52 @@ echo '{"type":"result","result":"final","modelUsage":{"test-model":{"inputTokens
 	require.Equal(t, "test-model", finalModel)
 	require.Equal(t, 20, finalInput)
 	require.Equal(t, 13, finalOutput)
-	require.Len(t, textCollected, 2) // "Hello" and " World"
+	require.Len(t, textCollected, 2)
 }
 
-func TestClaudeInvokerErrorCapturesStderr(t *testing.T) {
+func TestInvokerErrorCapturesStderr(t *testing.T) {
 	tmpDir := t.TempDir()
 	script := "#!/bin/sh\necho 'some error' >&2\nexit 1\n"
 	err := os.WriteFile(tmpDir+"/claude", []byte(script), 0o755)
 	require.NoError(t, err)
-	origPath := os.Getenv("PATH")
-	t.Setenv("PATH", tmpDir+":"+origPath)
+	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
 
-	inv := NewClaudeInvoker(EnvConfig{})
-	_, err = inv.Invoke(context.Background(), "test", InvokeOptions{})
+	inv := New(Config{})
+	_, err = inv.Invoke(context.Background(), "test", llm.InvokeOptions{})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "claude exited")
 	require.Contains(t, err.Error(), "some error")
 }
 
-func TestClaudeInvokerErrorWithoutStderr(t *testing.T) {
+func TestInvokerErrorWithoutStderr(t *testing.T) {
 	tmpDir := t.TempDir()
 	script := "#!/bin/sh\nexit 1\n"
 	err := os.WriteFile(tmpDir+"/claude", []byte(script), 0o755)
 	require.NoError(t, err)
-	origPath := os.Getenv("PATH")
-	t.Setenv("PATH", tmpDir+":"+origPath)
+	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
 
-	inv := NewClaudeInvoker(EnvConfig{})
-	_, err = inv.Invoke(context.Background(), "test", InvokeOptions{})
+	inv := New(Config{})
+	_, err = inv.Invoke(context.Background(), "test", llm.InvokeOptions{})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "claude exited")
 	require.NotContains(t, err.Error(), "stderr")
 }
 
-func TestClaudeInvokerTimeout(t *testing.T) {
+func TestInvokerTimeout(t *testing.T) {
 	tmpDir := t.TempDir()
 	script := "#!/bin/sh\ncat >/dev/null\nsleep 30\n"
 	err := os.WriteFile(tmpDir+"/claude", []byte(script), 0o755)
 	require.NoError(t, err)
-	origPath := os.Getenv("PATH")
-	t.Setenv("PATH", tmpDir+":"+origPath)
+	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
 
-	inv := NewClaudeInvoker(EnvConfig{})
-	res, err := inv.Invoke(context.Background(), "test", InvokeOptions{Timeout: 1})
-	require.NoError(t, err) // timeout returns a blocked status, not an error
+	inv := New(Config{})
+	res, err := inv.Invoke(context.Background(), "test", llm.InvokeOptions{Timeout: 1})
+	require.NoError(t, err)
 	require.Contains(t, res.Text, protocol.StatusBlockKey)
 	require.Contains(t, res.Text, string(protocol.StatusBlocked))
 }
 
-func TestClaudeInvokerToolUseCallback(t *testing.T) {
+func TestInvokerToolUseCallback(t *testing.T) {
 	tmpDir := t.TempDir()
 	script := `#!/bin/sh
 cat >/dev/null
@@ -150,15 +144,14 @@ echo '{"type":"result","result":""}'
 `
 	err := os.WriteFile(tmpDir+"/claude", []byte(script), 0o755)
 	require.NoError(t, err)
-	origPath := os.Getenv("PATH")
-	t.Setenv("PATH", tmpDir+":"+origPath)
+	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
 
-	inv := NewClaudeInvoker(EnvConfig{})
+	inv := New(Config{})
 
 	var toolName string
 	var toolInput any
 	var toolResultName, toolResultContent string
-	opts := InvokeOptions{
+	opts := llm.InvokeOptions{
 		Streaming: true,
 		OnToolUse: func(name string, input any) {
 			toolName = name
@@ -178,4 +171,66 @@ echo '{"type":"result","result":""}'
 	inputMap, ok := toolInput.(map[string]any)
 	require.True(t, ok, "tool input should be a map")
 	require.Equal(t, "/tmp/test.go", inputMap["file_path"])
+}
+
+func TestBuildEnv(t *testing.T) {
+	tests := []struct {
+		name       string
+		setEnv     map[string]string
+		config     Config
+		wantSet    map[string]string
+		wantAbsent []string
+	}{
+		{
+			name:       "filters inherited ANTHROPIC_API_KEY",
+			setEnv:     map[string]string{"ANTHROPIC_API_KEY": "secret-inherited"},
+			config:     Config{},
+			wantAbsent: []string{"ANTHROPIC_API_KEY="},
+		},
+		{
+			name:    "sets explicit ANTHROPIC_API_KEY",
+			setEnv:  map[string]string{"ANTHROPIC_API_KEY": "should-be-filtered"},
+			config:  Config{AnthropicAPIKey: "explicit-key"},
+			wantSet: map[string]string{"ANTHROPIC_API_KEY": "explicit-key"},
+		},
+		{
+			name:    "sets CLAUDE_CONFIG_DIR from config",
+			config:  Config{ClaudeConfigDir: "/custom/config"},
+			wantSet: map[string]string{"CLAUDE_CONFIG_DIR": "/custom/config"},
+		},
+		{
+			name:       "filters inherited CLAUDE_CONFIG_DIR",
+			setEnv:     map[string]string{"CLAUDE_CONFIG_DIR": "/inherited"},
+			config:     Config{},
+			wantAbsent: []string{"CLAUDE_CONFIG_DIR="},
+		},
+		{
+			name:   "empty config returns non-nil env",
+			config: Config{},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for k, v := range tc.setEnv {
+				t.Setenv(k, v)
+			}
+
+			env := BuildEnv(tc.config)
+			require.NotNil(t, env)
+
+			for key, val := range tc.wantSet {
+				expected := key + "=" + val
+				require.True(t, slices.Contains(env, expected),
+					"%s should be set in env", expected)
+			}
+
+			for _, prefix := range tc.wantAbsent {
+				for _, e := range env {
+					require.False(t, strings.HasPrefix(e, prefix),
+						"%s should not be in env", prefix)
+				}
+			}
+		})
+	}
 }

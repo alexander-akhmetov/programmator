@@ -1,4 +1,4 @@
-package llm
+package claude
 
 import (
 	"bufio"
@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/alexander-akhmetov/programmator/internal/debug"
+	"github.com/alexander-akhmetov/programmator/internal/llm"
 )
 
 // streamEvent is the JSON structure emitted by `claude --output-format stream-json`.
@@ -55,7 +56,7 @@ func (u modelUsageStats) TotalInputTokens() int {
 
 // processStreamingOutput reads stream-json lines from r, dispatches callbacks
 // via opts, and returns the accumulated text output.
-func processStreamingOutput(r io.Reader, opts InvokeOptions) string {
+func processStreamingOutput(r io.Reader, opts llm.InvokeOptions) string {
 	var fullOutput strings.Builder
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
@@ -96,13 +97,13 @@ func processStreamingOutput(r io.Reader, opts InvokeOptions) string {
 	return fullOutput.String()
 }
 
-func handleSystemEvent(event *streamEvent, opts InvokeOptions) {
+func handleSystemEvent(event *streamEvent, opts llm.InvokeOptions) {
 	if event.Subtype == "init" && event.Model != "" && opts.OnSystemInit != nil {
 		opts.OnSystemInit(event.Model)
 	}
 }
 
-func handleAssistantEvent(event *streamEvent, fullOutput *strings.Builder, processedBlockIDs map[string]bool, opts InvokeOptions) {
+func handleAssistantEvent(event *streamEvent, fullOutput *strings.Builder, processedBlockIDs map[string]bool, opts llm.InvokeOptions) {
 	if opts.OnTokens != nil {
 		opts.OnTokens(
 			event.Message.Usage.TotalInputTokens(),
@@ -131,13 +132,13 @@ func handleAssistantEvent(event *streamEvent, fullOutput *strings.Builder, proce
 	}
 }
 
-func handleUserEvent(event *streamEvent, opts InvokeOptions) {
+func handleUserEvent(event *streamEvent, opts llm.InvokeOptions) {
 	if opts.OnToolResult != nil && event.ToolName != "" {
 		opts.OnToolResult(event.ToolName, event.ToolResult)
 	}
 }
 
-func handleResultEvent(event *streamEvent, fullOutput *strings.Builder, opts InvokeOptions) {
+func handleResultEvent(event *streamEvent, fullOutput *strings.Builder, opts llm.InvokeOptions) {
 	if opts.OnFinalTokens != nil && len(event.ModelUsage) > 0 {
 		for model, usage := range event.ModelUsage {
 			opts.OnFinalTokens(model, usage.TotalInputTokens(), usage.OutputTokens)
