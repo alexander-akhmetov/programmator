@@ -140,11 +140,17 @@ func TestOpenCodeInvokerTextMode(t *testing.T) {
 
 func TestOpenCodeInvokerStreamingMode(t *testing.T) {
 	tmpDir := t.TempDir()
-	// Fake opencode that outputs nd-JSON events when --format json is passed.
+	// Fake opencode that only outputs nd-JSON when --format json is present;
+	// plain text otherwise — so the test fails if the flag is missing.
 	script := `#!/bin/sh
-echo '{"type":"step_start","part":{"type":"step-start","snapshot":"abc123"}}'
-echo '{"type":"text","part":{"type":"text","text":"Hello World"}}'
-echo '{"type":"step_finish","part":{"type":"step-finish","reason":"end_turn","cost":0.01,"tokens":{"total":33,"input":20,"output":13,"reasoning":0,"cache":{"read":5,"write":3}}}}'
+case "$*" in
+  *--format\ json*)
+    echo '{"type":"step_start","part":{"type":"step-start","snapshot":"abc123"}}'
+    echo '{"type":"text","part":{"type":"text","text":"Hello World"}}'
+    echo '{"type":"step_finish","part":{"type":"step-finish","reason":"end_turn","cost":0.01,"tokens":{"total":33,"input":20,"output":13,"reasoning":0,"cache":{"read":5,"write":3}}}}'
+    ;;
+  *) echo "plain text output" ;;
+esac
 `
 	err := os.WriteFile(tmpDir+"/opencode", []byte(script), 0o755)
 	require.NoError(t, err)
