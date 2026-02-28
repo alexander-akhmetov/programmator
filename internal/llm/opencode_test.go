@@ -227,3 +227,20 @@ func TestOpenCodeInvokerModelAndQuietFlags(t *testing.T) {
 	require.Contains(t, res.Text, "-q")
 	require.Contains(t, res.Text, "run")
 }
+
+func TestOpenCodeInvokerWorkingDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	script := "#!/bin/sh\necho \"$@\"\n"
+	err := os.WriteFile(tmpDir+"/opencode", []byte(script), 0o755)
+	require.NoError(t, err)
+	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
+
+	workDir := t.TempDir()
+
+	inv := NewOpenCodeInvoker(OpenCodeEnvConfig{})
+	res, err := inv.Invoke(context.Background(), "test", InvokeOptions{
+		WorkingDir: workDir,
+	})
+	require.NoError(t, err)
+	require.Contains(t, res.Text, "--dir "+workDir)
+}

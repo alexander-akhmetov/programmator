@@ -388,7 +388,18 @@ func applyReviewExecutorOverlay(dst *ReviewExecutorConfig, src *ReviewExecutorCo
 		dst.Pi.APIKey = src.Pi.APIKey
 	}
 
-	applyOpenCodeOverlay(&dst.OpenCode, &src.OpenCode)
+	if src.OpenCode.Flags != "" {
+		dst.OpenCode.Flags = src.OpenCode.Flags
+	}
+	if src.OpenCode.ConfigDir != "" {
+		dst.OpenCode.ConfigDir = src.OpenCode.ConfigDir
+	}
+	if src.OpenCode.Model != "" {
+		dst.OpenCode.Model = src.OpenCode.Model
+	}
+	if src.OpenCode.APIKey != "" {
+		dst.OpenCode.APIKey = src.OpenCode.APIKey
+	}
 }
 
 func applyOpenCodeOverlay(dst *OpenCodeConfig, src *OpenCodeConfig) {
