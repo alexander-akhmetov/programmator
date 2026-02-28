@@ -2,7 +2,7 @@
 package review
 
 import (
-	"github.com/alexander-akhmetov/programmator/internal/llm"
+	"github.com/alexander-akhmetov/programmator/internal/llm/executor"
 )
 
 const (
@@ -11,14 +11,14 @@ const (
 
 // Config holds the review configuration.
 type Config struct {
-	MaxIterations           int                `yaml:"max_iterations"`
-	Parallel                bool               `yaml:"parallel"`
-	Timeout                 int                `yaml:"-"` // seconds per agent invocation, inherited from main config
-	Agents                  []AgentConfig      `yaml:"agents,omitempty"`
-	ExecutorConfig          llm.ExecutorConfig `yaml:"-"` // executor configuration, inherited from main config
-	TicketContext           string             `yaml:"-"` // full ticket/plan content for reviewer context
-	ValidateIssues          bool               `yaml:"-"`
-	ValidateSimplifications bool               `yaml:"-"`
+	MaxIterations           int             `yaml:"max_iterations"`
+	Parallel                bool            `yaml:"parallel"`
+	Timeout                 int             `yaml:"-"` // seconds per agent invocation, inherited from main config
+	Agents                  []AgentConfig   `yaml:"agents,omitempty"`
+	ExecutorConfig          executor.Config `yaml:"-"` // executor configuration, inherited from main config
+	TicketContext           string          `yaml:"-"` // full ticket/plan content for reviewer context
+	ValidateIssues          bool            `yaml:"-"`
+	ValidateSimplifications bool            `yaml:"-"`
 }
 
 // AgentConfig defines a single review agent configuration.

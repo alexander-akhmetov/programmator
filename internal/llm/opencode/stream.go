@@ -1,4 +1,4 @@
-package llm
+package opencode
 
 import (
 	"bufio"
@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/alexander-akhmetov/programmator/internal/debug"
+	"github.com/alexander-akhmetov/programmator/internal/llm"
 )
 
 // ocEvent is the top-level nd-JSON structure emitted by `opencode run --format json`.
@@ -55,7 +56,7 @@ type ocCache struct {
 
 // processOpenCodeStreamingOutput reads nd-JSON lines from opencode --format json output,
 // dispatches callbacks via opts, and returns the accumulated text output.
-func processOpenCodeStreamingOutput(r io.Reader, model string, opts InvokeOptions) string {
+func processOpenCodeStreamingOutput(r io.Reader, model string, opts llm.InvokeOptions) string {
 	var fullOutput strings.Builder
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)

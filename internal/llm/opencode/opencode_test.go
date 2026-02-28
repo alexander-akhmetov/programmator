@@ -1,4 +1,4 @@
-package llm
+package opencode
 
 import (
 	"context"
@@ -9,62 +9,63 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/alexander-akhmetov/programmator/internal/llm"
 	"github.com/alexander-akhmetov/programmator/internal/protocol"
 )
 
-func TestBuildOpenCodeEnv(t *testing.T) {
+func TestBuildEnv(t *testing.T) {
 	tests := []struct {
 		name       string
 		setEnv     map[string]string
-		config     OpenCodeEnvConfig
+		config     Config
 		wantSet    map[string]string
 		wantAbsent []string
 	}{
 		{
 			name:       "filters inherited OPENCODE_CONFIG_DIR",
 			setEnv:     map[string]string{"OPENCODE_CONFIG_DIR": "/old/dir"},
-			config:     OpenCodeEnvConfig{ConfigDir: "/new/dir"},
+			config:     Config{ConfigDir: "/new/dir"},
 			wantSet:    map[string]string{"OPENCODE_CONFIG_DIR": "/new/dir"},
 			wantAbsent: []string{"OPENCODE_CONFIG_DIR=/old/dir"},
 		},
 		{
 			name:    "sets OPENCODE_CONFIG_DIR from config",
-			config:  OpenCodeEnvConfig{ConfigDir: "/custom/opencode"},
+			config:  Config{ConfigDir: "/custom/opencode"},
 			wantSet: map[string]string{"OPENCODE_CONFIG_DIR": "/custom/opencode"},
 		},
 		{
 			name:       "omits OPENCODE_CONFIG_DIR when config is empty",
-			config:     OpenCodeEnvConfig{},
+			config:     Config{},
 			wantAbsent: []string{"OPENCODE_CONFIG_DIR="},
 		},
 		{
 			name:    "anthropic model prefix sets ANTHROPIC_API_KEY",
-			config:  OpenCodeEnvConfig{Model: "anthropic/claude-sonnet-4-5", APIKey: "sk-ant-key"},
+			config:  Config{Model: "anthropic/claude-sonnet-4-5", APIKey: "sk-ant-key"},
 			wantSet: map[string]string{"ANTHROPIC_API_KEY": "sk-ant-key"},
 		},
 		{
 			name:    "openai model prefix sets OPENAI_API_KEY",
-			config:  OpenCodeEnvConfig{Model: "openai/gpt-4o", APIKey: "sk-openai-key"},
+			config:  Config{Model: "openai/gpt-4o", APIKey: "sk-openai-key"},
 			wantSet: map[string]string{"OPENAI_API_KEY": "sk-openai-key"},
 		},
 		{
 			name:    "google model prefix sets GEMINI_API_KEY",
-			config:  OpenCodeEnvConfig{Model: "google/gemini-pro", APIKey: "gemini-key"},
+			config:  Config{Model: "google/gemini-pro", APIKey: "gemini-key"},
 			wantSet: map[string]string{"GEMINI_API_KEY": "gemini-key"},
 		},
 		{
 			name:    "unknown provider prefix falls back to ANTHROPIC_API_KEY",
-			config:  OpenCodeEnvConfig{Model: "custom-provider/some-model", APIKey: "fallback-key"},
+			config:  Config{Model: "custom-provider/some-model", APIKey: "fallback-key"},
 			wantSet: map[string]string{"ANTHROPIC_API_KEY": "fallback-key"},
 		},
 		{
 			name:       "no API key set means no key env var in output",
-			config:     OpenCodeEnvConfig{Model: "anthropic/claude-sonnet-4-5"},
+			config:     Config{Model: "anthropic/claude-sonnet-4-5"},
 			wantAbsent: []string{"ANTHROPIC_API_KEY=", "OPENAI_API_KEY=", "GEMINI_API_KEY="},
 		},
 		{
 			name:   "empty config returns non-nil env",
-			config: OpenCodeEnvConfig{},
+			config: Config{},
 		},
 	}
 
@@ -74,7 +75,7 @@ func TestBuildOpenCodeEnv(t *testing.T) {
 				t.Setenv(k, v)
 			}
 
-			env := BuildOpenCodeEnv(tc.config)
+			env := BuildEnv(tc.config)
 			require.NotNil(t, env)
 
 			for key, val := range tc.wantSet {
@@ -108,24 +109,23 @@ func TestProviderFromModel(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := providerFromModel(tc.model)
+			got := ProviderFromModel(tc.model)
 			require.Equal(t, tc.want, got)
 		})
 	}
 }
 
-func TestOpenCodeInvokerTextMode(t *testing.T) {
+func TestInvokerTextMode(t *testing.T) {
 	tmpDir := t.TempDir()
 	// OpenCode receives the prompt as the last positional argument, not stdin.
-	// This script echoes the last positional argument.
 	script := "#!/bin/sh\nfor last; do true; done\necho \"$last\"\n"
 	err := os.WriteFile(tmpDir+"/opencode", []byte(script), 0o755)
 	require.NoError(t, err)
 	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
 
-	inv := NewOpenCodeInvoker(OpenCodeEnvConfig{})
+	inv := New(Config{})
 	var collected []string
-	opts := InvokeOptions{
+	opts := llm.InvokeOptions{
 		OnOutput: func(text string) {
 			collected = append(collected, text)
 		},
@@ -133,15 +133,12 @@ func TestOpenCodeInvokerTextMode(t *testing.T) {
 
 	res, err := inv.Invoke(context.Background(), "hello world", opts)
 	require.NoError(t, err)
-	// The script echoes the last positional arg which is the prompt
 	require.Contains(t, res.Text, "hello world")
 	require.NotEmpty(t, collected)
 }
 
-func TestOpenCodeInvokerStreamingMode(t *testing.T) {
+func TestInvokerStreamingMode(t *testing.T) {
 	tmpDir := t.TempDir()
-	// Fake opencode that only outputs nd-JSON when --format json is present;
-	// plain text otherwise — so the test fails if the flag is missing.
 	script := `#!/bin/sh
 case "$*" in
   *--format\ json*)
@@ -156,13 +153,13 @@ esac
 	require.NoError(t, err)
 	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
 
-	inv := NewOpenCodeInvoker(OpenCodeEnvConfig{Model: "anthropic/claude-sonnet-4-5"})
+	inv := New(Config{Model: "anthropic/claude-sonnet-4-5"})
 
 	var model string
 	var finalModel string
 	var finalInput, finalOutput int
 	var textCollected []string
-	opts := InvokeOptions{
+	opts := llm.InvokeOptions{
 		Streaming: true,
 		OnOutput: func(text string) {
 			textCollected = append(textCollected, text)
@@ -188,53 +185,52 @@ esac
 	require.Equal(t, "Hello World", textCollected[0])
 }
 
-func TestOpenCodeInvokerErrorCapturesStderr(t *testing.T) {
+func TestInvokerErrorCapturesStderr(t *testing.T) {
 	tmpDir := t.TempDir()
 	script := "#!/bin/sh\necho 'some error' >&2\nexit 1\n"
 	err := os.WriteFile(tmpDir+"/opencode", []byte(script), 0o755)
 	require.NoError(t, err)
 	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
 
-	inv := NewOpenCodeInvoker(OpenCodeEnvConfig{})
-	_, err = inv.Invoke(context.Background(), "test", InvokeOptions{})
+	inv := New(Config{})
+	_, err = inv.Invoke(context.Background(), "test", llm.InvokeOptions{})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "opencode exited")
 	require.Contains(t, err.Error(), "some error")
 }
 
-func TestOpenCodeInvokerTimeout(t *testing.T) {
+func TestInvokerTimeout(t *testing.T) {
 	tmpDir := t.TempDir()
 	script := "#!/bin/sh\nsleep 30\n"
 	err := os.WriteFile(tmpDir+"/opencode", []byte(script), 0o755)
 	require.NoError(t, err)
 	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
 
-	inv := NewOpenCodeInvoker(OpenCodeEnvConfig{})
-	res, err := inv.Invoke(context.Background(), "test", InvokeOptions{Timeout: 1})
+	inv := New(Config{})
+	res, err := inv.Invoke(context.Background(), "test", llm.InvokeOptions{Timeout: 1})
 	require.NoError(t, err)
 	require.Contains(t, res.Text, protocol.StatusBlockKey)
 	require.Contains(t, res.Text, string(protocol.StatusBlocked))
 }
 
-func TestOpenCodeInvokerModelAndQuietFlags(t *testing.T) {
+func TestInvokerModelAndQuietFlags(t *testing.T) {
 	tmpDir := t.TempDir()
-	// Script that prints all arguments to verify flags are passed correctly
 	script := "#!/bin/sh\necho \"$@\"\n"
 	err := os.WriteFile(tmpDir+"/opencode", []byte(script), 0o755)
 	require.NoError(t, err)
 	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
 
-	inv := NewOpenCodeInvoker(OpenCodeEnvConfig{
+	inv := New(Config{
 		Model: "anthropic/claude-sonnet-4-5",
 	})
-	res, err := inv.Invoke(context.Background(), "test", InvokeOptions{})
+	res, err := inv.Invoke(context.Background(), "test", llm.InvokeOptions{})
 	require.NoError(t, err)
 	require.Contains(t, res.Text, "--model anthropic/claude-sonnet-4-5")
 	require.Contains(t, res.Text, "-q")
 	require.Contains(t, res.Text, "run")
 }
 
-func TestOpenCodeInvokerWorkingDir(t *testing.T) {
+func TestInvokerWorkingDir(t *testing.T) {
 	tmpDir := t.TempDir()
 	script := "#!/bin/sh\necho \"$@\"\n"
 	err := os.WriteFile(tmpDir+"/opencode", []byte(script), 0o755)
@@ -243,8 +239,8 @@ func TestOpenCodeInvokerWorkingDir(t *testing.T) {
 
 	workDir := t.TempDir()
 
-	inv := NewOpenCodeInvoker(OpenCodeEnvConfig{})
-	res, err := inv.Invoke(context.Background(), "test", InvokeOptions{
+	inv := New(Config{})
+	res, err := inv.Invoke(context.Background(), "test", llm.InvokeOptions{
 		WorkingDir: workDir,
 	})
 	require.NoError(t, err)

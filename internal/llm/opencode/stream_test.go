@@ -1,10 +1,12 @@
-package llm
+package opencode
 
 import (
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/alexander-akhmetov/programmator/internal/llm"
 )
 
 func TestProcessOpenCodeStreamingOutput(t *testing.T) {
@@ -156,7 +158,7 @@ func TestProcessOpenCodeStreamingOutput(t *testing.T) {
 			var toolInputs []string
 			var toolResults []string
 
-			opts := InvokeOptions{
+			opts := llm.InvokeOptions{
 				OnOutput: func(text string) {
 					outputCollected = append(outputCollected, text)
 				},
@@ -217,8 +219,8 @@ func TestProcessOpenCodeStreamingOutputNilCallbacks(t *testing.T) {
 {"type":"tool_use","part":{"type":"tool","tool":"Bash","state":{"input":"ls","output":"ok"}}}
 {"type":"step_finish","part":{"type":"step-finish","reason":"end_turn","tokens":{"total":30,"input":20,"output":10,"reasoning":0,"cache":{"read":0,"write":0}}}}`
 
-	// All callbacks nil — should not panic
-	output := processOpenCodeStreamingOutput(strings.NewReader(input), "test", InvokeOptions{})
+	// All callbacks nil -- should not panic
+	output := processOpenCodeStreamingOutput(strings.NewReader(input), "test", llm.InvokeOptions{})
 	require.Equal(t, "hello", output)
 }
 

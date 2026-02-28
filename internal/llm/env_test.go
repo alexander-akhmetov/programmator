@@ -1,71 +1,81 @@
 package llm
 
 import (
-	"slices"
-	"strings"
+	"sort"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestBuildEnv(t *testing.T) {
+func TestFilterEnv(t *testing.T) {
 	tests := []struct {
-		name       string
-		setEnv     map[string]string
-		config     EnvConfig
-		wantSet    map[string]string // key=value pairs that must be present
-		wantAbsent []string          // prefixes that must NOT be present
+		name     string
+		environ  []string
+		prefixes []string
+		want     []string
 	}{
 		{
-			name:       "filters inherited ANTHROPIC_API_KEY",
-			setEnv:     map[string]string{"ANTHROPIC_API_KEY": "secret-inherited"},
-			config:     EnvConfig{},
-			wantAbsent: []string{"ANTHROPIC_API_KEY="},
+			name:     "removes matching prefixes",
+			environ:  []string{"FOO=1", "BAR=2", "BAZ=3"},
+			prefixes: []string{"BAR="},
+			want:     []string{"FOO=1", "BAZ=3"},
 		},
 		{
-			name:    "sets explicit ANTHROPIC_API_KEY",
-			setEnv:  map[string]string{"ANTHROPIC_API_KEY": "should-be-filtered"},
-			config:  EnvConfig{AnthropicAPIKey: "explicit-key"},
-			wantSet: map[string]string{"ANTHROPIC_API_KEY": "explicit-key"},
+			name:     "removes multiple prefixes",
+			environ:  []string{"A=1", "B=2", "C=3"},
+			prefixes: []string{"A=", "C="},
+			want:     []string{"B=2"},
 		},
 		{
-			name:    "sets CLAUDE_CONFIG_DIR from config",
-			config:  EnvConfig{ClaudeConfigDir: "/custom/config"},
-			wantSet: map[string]string{"CLAUDE_CONFIG_DIR": "/custom/config"},
+			name:     "no prefixes keeps all",
+			environ:  []string{"A=1", "B=2"},
+			prefixes: nil,
+			want:     []string{"A=1", "B=2"},
 		},
 		{
-			name:       "filters inherited CLAUDE_CONFIG_DIR",
-			setEnv:     map[string]string{"CLAUDE_CONFIG_DIR": "/inherited"},
-			config:     EnvConfig{},
-			wantAbsent: []string{"CLAUDE_CONFIG_DIR="},
+			name:     "empty environ returns empty",
+			environ:  nil,
+			prefixes: []string{"A="},
+			want:     []string{},
 		},
 		{
-			name:   "empty config returns non-nil env",
-			config: EnvConfig{},
+			name:     "prefix must match start of entry",
+			environ:  []string{"XFOO=1", "FOO=2"},
+			prefixes: []string{"FOO="},
+			want:     []string{"XFOO=1"},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			for k, v := range tc.setEnv {
-				t.Setenv(k, v)
-			}
-
-			env := BuildEnv(tc.config)
-			require.NotNil(t, env)
-
-			for key, val := range tc.wantSet {
-				expected := key + "=" + val
-				require.True(t, slices.Contains(env, expected),
-					"%s should be set in env", expected)
-			}
-
-			for _, prefix := range tc.wantAbsent {
-				for _, e := range env {
-					require.False(t, strings.HasPrefix(e, prefix),
-						"%s should not be in env", prefix)
-				}
-			}
+			got := FilterEnv(tc.environ, tc.prefixes...)
+			require.Equal(t, tc.want, got)
 		})
 	}
+}
+
+func TestProviderAPIKeyEnvVars(t *testing.T) {
+	assert.Equal(t, "ANTHROPIC_API_KEY", ProviderAPIKeyEnvVars["anthropic"])
+	assert.Equal(t, "OPENAI_API_KEY", ProviderAPIKeyEnvVars["openai"])
+	assert.Equal(t, "GEMINI_API_KEY", ProviderAPIKeyEnvVars["google"])
+	assert.Equal(t, "GROQ_API_KEY", ProviderAPIKeyEnvVars["groq"])
+	assert.Equal(t, "MISTRAL_API_KEY", ProviderAPIKeyEnvVars["mistral"])
+	assert.Len(t, ProviderAPIKeyEnvVars, 5)
+}
+
+func TestAllProviderAPIKeyPrefixes(t *testing.T) {
+	prefixes := AllProviderAPIKeyPrefixes()
+	require.Len(t, prefixes, 5)
+
+	// Sort for deterministic comparison since map iteration is non-deterministic.
+	sort.Strings(prefixes)
+	expected := []string{
+		"ANTHROPIC_API_KEY=",
+		"GEMINI_API_KEY=",
+		"GROQ_API_KEY=",
+		"MISTRAL_API_KEY=",
+		"OPENAI_API_KEY=",
+	}
+	require.Equal(t, expected, prefixes)
 }

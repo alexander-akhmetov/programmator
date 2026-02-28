@@ -1,36 +1,17 @@
-package llm
+package claude
 
 import (
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/alexander-akhmetov/programmator/internal/llm"
 )
-
-func TestProcessTextOutput(t *testing.T) {
-	var collected []string
-	opts := InvokeOptions{
-		OnOutput: func(text string) {
-			collected = append(collected, text)
-		},
-	}
-
-	input := "line1\nline2\nline3"
-	output := processTextOutput(strings.NewReader(input), opts)
-
-	require.Equal(t, "line1\nline2\nline3\n", output)
-	require.Len(t, collected, 3)
-}
-
-func TestProcessTextOutputNoCallback(t *testing.T) {
-	input := "line1\nline2\n"
-	output := processTextOutput(strings.NewReader(input), InvokeOptions{})
-	require.Equal(t, "line1\nline2\n", output)
-}
 
 func TestProcessStreamingOutput(t *testing.T) {
 	var collected []string
-	opts := InvokeOptions{
+	opts := llm.InvokeOptions{
 		OnOutput: func(text string) {
 			collected = append(collected, text)
 		},
@@ -48,19 +29,18 @@ func TestProcessStreamingOutput(t *testing.T) {
 
 func TestProcessStreamingOutputEmpty(t *testing.T) {
 	input := `{"type":"result","result":"only result"}`
-	output := processStreamingOutput(strings.NewReader(input), InvokeOptions{})
+	output := processStreamingOutput(strings.NewReader(input), llm.InvokeOptions{})
 	require.Equal(t, "only result", output)
 }
 
 func TestProcessStreamingOutputDeduplicatesToolUse(t *testing.T) {
 	var toolUses []string
-	opts := InvokeOptions{
+	opts := llm.InvokeOptions{
 		OnToolUse: func(name string, _ any) {
 			toolUses = append(toolUses, name)
 		},
 	}
 
-	// Same tool_use ID sent twice (streaming sends cumulative content)
 	input := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","id":"t1"}]}}
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","id":"t1"}]}}
 {"type":"result","result":""}`
@@ -71,7 +51,7 @@ func TestProcessStreamingOutputDeduplicatesToolUse(t *testing.T) {
 
 func TestProcessStreamingOutputSystemInit(t *testing.T) {
 	var model string
-	opts := InvokeOptions{
+	opts := llm.InvokeOptions{
 		OnSystemInit: func(m string) {
 			model = m
 		},
@@ -89,7 +69,7 @@ func TestProcessStreamingOutputTokenTracking(t *testing.T) {
 	var finalModel string
 	var finalInput, finalOutput int
 
-	opts := InvokeOptions{
+	opts := llm.InvokeOptions{
 		OnTokens: func(inp, out int) {
 			lastInput = inp
 			lastOutput = out
@@ -114,19 +94,18 @@ func TestProcessStreamingOutputTokenTracking(t *testing.T) {
 }
 
 func TestProcessStreamingOutputInvalidJSON(t *testing.T) {
-	// Invalid JSON lines should be skipped without error
 	input := `not json
 {"type":"assistant","message":{"content":[{"type":"text","text":"OK"}]}}
 also not json
 {"type":"result","result":""}`
 
-	output := processStreamingOutput(strings.NewReader(input), InvokeOptions{})
+	output := processStreamingOutput(strings.NewReader(input), llm.InvokeOptions{})
 	require.Equal(t, "OK", output)
 }
 
 func TestProcessStreamingOutputToolResult(t *testing.T) {
 	var toolName, toolResult string
-	opts := InvokeOptions{
+	opts := llm.InvokeOptions{
 		OnToolResult: func(name, result string) {
 			toolName = name
 			toolResult = result
@@ -142,18 +121,13 @@ func TestProcessStreamingOutputToolResult(t *testing.T) {
 }
 
 func TestProcessStreamingOutputEmptyReader(t *testing.T) {
-	output := processStreamingOutput(strings.NewReader(""), InvokeOptions{})
-	require.Equal(t, "", output)
-}
-
-func TestProcessTextOutputEmptyReader(t *testing.T) {
-	output := processTextOutput(strings.NewReader(""), InvokeOptions{})
+	output := processStreamingOutput(strings.NewReader(""), llm.InvokeOptions{})
 	require.Equal(t, "", output)
 }
 
 func TestProcessStreamingOutputBlankLines(t *testing.T) {
 	input := "\n\n  \n{\"type\":\"result\",\"result\":\"ok\"}\n\n"
-	output := processStreamingOutput(strings.NewReader(input), InvokeOptions{})
+	output := processStreamingOutput(strings.NewReader(input), llm.InvokeOptions{})
 	require.Equal(t, "ok", output)
 }
 
@@ -161,19 +135,18 @@ func TestProcessStreamingOutputNilOnToolUse(t *testing.T) {
 	input := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","id":"t1","input":{"file_path":"/tmp/test.go"}}]}}
 {"type":"result","result":""}`
 
-	output := processStreamingOutput(strings.NewReader(input), InvokeOptions{})
+	output := processStreamingOutput(strings.NewReader(input), llm.InvokeOptions{})
 	require.Equal(t, "", output)
 }
 
 func TestProcessStreamingOutputToolUseWithoutID(t *testing.T) {
 	var toolUses []string
-	opts := InvokeOptions{
+	opts := llm.InvokeOptions{
 		OnToolUse: func(name string, _ any) {
 			toolUses = append(toolUses, name)
 		},
 	}
 
-	// tool_use without ID should still be reported (no dedup possible)
 	input := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash"}]}}
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash"}]}}
 {"type":"result","result":""}`
@@ -202,7 +175,7 @@ func TestModelUsageStatsTotalInputTokens(t *testing.T) {
 
 func TestProcessStreamingOutputMultipleModelsInResult(t *testing.T) {
 	var finalCalls []string
-	opts := InvokeOptions{
+	opts := llm.InvokeOptions{
 		OnFinalTokens: func(m string, _, _ int) {
 			finalCalls = append(finalCalls, m)
 		},
@@ -214,10 +187,9 @@ func TestProcessStreamingOutputMultipleModelsInResult(t *testing.T) {
 }
 
 func TestProcessStreamingOutputResultFallback(t *testing.T) {
-	// When assistant events produce text, result.result should be ignored
 	input := `{"type":"assistant","message":{"content":[{"type":"text","text":"from assistant"}]}}
 {"type":"result","result":"from result"}`
 
-	output := processStreamingOutput(strings.NewReader(input), InvokeOptions{})
+	output := processStreamingOutput(strings.NewReader(input), llm.InvokeOptions{})
 	require.Equal(t, "from assistant", output)
 }

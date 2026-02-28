@@ -19,6 +19,7 @@ import (
 	"github.com/alexander-akhmetov/programmator/internal/event"
 	gitutil "github.com/alexander-akhmetov/programmator/internal/git"
 	"github.com/alexander-akhmetov/programmator/internal/llm"
+	"github.com/alexander-akhmetov/programmator/internal/llm/executor"
 	"github.com/alexander-akhmetov/programmator/internal/parser"
 	"github.com/alexander-akhmetov/programmator/internal/prompt"
 	"github.com/alexander-akhmetov/programmator/internal/protocol"
@@ -89,7 +90,7 @@ type Loop struct {
 	gitRepo   *gitutil.Repo
 
 	// Executor configuration for the factory
-	executorConfig llm.ExecutorConfig
+	executorConfig executor.Config
 
 	// Track consecutive invocation failures to exit early on persistent errors
 	consecutiveInvokeErrors int
@@ -140,7 +141,7 @@ func (l *Loop) SetGitWorkflowConfig(cfg GitWorkflowConfig) {
 }
 
 // SetExecutorConfig sets the executor configuration for the invoker factory.
-func (l *Loop) SetExecutorConfig(cfg llm.ExecutorConfig) {
+func (l *Loop) SetExecutorConfig(cfg executor.Config) {
 	l.executorConfig = cfg
 }
 
@@ -858,7 +859,7 @@ func (l *Loop) invokeClaudePrint(ctx context.Context, promptText string) (string
 	inv := l.invoker
 	if inv == nil {
 		var err error
-		inv, err = llm.NewInvoker(l.executorConfig)
+		inv, err = executor.New(l.executorConfig)
 		if err != nil {
 			return "", fmt.Errorf("create invoker: %w", err)
 		}

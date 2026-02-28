@@ -1,4 +1,4 @@
-package llm
+package pi
 
 import (
 	"context"
@@ -9,61 +9,62 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/alexander-akhmetov/programmator/internal/llm"
 	"github.com/alexander-akhmetov/programmator/internal/protocol"
 )
 
-func TestBuildPiEnv(t *testing.T) {
+func TestBuildEnv(t *testing.T) {
 	tests := []struct {
 		name       string
 		setEnv     map[string]string
-		config     PiEnvConfig
+		config     Config
 		wantSet    map[string]string
 		wantAbsent []string
 	}{
 		{
 			name:       "filters inherited ANTHROPIC_API_KEY",
 			setEnv:     map[string]string{"ANTHROPIC_API_KEY": "secret-inherited"},
-			config:     PiEnvConfig{},
+			config:     Config{},
 			wantAbsent: []string{"ANTHROPIC_API_KEY="},
 		},
 		{
 			name:       "filters all provider API keys",
 			setEnv:     map[string]string{"ANTHROPIC_API_KEY": "a", "OPENAI_API_KEY": "b", "GEMINI_API_KEY": "c"},
-			config:     PiEnvConfig{},
+			config:     Config{},
 			wantAbsent: []string{"ANTHROPIC_API_KEY=", "OPENAI_API_KEY=", "GEMINI_API_KEY="},
 		},
 		{
 			name:    "anthropic provider sets ANTHROPIC_API_KEY",
 			setEnv:  map[string]string{"ANTHROPIC_API_KEY": "should-be-filtered"},
-			config:  PiEnvConfig{Provider: "anthropic", APIKey: "explicit-key"},
+			config:  Config{Provider: "anthropic", APIKey: "explicit-key"},
 			wantSet: map[string]string{"ANTHROPIC_API_KEY": "explicit-key"},
 		},
 		{
 			name:       "openai provider sets OPENAI_API_KEY",
-			config:     PiEnvConfig{Provider: "openai", APIKey: "sk-openai"},
+			config:     Config{Provider: "openai", APIKey: "sk-openai"},
 			wantSet:    map[string]string{"OPENAI_API_KEY": "sk-openai"},
 			wantAbsent: []string{"ANTHROPIC_API_KEY="},
 		},
 		{
 			name:    "empty provider defaults to ANTHROPIC_API_KEY",
-			config:  PiEnvConfig{APIKey: "fallback-key"},
+			config:  Config{APIKey: "fallback-key"},
 			wantSet: map[string]string{"ANTHROPIC_API_KEY": "fallback-key"},
 		},
 		{
 			name:    "sets PI_CODING_AGENT_DIR",
-			config:  PiEnvConfig{ConfigDir: "/custom/pi/config"},
+			config:  Config{ConfigDir: "/custom/pi/config"},
 			wantSet: map[string]string{"PI_CODING_AGENT_DIR": "/custom/pi/config"},
 		},
 		{
 			name:       "filters inherited PI_CODING_AGENT_DIR",
 			setEnv:     map[string]string{"PI_CODING_AGENT_DIR": "/old/dir"},
-			config:     PiEnvConfig{ConfigDir: "/new/dir"},
+			config:     Config{ConfigDir: "/new/dir"},
 			wantSet:    map[string]string{"PI_CODING_AGENT_DIR": "/new/dir"},
 			wantAbsent: []string{"PI_CODING_AGENT_DIR=/old/dir"},
 		},
 		{
 			name:   "empty config returns non-nil env",
-			config: PiEnvConfig{},
+			config: Config{},
 		},
 	}
 
@@ -73,7 +74,7 @@ func TestBuildPiEnv(t *testing.T) {
 				t.Setenv(k, v)
 			}
 
-			env := BuildPiEnv(tc.config)
+			env := BuildEnv(tc.config)
 			require.NotNil(t, env)
 
 			for key, val := range tc.wantSet {
@@ -92,16 +93,16 @@ func TestBuildPiEnv(t *testing.T) {
 	}
 }
 
-func TestPiInvokerTextMode(t *testing.T) {
+func TestInvokerTextMode(t *testing.T) {
 	tmpDir := t.TempDir()
 	script := "#!/bin/sh\ncat\n"
 	err := os.WriteFile(tmpDir+"/pi", []byte(script), 0o755)
 	require.NoError(t, err)
 	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
 
-	inv := NewPiInvoker(PiEnvConfig{})
+	inv := New(Config{})
 	var collected []string
-	opts := InvokeOptions{
+	opts := llm.InvokeOptions{
 		OnOutput: func(text string) {
 			collected = append(collected, text)
 		},
@@ -113,7 +114,7 @@ func TestPiInvokerTextMode(t *testing.T) {
 	require.Len(t, collected, 1)
 }
 
-func TestPiInvokerWorkingDir(t *testing.T) {
+func TestInvokerWorkingDir(t *testing.T) {
 	tmpDir := t.TempDir()
 	script := "#!/bin/sh\ncat >/dev/null\npwd\n"
 	err := os.WriteFile(tmpDir+"/pi", []byte(script), 0o755)
@@ -121,15 +122,14 @@ func TestPiInvokerWorkingDir(t *testing.T) {
 	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
 
 	workDir := t.TempDir()
-	inv := NewPiInvoker(PiEnvConfig{})
-	res, err := inv.Invoke(context.Background(), "test", InvokeOptions{WorkingDir: workDir})
+	inv := New(Config{})
+	res, err := inv.Invoke(context.Background(), "test", llm.InvokeOptions{WorkingDir: workDir})
 	require.NoError(t, err)
 	require.Contains(t, res.Text, workDir)
 }
 
-func TestPiInvokerStreamingMode(t *testing.T) {
+func TestInvokerStreamingMode(t *testing.T) {
 	tmpDir := t.TempDir()
-	// Fake pi that outputs JSON events. Prompt arrives via stdin.
 	script := `#!/bin/sh
 cat >/dev/null
 echo '{"type":"session","version":3,"id":"test","timestamp":"2025-01-01T00:00:00Z","cwd":"/tmp"}'
@@ -143,13 +143,13 @@ echo '{"type":"agent_end","messages":[{"role":"assistant","model":"test-model","
 	require.NoError(t, err)
 	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
 
-	inv := NewPiInvoker(PiEnvConfig{})
+	inv := New(Config{})
 
 	var textCollected []string
 	var model string
 	var finalModel string
 	var finalInput, finalOutput int
-	opts := InvokeOptions{
+	opts := llm.InvokeOptions{
 		Streaming: true,
 		OnOutput: func(text string) {
 			textCollected = append(textCollected, text)
@@ -174,47 +174,46 @@ echo '{"type":"agent_end","messages":[{"role":"assistant","model":"test-model","
 	require.Len(t, textCollected, 2)
 }
 
-func TestPiInvokerErrorCapturesStderr(t *testing.T) {
+func TestInvokerErrorCapturesStderr(t *testing.T) {
 	tmpDir := t.TempDir()
 	script := "#!/bin/sh\ncat >/dev/null\necho 'some error' >&2\nexit 1\n"
 	err := os.WriteFile(tmpDir+"/pi", []byte(script), 0o755)
 	require.NoError(t, err)
 	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
 
-	inv := NewPiInvoker(PiEnvConfig{})
-	_, err = inv.Invoke(context.Background(), "test", InvokeOptions{})
+	inv := New(Config{})
+	_, err = inv.Invoke(context.Background(), "test", llm.InvokeOptions{})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "pi exited")
 	require.Contains(t, err.Error(), "some error")
 }
 
-func TestPiInvokerTimeout(t *testing.T) {
+func TestInvokerTimeout(t *testing.T) {
 	tmpDir := t.TempDir()
 	script := "#!/bin/sh\ncat >/dev/null\nsleep 30\n"
 	err := os.WriteFile(tmpDir+"/pi", []byte(script), 0o755)
 	require.NoError(t, err)
 	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
 
-	inv := NewPiInvoker(PiEnvConfig{})
-	res, err := inv.Invoke(context.Background(), "test", InvokeOptions{Timeout: 1})
+	inv := New(Config{})
+	res, err := inv.Invoke(context.Background(), "test", llm.InvokeOptions{Timeout: 1})
 	require.NoError(t, err)
 	require.Contains(t, res.Text, protocol.StatusBlockKey)
 	require.Contains(t, res.Text, string(protocol.StatusBlocked))
 }
 
-func TestPiInvokerProviderAndModelFlags(t *testing.T) {
+func TestInvokerProviderAndModelFlags(t *testing.T) {
 	tmpDir := t.TempDir()
-	// Script that prints all arguments to verify flags are passed correctly
 	script := "#!/bin/sh\necho \"$@\"\n"
 	err := os.WriteFile(tmpDir+"/pi", []byte(script), 0o755)
 	require.NoError(t, err)
 	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
 
-	inv := NewPiInvoker(PiEnvConfig{
+	inv := New(Config{
 		Provider: "anthropic",
 		Model:    "sonnet",
 	})
-	res, err := inv.Invoke(context.Background(), "test", InvokeOptions{})
+	res, err := inv.Invoke(context.Background(), "test", llm.InvokeOptions{})
 	require.NoError(t, err)
 	require.Contains(t, res.Text, "--provider anthropic")
 	require.Contains(t, res.Text, "--model sonnet")

@@ -1,30 +1,51 @@
-package llm
+package claude
 
 import (
 	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/alexander-akhmetov/programmator/internal/debug"
-	"github.com/alexander-akhmetov/programmator/internal/protocol"
+	"github.com/alexander-akhmetov/programmator/internal/llm"
 )
 
-// ClaudeInvoker invokes the Claude CLI binary.
-type ClaudeInvoker struct {
-	Env EnvConfig
+// Config holds environment configuration for Claude subprocesses.
+type Config struct {
+	ClaudeConfigDir string
+	AnthropicAPIKey string
 }
 
-// NewClaudeInvoker returns an Invoker that shells out to the "claude" binary.
-func NewClaudeInvoker(env EnvConfig) *ClaudeInvoker {
-	return &ClaudeInvoker{Env: env}
+// Invoker invokes the Claude CLI binary.
+type Invoker struct {
+	Env Config
+}
+
+// New returns an Invoker that shells out to the "claude" binary.
+func New(env Config) *Invoker {
+	return &Invoker{Env: env}
+}
+
+// BuildEnv constructs the environment variable slice for a Claude subprocess.
+// It filters ANTHROPIC_API_KEY and CLAUDE_CONFIG_DIR from the inherited
+// environment and only sets them if explicitly configured via the Config.
+func BuildEnv(cfg Config) []string {
+	env := llm.FilterEnv(os.Environ(), "ANTHROPIC_API_KEY=", "CLAUDE_CONFIG_DIR=")
+	if cfg.ClaudeConfigDir != "" {
+		env = append(env, "CLAUDE_CONFIG_DIR="+cfg.ClaudeConfigDir)
+	}
+	if cfg.AnthropicAPIKey != "" {
+		env = append(env, "ANTHROPIC_API_KEY="+cfg.AnthropicAPIKey)
+	}
+	return env
 }
 
 // Invoke runs claude --print with the given prompt and options.
-func (c *ClaudeInvoker) Invoke(ctx context.Context, prompt string, opts InvokeOptions) (*InvokeResult, error) {
+func (c *Invoker) Invoke(ctx context.Context, prompt string, opts llm.InvokeOptions) (*llm.InvokeResult, error) {
 	args := []string{"--print"}
 
 	if len(opts.ExtraFlags) > 0 {
@@ -81,7 +102,7 @@ func (c *ClaudeInvoker) Invoke(ctx context.Context, prompt string, opts InvokeOp
 	if opts.Streaming {
 		output = processStreamingOutput(stdout, opts)
 	} else {
-		output = processTextOutput(stdout, opts)
+		output = llm.ProcessTextOutput(stdout, opts)
 	}
 
 	err = cmd.Wait()
@@ -90,7 +111,7 @@ func (c *ClaudeInvoker) Invoke(ctx context.Context, prompt string, opts InvokeOp
 	}
 	if err != nil {
 		if invokeCtx.Err() == context.DeadlineExceeded {
-			return &InvokeResult{Text: timeoutBlockedStatus()}, nil
+			return &llm.InvokeResult{Text: llm.TimeoutBlockedStatus()}, nil
 		}
 		if stderrStr := strings.TrimSpace(stderrBuf.String()); stderrStr != "" {
 			return nil, fmt.Errorf("claude exited: %w\nstderr: %s", err, stderrStr)
@@ -98,14 +119,5 @@ func (c *ClaudeInvoker) Invoke(ctx context.Context, prompt string, opts InvokeOp
 		return nil, fmt.Errorf("claude exited: %w", err)
 	}
 
-	return &InvokeResult{Text: output}, nil
-}
-
-func timeoutBlockedStatus() string {
-	return protocol.StatusBlockKey + `:
-  phase_completed: ` + protocol.NullPhase + `
-  status: ` + string(protocol.StatusBlocked) + `
-  files_changed: []
-  summary: "Timeout"
-  error: "Claude invocation timed out"`
+	return &llm.InvokeResult{Text: output}, nil
 }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/alexander-akhmetov/programmator/internal/config"
 	"github.com/alexander-akhmetov/programmator/internal/llm"
+	"github.com/alexander-akhmetov/programmator/internal/llm/executor"
 )
 
 var (
@@ -113,7 +114,7 @@ func runClaudePrint(cfg *config.Config, prompt, workingDir string) error {
 	}
 	execCfg := cfg.ToExecutorConfig()
 
-	inv, err := llm.NewInvoker(execCfg)
+	inv, err := executor.New(execCfg)
 	if err != nil {
 		return fmt.Errorf("create invoker: %w", err)
 	}

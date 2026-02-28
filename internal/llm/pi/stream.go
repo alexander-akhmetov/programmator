@@ -1,4 +1,4 @@
-package llm
+package pi
 
 import (
 	"bufio"
@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/alexander-akhmetov/programmator/internal/debug"
+	"github.com/alexander-akhmetov/programmator/internal/llm"
 )
 
 // piEvent is the JSON structure emitted by `pi --mode json`.
@@ -70,7 +71,7 @@ type piAssistantMsgEvent struct {
 
 // processPiStreamingOutput reads JSON lines from pi --mode json output,
 // dispatches callbacks via opts, and returns the accumulated text output.
-func processPiStreamingOutput(r io.Reader, opts InvokeOptions) string {
+func processPiStreamingOutput(r io.Reader, opts llm.InvokeOptions) string {
 	var fullOutput strings.Builder
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
@@ -92,7 +93,7 @@ func processPiStreamingOutput(r io.Reader, opts InvokeOptions) string {
 
 		switch event.Type {
 		case "session":
-			// Session header — no useful callbacks
+			// Session header -- no useful callbacks
 		case "message_start":
 			handlePiMessageStart(&event, opts)
 		case "message_update":
@@ -115,7 +116,7 @@ func processPiStreamingOutput(r io.Reader, opts InvokeOptions) string {
 	return fullOutput.String()
 }
 
-func handlePiMessageStart(event *piEvent, opts InvokeOptions) {
+func handlePiMessageStart(event *piEvent, opts llm.InvokeOptions) {
 	if event.Message != nil && event.Message.Role == "assistant" && event.Message.Model != "" {
 		if opts.OnSystemInit != nil {
 			opts.OnSystemInit(event.Message.Model)
@@ -123,7 +124,7 @@ func handlePiMessageStart(event *piEvent, opts InvokeOptions) {
 	}
 }
 
-func handlePiMessageUpdate(event *piEvent, fullOutput *strings.Builder, processedToolIDs map[string]bool, opts InvokeOptions) {
+func handlePiMessageUpdate(event *piEvent, fullOutput *strings.Builder, processedToolIDs map[string]bool, opts llm.InvokeOptions) {
 	if event.AssistantMessageEvent == nil {
 		return
 	}
@@ -160,7 +161,7 @@ func handlePiMessageUpdate(event *piEvent, fullOutput *strings.Builder, processe
 	}
 }
 
-func handlePiMessageEnd(event *piEvent, opts InvokeOptions) {
+func handlePiMessageEnd(event *piEvent, opts llm.InvokeOptions) {
 	if event.Message == nil || opts.OnTokens == nil {
 		return
 	}
@@ -168,7 +169,7 @@ func handlePiMessageEnd(event *piEvent, opts InvokeOptions) {
 	opts.OnTokens(u.TotalInputTokens(), u.Output)
 }
 
-func handlePiToolExecutionEnd(event *piEvent, opts InvokeOptions) {
+func handlePiToolExecutionEnd(event *piEvent, opts llm.InvokeOptions) {
 	if opts.OnToolResult == nil || event.ToolName == "" {
 		return
 	}
@@ -238,7 +239,7 @@ func extractContentTexts(v any) []string {
 	return texts
 }
 
-func handlePiAgentEnd(event *piEvent, opts InvokeOptions) {
+func handlePiAgentEnd(event *piEvent, opts llm.InvokeOptions) {
 	if opts.OnFinalTokens == nil || len(event.Messages) == 0 {
 		return
 	}
