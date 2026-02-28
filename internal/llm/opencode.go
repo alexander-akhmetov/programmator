@@ -95,7 +95,8 @@ func (o *OpenCodeInvoker) Invoke(ctx context.Context, prompt string, opts Invoke
 	}
 	if err != nil {
 		if invokeCtx.Err() == context.DeadlineExceeded {
-			return &InvokeResult{Text: timeoutBlockedStatus()}, nil
+			text := strings.ReplaceAll(timeoutBlockedStatus(), "Claude", "opencode")
+			return &InvokeResult{Text: text}, nil
 		}
 		if stderrStr := strings.TrimSpace(stderrBuf.String()); stderrStr != "" {
 			return nil, fmt.Errorf("opencode exited: %w\nstderr: %s", err, stderrStr)

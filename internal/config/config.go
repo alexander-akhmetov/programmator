@@ -398,6 +398,7 @@ func applyReviewExecutorOverlay(dst *ReviewExecutorConfig, src *ReviewExecutorCo
 		dst.OpenCode.Model = src.OpenCode.Model
 	}
 	if src.OpenCode.APIKey != "" {
+		log.Printf("warning: review.executor.opencode.api_key loaded from config file — ensure this is a trusted source")
 		dst.OpenCode.APIKey = src.OpenCode.APIKey
 	}
 }
