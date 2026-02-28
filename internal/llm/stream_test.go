@@ -16,7 +16,7 @@ func TestProcessTextOutput(t *testing.T) {
 	}
 
 	input := "line1\nline2\nline3"
-	output := processTextOutput(strings.NewReader(input), opts)
+	output := ProcessTextOutput(strings.NewReader(input), opts)
 
 	require.Equal(t, "line1\nline2\nline3\n", output)
 	require.Len(t, collected, 3)
@@ -24,7 +24,7 @@ func TestProcessTextOutput(t *testing.T) {
 
 func TestProcessTextOutputNoCallback(t *testing.T) {
 	input := "line1\nline2\n"
-	output := processTextOutput(strings.NewReader(input), InvokeOptions{})
+	output := ProcessTextOutput(strings.NewReader(input), InvokeOptions{})
 	require.Equal(t, "line1\nline2\n", output)
 }
 
@@ -147,7 +147,7 @@ func TestProcessStreamingOutputEmptyReader(t *testing.T) {
 }
 
 func TestProcessTextOutputEmptyReader(t *testing.T) {
-	output := processTextOutput(strings.NewReader(""), InvokeOptions{})
+	output := ProcessTextOutput(strings.NewReader(""), InvokeOptions{})
 	require.Equal(t, "", output)
 }
 

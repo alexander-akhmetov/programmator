@@ -86,7 +86,7 @@ func (o *OpenCodeInvoker) Invoke(ctx context.Context, prompt string, opts Invoke
 	if opts.Streaming {
 		output = processOpenCodeStreamingOutput(stdout, o.Env.Model, opts)
 	} else {
-		output = processTextOutput(stdout, opts)
+		output = ProcessTextOutput(stdout, opts)
 	}
 
 	err = cmd.Wait()
@@ -95,8 +95,7 @@ func (o *OpenCodeInvoker) Invoke(ctx context.Context, prompt string, opts Invoke
 	}
 	if err != nil {
 		if invokeCtx.Err() == context.DeadlineExceeded {
-			text := strings.ReplaceAll(timeoutBlockedStatus(), "Claude", "opencode")
-			return &InvokeResult{Text: text}, nil
+			return &InvokeResult{Text: TimeoutBlockedStatus()}, nil
 		}
 		if stderrStr := strings.TrimSpace(stderrBuf.String()); stderrStr != "" {
 			return nil, fmt.Errorf("opencode exited: %w\nstderr: %s", err, stderrStr)
@@ -120,27 +119,14 @@ func providerFromModel(model string) string {
 // It filters OPENCODE_CONFIG_DIR and all known provider API keys from the inherited
 // environment, then sets them based on the config.
 func BuildOpenCodeEnv(cfg OpenCodeEnvConfig) []string {
-	prefixes := allProviderAPIKeyPrefixes()
-	environ := os.Environ()
-	env := make([]string, 0, len(environ))
-	for _, e := range environ {
-		filtered := false
-		for _, prefix := range prefixes {
-			if strings.HasPrefix(e, prefix) {
-				filtered = true
-				break
-			}
-		}
-		if !filtered && !strings.HasPrefix(e, "OPENCODE_CONFIG_DIR=") {
-			env = append(env, e)
-		}
-	}
+	excludes := append(AllProviderAPIKeyPrefixes(), "OPENCODE_CONFIG_DIR=")
+	env := FilterEnv(os.Environ(), excludes...)
 	if cfg.ConfigDir != "" {
 		env = append(env, "OPENCODE_CONFIG_DIR="+cfg.ConfigDir)
 	}
 	if cfg.APIKey != "" {
 		provider := providerFromModel(cfg.Model)
-		envVar := providerAPIKeyEnvVars[provider]
+		envVar := ProviderAPIKeyEnvVars[provider]
 		if envVar == "" {
 			envVar = "ANTHROPIC_API_KEY" // default fallback
 		}

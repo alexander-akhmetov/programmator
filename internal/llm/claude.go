@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/alexander-akhmetov/programmator/internal/debug"
-	"github.com/alexander-akhmetov/programmator/internal/protocol"
 )
 
 // ClaudeInvoker invokes the Claude CLI binary.
@@ -81,7 +80,7 @@ func (c *ClaudeInvoker) Invoke(ctx context.Context, prompt string, opts InvokeOp
 	if opts.Streaming {
 		output = processStreamingOutput(stdout, opts)
 	} else {
-		output = processTextOutput(stdout, opts)
+		output = ProcessTextOutput(stdout, opts)
 	}
 
 	err = cmd.Wait()
@@ -90,7 +89,7 @@ func (c *ClaudeInvoker) Invoke(ctx context.Context, prompt string, opts InvokeOp
 	}
 	if err != nil {
 		if invokeCtx.Err() == context.DeadlineExceeded {
-			return &InvokeResult{Text: timeoutBlockedStatus()}, nil
+			return &InvokeResult{Text: TimeoutBlockedStatus()}, nil
 		}
 		if stderrStr := strings.TrimSpace(stderrBuf.String()); stderrStr != "" {
 			return nil, fmt.Errorf("claude exited: %w\nstderr: %s", err, stderrStr)
@@ -99,13 +98,4 @@ func (c *ClaudeInvoker) Invoke(ctx context.Context, prompt string, opts InvokeOp
 	}
 
 	return &InvokeResult{Text: output}, nil
-}
-
-func timeoutBlockedStatus() string {
-	return protocol.StatusBlockKey + `:
-  phase_completed: ` + protocol.NullPhase + `
-  status: ` + string(protocol.StatusBlocked) + `
-  files_changed: []
-  summary: "Timeout"
-  error: "Claude invocation timed out"`
 }
