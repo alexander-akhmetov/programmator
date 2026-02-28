@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/aymanbagabas/go-udiff"
 
@@ -474,7 +475,7 @@ func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) 
 	l.log(fmt.Sprintf("Summary: %s", status.Summary))
 
 	rc.result.FinalStatus = status
-	l.recordPhaseProgress(rc, status)
+	phaseProgressed := l.recordPhaseProgress(rc, status)
 	l.trackFilesChanged(rc, status)
 
 	// Track iteration summary for stagnation debugging
@@ -482,6 +483,11 @@ func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) 
 		FormatIterationSummary(rc.state.Iteration, status.Summary, status.FilesChanged))
 
 	rc.state.RecordIteration(status.FilesChanged, status.Error)
+	if phaseProgressed {
+		// A successfully completed phase is meaningful progress even when no files
+		// changed in this iteration (e.g. validation-only or pre-completed work).
+		rc.state.ConsecutiveNoChanges = 0
+	}
 
 	// Use engine to process status
 	result := l.engine.ProcessStatus(ProcessStatusInput{
@@ -520,11 +526,32 @@ func (l *Loop) processClaudeStatus(rc *runContext, status *parser.ParsedStatus) 
 }
 
 // recordPhaseProgress records phase completion or progress notes.
-func (l *Loop) recordPhaseProgress(rc *runContext, status *parser.ParsedStatus) {
+func (l *Loop) recordPhaseProgress(rc *runContext, status *parser.ParsedStatus) bool {
 	if status.PhaseCompleted != "" {
 		l.log(fmt.Sprintf("Phase completed: %s", status.PhaseCompleted))
 		if err := rc.source.UpdatePhase(rc.workItemID, status.PhaseCompleted); err != nil {
 			l.log(fmt.Sprintf("Warning: failed to update phase '%s': %v", status.PhaseCompleted, err))
+
+			fallbackName := resolveFallbackPhaseName(rc.workItem, status.PhaseCompleted)
+			if fallbackName != "" && fallbackName != status.PhaseCompleted {
+				fallbackErr := rc.source.UpdatePhase(rc.workItemID, fallbackName)
+				if fallbackErr == nil {
+					l.log(fmt.Sprintf("Phase fallback succeeded: mapped '%s' to '%s'",
+						status.PhaseCompleted, fallbackName))
+					l.addNote(rc, fmt.Sprintf("progress: [iter %d] Completed %s (reported as %s)",
+						rc.state.Iteration, fallbackName, status.PhaseCompleted))
+					if autoCommitErr := l.autoCommitPhase(fallbackName, status.FilesChanged); autoCommitErr != nil {
+						l.log(fmt.Sprintf("Warning: auto-commit failed: %v", autoCommitErr))
+					}
+					return true
+				}
+				l.log(fmt.Sprintf("Warning: fallback update for phase '%s' also failed: %v",
+					fallbackName, fallbackErr))
+			}
+
+			l.addNote(rc, fmt.Sprintf("warning: [iter %d] Failed to update phase '%s': %v",
+				rc.state.Iteration, status.PhaseCompleted, err))
+			return false
 		}
 		l.addNote(rc, fmt.Sprintf("progress: [iter %d] Completed %s", rc.state.Iteration, status.PhaseCompleted))
 
@@ -532,9 +559,111 @@ func (l *Loop) recordPhaseProgress(rc *runContext, status *parser.ParsedStatus) 
 		if err := l.autoCommitPhase(status.PhaseCompleted, status.FilesChanged); err != nil {
 			l.log(fmt.Sprintf("Warning: auto-commit failed: %v", err))
 		}
+		return true
 	} else {
 		l.addNote(rc, fmt.Sprintf("progress: [iter %d] %s", rc.state.Iteration, status.Summary))
 	}
+	return false
+}
+
+func resolveFallbackPhaseName(workItem *domain.WorkItem, reportedPhase string) string {
+	if workItem == nil || strings.TrimSpace(reportedPhase) == "" {
+		return ""
+	}
+
+	reported := normalizePhaseForLooseCompare(reportedPhase)
+	if reported == "" {
+		return ""
+	}
+
+	bestName := ""
+	bestScore := 0
+	secondBestScore := 0
+
+	for _, phase := range workItem.Phases {
+		if phase.Completed {
+			continue
+		}
+		name := normalizePhaseForLooseCompare(phase.Name)
+		if name == "" {
+			continue
+		}
+
+		score := phaseSimilarityScore(name, reported)
+		if score > bestScore {
+			secondBestScore = bestScore
+			bestScore = score
+			bestName = phase.Name
+			continue
+		}
+		if score > secondBestScore {
+			secondBestScore = score
+		}
+	}
+
+	// Require strong signal and unique winner.
+	if bestScore < 12 || bestScore == secondBestScore {
+		return ""
+	}
+	return bestName
+}
+
+func phaseSimilarityScore(phaseName, reported string) int {
+	if phaseName == reported {
+		return 1_000_000 + len(phaseName)
+	}
+
+	if strings.Contains(phaseName, reported) || strings.Contains(reported, phaseName) {
+		if len(phaseName) < len(reported) {
+			return 100_000 + len(phaseName)
+		}
+		return 100_000 + len(reported)
+	}
+
+	return commonPrefixLen(phaseName, reported)
+}
+
+func commonPrefixLen(a, b string) int {
+	limit := len(a)
+	if len(b) < limit {
+		limit = len(b)
+	}
+	n := 0
+	for i := 0; i < limit; i++ {
+		if a[i] != b[i] {
+			break
+		}
+		n++
+	}
+	return n
+}
+
+var phaseMatchEscapeCanonicalizer = strings.NewReplacer(
+	`\\n`, `\n`,
+	`\\r`, `\r`,
+	`\\t`, `\t`,
+	"\r\n", "\n",
+	"\r", "\n",
+	"\n", " ",
+	"\t", " ",
+)
+
+func normalizePhaseForLooseCompare(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return ""
+	}
+	s = phaseMatchEscapeCanonicalizer.Replace(s)
+
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+
+	return b.String()
 }
 
 // trackFilesChanged records which files were changed.

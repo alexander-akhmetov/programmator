@@ -640,6 +640,163 @@ func TestRunStagnation(t *testing.T) {
 	require.Equal(t, safety.ExitReasonStagnation, result.ExitReason)
 }
 
+func TestRunPhaseProgressWithoutFileChangesDoesNotStagnate(t *testing.T) {
+	tmpDir := t.TempDir()
+	planPath := tmpDir + "/phase-progress-no-files.md"
+	content := `# Plan: No-file phase progress
+
+## Tasks
+- [ ] Task 1: First
+- [ ] Task 2: Second
+- [ ] Task 3: Third
+`
+	err := os.WriteFile(planPath, []byte(content), 0644)
+	require.NoError(t, err)
+
+	planSource := source.NewPlanSource(planPath)
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 2, Timeout: 60}
+	l := NewWithSource(config, tmpDir, nil, false, planSource)
+	l.SetReviewConfig(singleAgentReviewConfig())
+	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
+
+	phaseNames := []string{
+		"Task 1: First",
+		"Task 2: Second",
+		"Task 3: Third",
+	}
+	invocation := 0
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		if invocation >= len(phaseNames) {
+			return "", fmt.Errorf("unexpected invocation %d", invocation+1)
+		}
+		phaseName := phaseNames[invocation]
+		invocation++
+		return fmt.Sprintf(`PROGRAMMATOR_STATUS:
+  phase_completed: "%s"
+  status: CONTINUE
+  files_changed: []
+  summary: "Completed %s"
+`, phaseName, phaseName), nil
+	}})
+
+	result, err := l.Run(planPath)
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	require.Equal(t, len(phaseNames), result.Iterations)
+	require.Empty(t, result.TotalFilesChanged)
+}
+
+func TestRunPhaseUpdateFailureStillStagnates(t *testing.T) {
+	mock := source.NewMockSource()
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
+			ID:    "test-123",
+			Title: "Test Ticket",
+			Phases: []domain.Phase{
+				{Name: "Phase 1", Completed: false},
+			},
+		}, nil
+	}
+	mock.UpdatePhaseFunc = func(_, _ string) error {
+		return fmt.Errorf("phase not found")
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 2, Timeout: 60}
+	l := NewWithSource(config, "", nil, false, mock)
+
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		return `PROGRAMMATOR_STATUS:
+  phase_completed: "Phase 1"
+  status: CONTINUE
+  files_changed: []
+  summary: "No-op"
+`, nil
+	}})
+
+	result, err := l.Run("test-123")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonStagnation, result.ExitReason)
+	require.NotEmpty(t, mock.AddNoteCalls)
+}
+
+func TestRunPhaseUpdateFallsBackToCurrentPhase(t *testing.T) {
+	mock := source.NewMockSource()
+	phaseCompleted := false
+	const currentPhaseName = "Phase 1: Implement `Load()`, parse input, and save output"
+	const reportedPhaseName = "Phase 1 Implement Load() parse input and save output"
+
+	mock.GetFunc = func(_ string) (*domain.WorkItem, error) {
+		return &domain.WorkItem{
+			ID:    "test-123",
+			Title: "Test Ticket",
+			Phases: []domain.Phase{
+				{Name: currentPhaseName, Completed: phaseCompleted},
+			},
+		}, nil
+	}
+	mock.UpdatePhaseFunc = func(_, phaseName string) error {
+		if phaseName == currentPhaseName {
+			phaseCompleted = true
+			return nil
+		}
+		return fmt.Errorf("phase not found: %s", phaseName)
+	}
+
+	config := safety.Config{MaxIterations: 10, StagnationLimit: 2, Timeout: 60}
+	l := NewWithSource(config, "", nil, false, mock)
+	l.SetReviewConfig(singleAgentReviewConfig())
+	l.SetReviewRunner(createMockReviewRunner(t, false, 0))
+
+	l.SetInvoker(&fakeInvoker{fn: func(_ context.Context, _ string) (string, error) {
+		return fmt.Sprintf(`PROGRAMMATOR_STATUS:
+  phase_completed: "%s"
+  status: CONTINUE
+  files_changed: []
+  summary: "Completed work"
+`, reportedPhaseName), nil
+	}})
+
+	result, err := l.Run("test-123")
+
+	require.NoError(t, err)
+	require.Equal(t, safety.ExitReasonComplete, result.ExitReason)
+	require.Equal(t, 1, result.Iterations)
+	require.GreaterOrEqual(t, len(mock.UpdatePhaseCalls), 2)
+	require.Equal(t, reportedPhaseName, mock.UpdatePhaseCalls[0].PhaseName)
+	require.Equal(t, currentPhaseName, mock.UpdatePhaseCalls[1].PhaseName)
+}
+
+func TestNormalizePhaseForLooseCompare(t *testing.T) {
+	got := normalizePhaseForLooseCompare(" Phase 2: Implement `Load()`, and Save!\n")
+	require.Equal(t, "phase2implementloadandsave", got)
+}
+
+func TestResolveFallbackPhaseName_UniqueBestPrefixMatch(t *testing.T) {
+	workItem := &domain.WorkItem{
+		Phases: []domain.Phase{
+			{Name: "Phase 2: Implement `Load()` from file and parse entries", Completed: false},
+			{Name: "Phase 2: Implement `Save()` to write escaped entries", Completed: false},
+		},
+	}
+
+	got := resolveFallbackPhaseName(workItem, "Phase 2: Implement Load() and Save() in history")
+	require.Equal(t, "Phase 2: Implement `Load()` from file and parse entries", got)
+}
+
+func TestResolveFallbackPhaseName_AmbiguousMatchReturnsEmpty(t *testing.T) {
+	workItem := &domain.WorkItem{
+		Phases: []domain.Phase{
+			{Name: "Phase 2: Implement loader", Completed: false},
+			{Name: "Phase 2: Implement saver", Completed: false},
+		},
+	}
+
+	got := resolveFallbackPhaseName(workItem, "Phase 2: Implement")
+	require.Empty(t, got)
+}
+
 func TestRunFilesChanged(t *testing.T) {
 	mock := source.NewMockSource()
 	invocation := 0

@@ -43,6 +43,8 @@ STEP 3 - COMPLETE:
 
 CRITICAL: Complete ONE phase per iteration, then STOP.
 Do NOT continue to the next phase - the external loop will call you again.
+Set `phase_completed` to the exact current phase name shown above (verbatim, including punctuation/backticks).
+Do not paraphrase, combine multiple phases, or invent a synthetic phase label.
 
 ## Session End Protocol
 When you've completed your work for this iteration, you MUST end with exactly this block:
