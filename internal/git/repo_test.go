@@ -2,6 +2,7 @@ package git
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -498,4 +499,35 @@ func TestIsInsideRepo(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 	assert.False(t, IsInsideRepo(tmpDir))
+}
+
+func TestRepo_AddAndCommit_Worktree(t *testing.T) {
+	dir, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	// Create a git worktree via CLI (go-git cannot create worktrees).
+	// Use a non-existent subdirectory so git worktree add creates it.
+	wtDir := filepath.Join(t.TempDir(), "worktree")
+	cmd := exec.Command("git", "worktree", "add", wtDir, "-b", "wt-test")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "git worktree add: %s", out)
+
+	// Open the worktree with NewRepo
+	repo, err := NewRepo(wtDir)
+	require.NoError(t, err)
+
+	// Create a file in the worktree and commit
+	testFile := filepath.Join(wtDir, "worktree-file.txt")
+	require.NoError(t, os.WriteFile(testFile, []byte("from worktree"), 0644))
+
+	err = repo.AddAndCommit([]string{"worktree-file.txt"}, "commit from worktree")
+	require.NoError(t, err)
+
+	// Verify the commit is visible from the main repo via git CLI
+	logCmd := exec.Command("git", "log", "--oneline", "wt-test", "-1")
+	logCmd.Dir = dir
+	logOut, err := logCmd.Output()
+	require.NoError(t, err)
+	assert.Contains(t, string(logOut), "commit from worktree")
 }

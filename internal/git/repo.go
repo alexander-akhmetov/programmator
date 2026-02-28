@@ -28,7 +28,8 @@ type Repo struct {
 // Returns an error if the directory is not a git repository.
 func NewRepo(workDir string) (*Repo, error) {
 	r, err := git.PlainOpenWithOptions(workDir, &git.PlainOpenOptions{
-		DetectDotGit: true,
+		DetectDotGit:          true,
+		EnableDotGitCommonDir: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("open git repo at %s: %w", workDir, err)
