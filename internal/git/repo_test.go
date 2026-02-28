@@ -505,8 +505,9 @@ func TestRepo_AddAndCommit_Worktree(t *testing.T) {
 	dir, cleanup := setupTestRepo(t)
 	defer cleanup()
 
-	// Create a git worktree via CLI (go-git cannot create worktrees)
-	wtDir := t.TempDir()
+	// Create a git worktree via CLI (go-git cannot create worktrees).
+	// Use a non-existent subdirectory so git worktree add creates it.
+	wtDir := filepath.Join(t.TempDir(), "worktree")
 	cmd := exec.Command("git", "worktree", "add", wtDir, "-b", "wt-test")
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
