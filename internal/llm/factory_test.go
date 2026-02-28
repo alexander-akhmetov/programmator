@@ -35,9 +35,14 @@ func TestNewInvoker(t *testing.T) {
 			wantType: "*llm.PiInvoker",
 		},
 		{
+			name:     "opencode executor",
+			cfg:      ExecutorConfig{Name: "opencode"},
+			wantType: "*llm.OpenCodeInvoker",
+		},
+		{
 			name:      "unknown executor returns error",
 			cfg:       ExecutorConfig{Name: "unknown"},
-			wantError: `unknown executor: "unknown" (supported: claude, pi)`,
+			wantError: `unknown executor: "unknown" (supported: claude, pi, opencode)`,
 		},
 	}
 
@@ -54,6 +59,8 @@ func TestNewInvoker(t *testing.T) {
 				switch tc.cfg.Name {
 				case "pi":
 					assert.IsType(t, &PiInvoker{}, inv)
+				case "opencode":
+					assert.IsType(t, &OpenCodeInvoker{}, inv)
 				default:
 					assert.IsType(t, &ClaudeInvoker{}, inv)
 				}
@@ -92,4 +99,20 @@ func TestNewInvoker_PiEnvConfigPassthrough(t *testing.T) {
 	assert.Equal(t, "anthropic", pi.Env.Provider)
 	assert.Equal(t, "sonnet", pi.Env.Model)
 	assert.Equal(t, "pi-test-key", pi.Env.APIKey)
+}
+
+func TestNewInvoker_OpenCodeEnvConfigPassthrough(t *testing.T) {
+	ocCfg := OpenCodeEnvConfig{
+		Model:     "anthropic/claude-sonnet-4-5",
+		APIKey:    "oc-test-key",
+		ConfigDir: "/custom/opencode/config",
+	}
+	inv, err := NewInvoker(ExecutorConfig{Name: "opencode", OpenCode: ocCfg})
+	require.NoError(t, err)
+
+	oc, ok := inv.(*OpenCodeInvoker)
+	require.True(t, ok)
+	assert.Equal(t, "anthropic/claude-sonnet-4-5", oc.Env.Model)
+	assert.Equal(t, "oc-test-key", oc.Env.APIKey)
+	assert.Equal(t, "/custom/opencode/config", oc.Env.ConfigDir)
 }

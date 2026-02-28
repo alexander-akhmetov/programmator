@@ -14,10 +14,10 @@ import (
 // For Claude, always injects --dangerously-skip-permissions because the
 // permission system has been removed; dcg is the sole safety layer.
 func (c *Config) ToExecutorConfig() llm.ExecutorConfig {
-	return buildExecutorConfig(c.Executor, c.Claude, c.Pi)
+	return buildExecutorConfig(c.Executor, c.Claude, c.Pi, c.OpenCode)
 }
 
-func buildExecutorConfig(name string, claudeCfg ClaudeConfig, piCfg PiConfig) llm.ExecutorConfig {
+func buildExecutorConfig(name string, claudeCfg ClaudeConfig, piCfg PiConfig, opencodeCfg OpenCodeConfig) llm.ExecutorConfig {
 	cfg := llm.ExecutorConfig{Name: name}
 
 	switch name {
@@ -29,6 +29,13 @@ func buildExecutorConfig(name string, claudeCfg ClaudeConfig, piCfg PiConfig) ll
 			APIKey:    piCfg.APIKey,
 		}
 		cfg.ExtraFlags = strings.Fields(piCfg.Flags)
+	case "opencode":
+		cfg.OpenCode = llm.OpenCodeEnvConfig{
+			Model:     opencodeCfg.Model,
+			APIKey:    opencodeCfg.APIKey,
+			ConfigDir: opencodeCfg.ConfigDir,
+		}
+		cfg.ExtraFlags = strings.Fields(opencodeCfg.Flags)
 	default: // "claude" or ""
 		cfg.Claude = llm.EnvConfig{
 			ClaudeConfigDir: claudeCfg.ConfigDir,
@@ -64,6 +71,7 @@ func (c *Config) toReviewExecutorConfig() llm.ExecutorConfig {
 	name := c.Executor
 	claudeCfg := c.Claude
 	piCfg := c.Pi
+	opencodeCfg := c.OpenCode
 
 	if c.Review.Executor.Name != "" {
 		name = c.Review.Executor.Name
@@ -93,8 +101,20 @@ func (c *Config) toReviewExecutorConfig() llm.ExecutorConfig {
 	if c.Review.Executor.Pi.APIKey != "" {
 		piCfg.APIKey = c.Review.Executor.Pi.APIKey
 	}
+	if c.Review.Executor.OpenCode.Flags != "" {
+		opencodeCfg.Flags = c.Review.Executor.OpenCode.Flags
+	}
+	if c.Review.Executor.OpenCode.ConfigDir != "" {
+		opencodeCfg.ConfigDir = c.Review.Executor.OpenCode.ConfigDir
+	}
+	if c.Review.Executor.OpenCode.Model != "" {
+		opencodeCfg.Model = c.Review.Executor.OpenCode.Model
+	}
+	if c.Review.Executor.OpenCode.APIKey != "" {
+		opencodeCfg.APIKey = c.Review.Executor.OpenCode.APIKey
+	}
 
-	return buildExecutorConfig(name, claudeCfg, piCfg)
+	return buildExecutorConfig(name, claudeCfg, piCfg, opencodeCfg)
 }
 
 func cloneAgentConfig(a review.AgentConfig) review.AgentConfig {

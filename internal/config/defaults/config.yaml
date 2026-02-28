@@ -10,7 +10,7 @@ stagnation_limit: 3 # Exit after N consecutive iterations with no file changes
 timeout: 900 # Seconds per executor invocation
 
 # Executor settings
-executor: claude # Which coding agent to use ("claude" or "pi")
+executor: claude # Which coding agent to use ("claude", "pi", or "opencode")
 
 # Claude executor settings
 claude:
@@ -24,6 +24,13 @@ pi:
   config_dir: "" # Custom PI_CODING_AGENT_DIR (empty = default)
   provider: "" # LLM provider (e.g. "anthropic", "openai")
   model: "" # Model name (e.g. "sonnet", "gpt-4o")
+  api_key: "" # API key for the configured provider
+
+# OpenCode executor settings
+opencode:
+  flags: "" # Additional flags passed to opencode command
+  config_dir: "" # Custom OPENCODE_CONFIG_DIR (empty = default)
+  model: "" # Model in "provider/model" format (e.g. "anthropic/claude-sonnet-4-5")
   api_key: "" # API key for the configured provider
 
 # Ticket settings
@@ -44,7 +51,7 @@ review:
   # Optional review-specific executor override.
   # If name is empty, review uses top-level executor/claude/pi settings.
   executor:
-    name: "" # "claude" or "pi"
+    name: "" # "claude", "pi", or "opencode"
     claude:
       flags: "" # Example: "--model opus"
       config_dir: ""
@@ -53,6 +60,11 @@ review:
       flags: ""
       config_dir: ""
       provider: ""
+      model: ""
+      api_key: ""
+    opencode:
+      flags: ""
+      config_dir: ""
       model: ""
       api_key: ""
 

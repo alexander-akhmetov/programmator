@@ -260,6 +260,29 @@ func TestApplyOverlay_PiConfig(t *testing.T) {
 	assert.Equal(t, "base-key", base.Pi.APIKey)    // unchanged
 }
 
+func TestApplyOverlay_OpenCodeConfig(t *testing.T) {
+	base := &Config{
+		OpenCode: OpenCodeConfig{
+			Flags:     "--verbose",
+			ConfigDir: "/base/opencode",
+			Model:     "anthropic/claude-sonnet-4-5",
+			APIKey:    "base-key",
+		},
+	}
+
+	overlay := &configOverlay{
+		OpenCode: OpenCodeConfig{
+			Model: "openai/gpt-4o",
+		},
+	}
+
+	base.applyOverlay(overlay)
+	assert.Equal(t, "--verbose", base.OpenCode.Flags)          // unchanged
+	assert.Equal(t, "/base/opencode", base.OpenCode.ConfigDir) // unchanged
+	assert.Equal(t, "openai/gpt-4o", base.OpenCode.Model)      // overridden
+	assert.Equal(t, "base-key", base.OpenCode.APIKey)          // unchanged
+}
+
 func TestApplyOverlay_PointerFields(t *testing.T) {
 	base := &Config{
 		MaxIterations:   50,
@@ -360,6 +383,28 @@ pi:
 	assert.Equal(t, "sonnet", cfg.Pi.Model)
 }
 
+func TestLoadWithDirs_OpenCodeConfig(t *testing.T) {
+	globalDir := t.TempDir()
+
+	configContent := `
+executor: opencode
+opencode:
+  flags: "--verbose"
+  config_dir: "/custom/opencode"
+  model: "anthropic/claude-sonnet-4-5"
+`
+	err := os.WriteFile(filepath.Join(globalDir, "config.yaml"), []byte(configContent), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := LoadWithDirs(globalDir, "")
+	require.NoError(t, err)
+
+	assert.Equal(t, "opencode", cfg.Executor)
+	assert.Equal(t, "--verbose", cfg.OpenCode.Flags)
+	assert.Equal(t, "/custom/opencode", cfg.OpenCode.ConfigDir)
+	assert.Equal(t, "anthropic/claude-sonnet-4-5", cfg.OpenCode.Model)
+}
+
 func TestValidate(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -369,10 +414,12 @@ func TestValidate(t *testing.T) {
 	}{
 		{name: "claude is valid", executor: "claude", wantErr: false},
 		{name: "pi is valid", executor: "pi", wantErr: false},
+		{name: "opencode is valid", executor: "opencode", wantErr: false},
 		{name: "empty is valid", executor: "", wantErr: false},
 		{name: "unknown is invalid", executor: "gpt", wantErr: true},
 		{name: "typo is invalid", executor: "cladue", wantErr: true},
 		{name: "review executor valid", executor: "pi", reviewExecutor: "claude", wantErr: false},
+		{name: "review executor opencode valid", executor: "claude", reviewExecutor: "opencode", wantErr: false},
 		{name: "review executor invalid", executor: "pi", reviewExecutor: "gpt", wantErr: true},
 	}
 
