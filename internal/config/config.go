@@ -23,6 +23,7 @@ var validExecutors = map[string]bool{
 	"claude":   true,
 	"pi":       true,
 	"opencode": true,
+	"codex":    true,
 	"":         true, // empty defaults to "claude"
 }
 
@@ -50,12 +51,20 @@ type OpenCodeConfig struct {
 	ConfigDir string `yaml:"config_dir"`
 }
 
+// CodexConfig holds Codex executor configuration.
+type CodexConfig struct {
+	Flags  string `yaml:"flags"`
+	Model  string `yaml:"model"`
+	APIKey string `yaml:"api_key"`
+}
+
 // ReviewExecutorConfig holds review-specific executor overrides.
 type ReviewExecutorConfig struct {
 	Name     string         `yaml:"name"`
 	Claude   ClaudeConfig   `yaml:"claude"`
 	Pi       PiConfig       `yaml:"pi"`
 	OpenCode OpenCodeConfig `yaml:"opencode"`
+	Codex    CodexConfig    `yaml:"codex"`
 }
 
 // ReviewValidatorsConfig controls validation passes that run after review agents within each iteration.
@@ -94,6 +103,7 @@ type Config struct {
 	Claude        ClaudeConfig   `yaml:"claude"`
 	Pi            PiConfig       `yaml:"pi"`
 	OpenCode      OpenCodeConfig `yaml:"opencode"`
+	Codex         CodexConfig    `yaml:"codex"`
 	TicketCommand string         `yaml:"ticket_command"`
 
 	Git    GitConfig    `yaml:"git"`
@@ -118,6 +128,7 @@ type configOverlay struct {
 	Claude          ClaudeConfig   `yaml:"claude"`
 	Pi              PiConfig       `yaml:"pi"`
 	OpenCode        OpenCodeConfig `yaml:"opencode"`
+	Codex           CodexConfig    `yaml:"codex"`
 	TicketCommand   string         `yaml:"ticket_command"`
 
 	Git    gitOverlay    `yaml:"git"`
@@ -165,10 +176,10 @@ func (c *Config) ConfigDir() string {
 // Validate checks the configuration for invalid values.
 func (c *Config) Validate() error {
 	if !validExecutors[c.Executor] {
-		return fmt.Errorf("unknown executor %q (supported: claude, pi, opencode)", c.Executor)
+		return fmt.Errorf("unknown executor %q (supported: claude, pi, opencode, codex)", c.Executor)
 	}
 	if c.Review.Executor.Name != "" && !validExecutors[c.Review.Executor.Name] {
-		return fmt.Errorf("unknown review.executor.name %q (supported: claude, pi, opencode)", c.Review.Executor.Name)
+		return fmt.Errorf("unknown review.executor.name %q (supported: claude, pi, opencode, codex)", c.Review.Executor.Name)
 	}
 	return nil
 }
@@ -306,6 +317,7 @@ func (c *Config) applyOverlay(o *configOverlay) {
 		c.Pi.APIKey = o.Pi.APIKey
 	}
 	applyOpenCodeOverlay(&c.OpenCode, &o.OpenCode)
+	applyCodexOverlay(&c.Codex, &o.Codex)
 
 	if o.TicketCommand != "" {
 		c.TicketCommand = o.TicketCommand
@@ -400,6 +412,21 @@ func applyReviewExecutorOverlay(dst *ReviewExecutorConfig, src *ReviewExecutorCo
 	if src.OpenCode.APIKey != "" {
 		log.Printf("warning: review.executor.opencode.api_key loaded from config file — ensure this is a trusted source")
 		dst.OpenCode.APIKey = src.OpenCode.APIKey
+	}
+
+	applyCodexOverlay(&dst.Codex, &src.Codex)
+}
+
+func applyCodexOverlay(dst *CodexConfig, src *CodexConfig) {
+	if src.Flags != "" {
+		dst.Flags = src.Flags
+	}
+	if src.Model != "" {
+		dst.Model = src.Model
+	}
+	if src.APIKey != "" {
+		log.Printf("warning: codex.api_key loaded from config file — ensure this is a trusted source")
+		dst.APIKey = src.APIKey
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/alexander-akhmetov/programmator/internal/llm/claude"
+	"github.com/alexander-akhmetov/programmator/internal/llm/codex"
 	"github.com/alexander-akhmetov/programmator/internal/llm/opencode"
 	"github.com/alexander-akhmetov/programmator/internal/llm/pi"
 	"github.com/stretchr/testify/assert"
@@ -43,9 +44,14 @@ func TestNew(t *testing.T) {
 			wantType: &opencode.Invoker{},
 		},
 		{
+			name:     "codex executor",
+			cfg:      Config{Name: "codex"},
+			wantType: &codex.Invoker{},
+		},
+		{
 			name:      "unknown executor returns error",
 			cfg:       Config{Name: "unknown"},
-			wantError: `unknown executor: "unknown" (supported: claude, pi, opencode)`,
+			wantError: `unknown executor: "unknown" (supported: claude, pi, opencode, codex)`,
 		},
 	}
 
@@ -95,6 +101,20 @@ func TestNew_PiConfigPassthrough(t *testing.T) {
 	assert.Equal(t, "anthropic", p.Env.Provider)
 	assert.Equal(t, "sonnet", p.Env.Model)
 	assert.Equal(t, "pi-test-key", p.Env.APIKey)
+}
+
+func TestNew_CodexConfigPassthrough(t *testing.T) {
+	cxCfg := codex.Config{
+		Model:  "o3",
+		APIKey: "cx-test-key",
+	}
+	inv, err := New(Config{Name: "codex", Codex: cxCfg})
+	require.NoError(t, err)
+
+	cx, ok := inv.(*codex.Invoker)
+	require.True(t, ok)
+	assert.Equal(t, "o3", cx.Env.Model)
+	assert.Equal(t, "cx-test-key", cx.Env.APIKey)
 }
 
 func TestNew_OpenCodeConfigPassthrough(t *testing.T) {

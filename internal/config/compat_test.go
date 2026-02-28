@@ -126,6 +126,62 @@ func TestToExecutorConfig_OpenCode(t *testing.T) {
 	assert.NotContains(t, ec.ExtraFlags, "--dangerously-skip-permissions")
 }
 
+func TestToExecutorConfig_Codex(t *testing.T) {
+	cfg := &Config{
+		Executor: "codex",
+		Codex: CodexConfig{
+			Flags:  "--verbose",
+			Model:  "o3",
+			APIKey: "codex-key",
+		},
+	}
+
+	ec := cfg.ToExecutorConfig()
+	assert.Equal(t, "codex", ec.Name)
+	assert.Equal(t, "o3", ec.Codex.Model)
+	assert.Equal(t, "codex-key", ec.Codex.APIKey)
+	assert.Contains(t, ec.ExtraFlags, "--verbose")
+	assert.Contains(t, ec.ExtraFlags, "--dangerously-bypass-approvals-and-sandbox")
+}
+
+func TestToExecutorConfig_Codex_DangerousFlagIdempotent(t *testing.T) {
+	cfg := &Config{
+		Executor: "codex",
+		Codex: CodexConfig{
+			Flags: "--dangerously-bypass-approvals-and-sandbox",
+		},
+	}
+
+	ec := cfg.ToExecutorConfig()
+	count := 0
+	for _, f := range ec.ExtraFlags {
+		if f == "--dangerously-bypass-approvals-and-sandbox" {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count)
+}
+
+func TestToReviewConfig_UsesReviewExecutorCodex(t *testing.T) {
+	cfg := &Config{
+		Executor: "claude",
+		Review: ReviewConfig{
+			Executor: ReviewExecutorConfig{
+				Name: "codex",
+				Codex: CodexConfig{
+					Model: "o3",
+				},
+			},
+		},
+	}
+
+	rc, err := cfg.ToReviewConfig()
+	require.NoError(t, err)
+	assert.Equal(t, "codex", rc.ExecutorConfig.Name)
+	assert.Equal(t, "o3", rc.ExecutorConfig.Codex.Model)
+	assert.Contains(t, rc.ExecutorConfig.ExtraFlags, "--dangerously-bypass-approvals-and-sandbox")
+}
+
 func TestToReviewConfig_UsesReviewExecutorOpenCode(t *testing.T) {
 	cfg := &Config{
 		Executor: "claude",

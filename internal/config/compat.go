@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/alexander-akhmetov/programmator/internal/llm/claude"
+	"github.com/alexander-akhmetov/programmator/internal/llm/codex"
 	"github.com/alexander-akhmetov/programmator/internal/llm/executor"
 	"github.com/alexander-akhmetov/programmator/internal/llm/opencode"
 	"github.com/alexander-akhmetov/programmator/internal/llm/pi"
@@ -17,10 +18,10 @@ import (
 // For Claude, always injects --dangerously-skip-permissions because the
 // permission system has been removed; dcg is the sole safety layer.
 func (c *Config) ToExecutorConfig() executor.Config {
-	return buildExecutorConfig(c.Executor, c.Claude, c.Pi, c.OpenCode)
+	return buildExecutorConfig(c.Executor, c.Claude, c.Pi, c.OpenCode, c.Codex)
 }
 
-func buildExecutorConfig(name string, claudeCfg ClaudeConfig, piCfg PiConfig, opencodeCfg OpenCodeConfig) executor.Config {
+func buildExecutorConfig(name string, claudeCfg ClaudeConfig, piCfg PiConfig, opencodeCfg OpenCodeConfig, codexCfg CodexConfig) executor.Config {
 	cfg := executor.Config{Name: name}
 
 	switch name {
@@ -39,6 +40,13 @@ func buildExecutorConfig(name string, claudeCfg ClaudeConfig, piCfg PiConfig, op
 			ConfigDir: opencodeCfg.ConfigDir,
 		}
 		cfg.ExtraFlags = strings.Fields(opencodeCfg.Flags)
+	case "codex":
+		cfg.Codex = codex.Config{
+			Model:  codexCfg.Model,
+			APIKey: codexCfg.APIKey,
+		}
+		flags := strings.Fields(codexCfg.Flags)
+		cfg.ExtraFlags = ensureFlag(flags, "--dangerously-bypass-approvals-and-sandbox")
 	default: // "claude" or ""
 		cfg.Claude = claude.Config{
 			ClaudeConfigDir: claudeCfg.ConfigDir,
@@ -75,6 +83,7 @@ func (c *Config) toReviewExecutorConfig() executor.Config {
 	claudeCfg := c.Claude
 	piCfg := c.Pi
 	opencodeCfg := c.OpenCode
+	codexCfg := c.Codex
 
 	if c.Review.Executor.Name != "" {
 		name = c.Review.Executor.Name
@@ -116,8 +125,17 @@ func (c *Config) toReviewExecutorConfig() executor.Config {
 	if c.Review.Executor.OpenCode.APIKey != "" {
 		opencodeCfg.APIKey = c.Review.Executor.OpenCode.APIKey
 	}
+	if c.Review.Executor.Codex.Flags != "" {
+		codexCfg.Flags = c.Review.Executor.Codex.Flags
+	}
+	if c.Review.Executor.Codex.Model != "" {
+		codexCfg.Model = c.Review.Executor.Codex.Model
+	}
+	if c.Review.Executor.Codex.APIKey != "" {
+		codexCfg.APIKey = c.Review.Executor.Codex.APIKey
+	}
 
-	return buildExecutorConfig(name, claudeCfg, piCfg, opencodeCfg)
+	return buildExecutorConfig(name, claudeCfg, piCfg, opencodeCfg, codexCfg)
 }
 
 func cloneAgentConfig(a review.AgentConfig) review.AgentConfig {
