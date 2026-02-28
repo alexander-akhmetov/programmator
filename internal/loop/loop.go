@@ -560,9 +560,8 @@ func (l *Loop) recordPhaseProgress(rc *runContext, status *parser.ParsedStatus) 
 			l.log(fmt.Sprintf("Warning: auto-commit failed: %v", err))
 		}
 		return true
-	} else {
-		l.addNote(rc, fmt.Sprintf("progress: [iter %d] %s", rc.state.Iteration, status.Summary))
 	}
+	l.addNote(rc, fmt.Sprintf("progress: [iter %d] %s", rc.state.Iteration, status.Summary))
 	return false
 }
 
@@ -624,12 +623,9 @@ func phaseSimilarityScore(phaseName, reported string) int {
 }
 
 func commonPrefixLen(a, b string) int {
-	limit := len(a)
-	if len(b) < limit {
-		limit = len(b)
-	}
+	limit := min(len(a), len(b))
 	n := 0
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		if a[i] != b[i] {
 			break
 		}
