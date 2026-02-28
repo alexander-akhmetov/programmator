@@ -34,6 +34,7 @@ opencode:
   api_key: "" # API key for the configured provider
 
 # Codex executor settings
+# Note: --dangerously-bypass-approvals-and-sandbox is auto-injected at runtime.
 codex:
   flags: "" # Additional flags passed to codex command
   model: "" # Model name (e.g. "o3", "gpt-5-codex")

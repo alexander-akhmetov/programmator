@@ -414,7 +414,16 @@ func applyReviewExecutorOverlay(dst *ReviewExecutorConfig, src *ReviewExecutorCo
 		dst.OpenCode.APIKey = src.OpenCode.APIKey
 	}
 
-	applyCodexOverlay(&dst.Codex, &src.Codex)
+	if src.Codex.Flags != "" {
+		dst.Codex.Flags = src.Codex.Flags
+	}
+	if src.Codex.Model != "" {
+		dst.Codex.Model = src.Codex.Model
+	}
+	if src.Codex.APIKey != "" {
+		log.Printf("warning: review.executor.codex.api_key loaded from config file — ensure this is a trusted source")
+		dst.Codex.APIKey = src.Codex.APIKey
+	}
 }
 
 func applyCodexOverlay(dst *CodexConfig, src *CodexConfig) {

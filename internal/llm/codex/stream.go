@@ -141,7 +141,7 @@ func processItemCompleted(raw json.RawMessage, fullOutput *strings.Builder, opts
 
 	case "command_execution":
 		if opts.OnToolUse != nil {
-			opts.OnToolUse(item.Command, "")
+			opts.OnToolUse(item.Command, item.Command)
 		}
 		if opts.OnToolResult != nil {
 			opts.OnToolResult(item.Command, item.AggregatedOutput)
@@ -153,12 +153,12 @@ func processItemCompleted(raw json.RawMessage, fullOutput *strings.Builder, opts
 			if item.Server != "" {
 				name = item.Server + "/" + item.Tool
 			}
-			opts.OnToolUse(name, "")
+			opts.OnToolUse(name, name)
 		}
 
 	case "file_change":
 		if opts.OnToolUse != nil {
-			opts.OnToolUse("file_change", "")
+			opts.OnToolUse("file_change", "file_change")
 		}
 
 	default:
