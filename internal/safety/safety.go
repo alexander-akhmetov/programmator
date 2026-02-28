@@ -8,7 +8,7 @@ import (
 const (
 	DefaultMaxIterations       = 50
 	DefaultStagnationLimit     = 3
-	DefaultTimeout             = 900 // seconds
+	DefaultTimeout             = 2700 // seconds
 	DefaultMaxReviewIterations = 3
 )
 

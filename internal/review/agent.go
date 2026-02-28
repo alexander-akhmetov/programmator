@@ -9,6 +9,7 @@ import (
 
 	"github.com/alexander-akhmetov/programmator/internal/llm"
 	"github.com/alexander-akhmetov/programmator/internal/llm/executor"
+	"github.com/alexander-akhmetov/programmator/internal/safety"
 	"gopkg.in/yaml.v3"
 )
 
@@ -147,7 +148,7 @@ func NewClaudeAgent(name string, focus []string, prompt string, opts ...ClaudeAg
 		name:    name,
 		focus:   focus,
 		prompt:  prompt,
-		timeout: 5 * time.Minute,
+		timeout: time.Duration(safety.DefaultTimeout) * time.Second,
 	}
 
 	for _, opt := range opts {
