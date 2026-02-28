@@ -15,7 +15,7 @@ func TestLoadEmbedded(t *testing.T) {
 
 	assert.Equal(t, 50, cfg.MaxIterations)
 	assert.Equal(t, 3, cfg.StagnationLimit)
-	assert.Equal(t, 900, cfg.Timeout)
+	assert.Equal(t, 2700, cfg.Timeout)
 	assert.Equal(t, "claude", cfg.Executor)
 	assert.Equal(t, "", cfg.Claude.Flags)
 	assert.Equal(t, 3, cfg.Review.MaxIterations)
@@ -40,7 +40,7 @@ func TestLoadWithDirs_GlobalOnly(t *testing.T) {
 
 	assert.Equal(t, 100, cfg.MaxIterations)
 	assert.Equal(t, 5, cfg.StagnationLimit)
-	assert.Equal(t, 900, cfg.Timeout) // from embedded default
+	assert.Equal(t, 2700, cfg.Timeout) // from embedded default
 }
 
 func TestLoadWithDirs_LocalOverridesGlobal(t *testing.T) {
@@ -66,7 +66,7 @@ func TestLoadWithDirs_LocalOverridesGlobal(t *testing.T) {
 
 	assert.Equal(t, 25, cfg.MaxIterations)  // from local
 	assert.Equal(t, 5, cfg.StagnationLimit) // from global
-	assert.Equal(t, 900, cfg.Timeout)       // from embedded default
+	assert.Equal(t, 2700, cfg.Timeout)      // from embedded default
 }
 
 func TestLoadWithDirs_LocalOverridesWithZero(t *testing.T) {
@@ -114,7 +114,7 @@ func TestApplyCLIFlagsZeroNoOverride(t *testing.T) {
 
 	assert.Equal(t, 50, cfg.MaxIterations)  // unchanged
 	assert.Equal(t, 3, cfg.StagnationLimit) // unchanged
-	assert.Equal(t, 900, cfg.Timeout)       // unchanged
+	assert.Equal(t, 2700, cfg.Timeout)      // unchanged
 }
 
 func TestReviewAgentsConfig(t *testing.T) {
@@ -287,7 +287,7 @@ func TestApplyOverlay_PointerFields(t *testing.T) {
 	base := &Config{
 		MaxIterations:   50,
 		StagnationLimit: 3,
-		Timeout:         900,
+		Timeout:         2700,
 	}
 
 	zero := 0
@@ -299,7 +299,7 @@ func TestApplyOverlay_PointerFields(t *testing.T) {
 	base.applyOverlay(overlay)
 	assert.Equal(t, 0, base.MaxIterations)   // overridden to 0
 	assert.Equal(t, 3, base.StagnationLimit) // unchanged (nil)
-	assert.Equal(t, 900, base.Timeout)       // unchanged (nil)
+	assert.Equal(t, 2700, base.Timeout)      // unchanged (nil)
 }
 
 func TestLoadWithDirs_ExecutorConfig(t *testing.T) {

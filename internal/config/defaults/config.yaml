@@ -7,7 +7,7 @@
 # Loop settings
 max_iterations: 50 # Maximum loop iterations before forced exit
 stagnation_limit: 3 # Exit after N consecutive iterations with no file changes
-timeout: 900 # Seconds per executor invocation
+timeout: 2700 # Seconds per executor invocation
 
 # Executor settings
 executor: claude # Which coding agent to use ("claude", "pi", "opencode", or "codex")
