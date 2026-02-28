@@ -106,6 +106,45 @@ func TestToExecutorConfig_AlwaysSkipPermissions(t *testing.T) {
 	})
 }
 
+func TestToExecutorConfig_OpenCode(t *testing.T) {
+	cfg := &Config{
+		Executor: "opencode",
+		OpenCode: OpenCodeConfig{
+			Flags:     "--verbose",
+			ConfigDir: "/custom/opencode",
+			Model:     "anthropic/claude-sonnet-4-5",
+			APIKey:    "oc-key",
+		},
+	}
+
+	ec := cfg.ToExecutorConfig()
+	assert.Equal(t, "opencode", ec.Name)
+	assert.Equal(t, "/custom/opencode", ec.OpenCode.ConfigDir)
+	assert.Equal(t, "anthropic/claude-sonnet-4-5", ec.OpenCode.Model)
+	assert.Equal(t, "oc-key", ec.OpenCode.APIKey)
+	assert.Equal(t, []string{"--verbose"}, ec.ExtraFlags)
+	assert.NotContains(t, ec.ExtraFlags, "--dangerously-skip-permissions")
+}
+
+func TestToReviewConfig_UsesReviewExecutorOpenCode(t *testing.T) {
+	cfg := &Config{
+		Executor: "claude",
+		Review: ReviewConfig{
+			Executor: ReviewExecutorConfig{
+				Name: "opencode",
+				OpenCode: OpenCodeConfig{
+					Model: "openai/gpt-4o",
+				},
+			},
+		},
+	}
+
+	rc, err := cfg.ToReviewConfig()
+	require.NoError(t, err)
+	assert.Equal(t, "opencode", rc.ExecutorConfig.Name)
+	assert.Equal(t, "openai/gpt-4o", rc.ExecutorConfig.OpenCode.Model)
+}
+
 func TestToReviewConfig_WithCustomAgents(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	cfg := &Config{

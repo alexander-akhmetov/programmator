@@ -20,9 +20,10 @@ var defaultsFS embed.FS
 
 // validExecutors is the set of supported executor names.
 var validExecutors = map[string]bool{
-	"claude": true,
-	"pi":     true,
-	"":       true, // empty defaults to "claude"
+	"claude":   true,
+	"pi":       true,
+	"opencode": true,
+	"":         true, // empty defaults to "claude"
 }
 
 // ClaudeConfig holds Claude executor configuration.
@@ -41,11 +42,20 @@ type PiConfig struct {
 	APIKey    string `yaml:"api_key"`
 }
 
+// OpenCodeConfig holds OpenCode executor configuration.
+type OpenCodeConfig struct {
+	Flags     string `yaml:"flags"`
+	Model     string `yaml:"model"`
+	APIKey    string `yaml:"api_key"`
+	ConfigDir string `yaml:"config_dir"`
+}
+
 // ReviewExecutorConfig holds review-specific executor overrides.
 type ReviewExecutorConfig struct {
-	Name   string       `yaml:"name"`
-	Claude ClaudeConfig `yaml:"claude"`
-	Pi     PiConfig     `yaml:"pi"`
+	Name     string         `yaml:"name"`
+	Claude   ClaudeConfig   `yaml:"claude"`
+	Pi       PiConfig       `yaml:"pi"`
+	OpenCode OpenCodeConfig `yaml:"opencode"`
 }
 
 // ReviewValidatorsConfig controls validation passes that run after review agents within each iteration.
@@ -80,10 +90,11 @@ type Config struct {
 	StagnationLimit int `yaml:"stagnation_limit"`
 	Timeout         int `yaml:"timeout"` // seconds
 
-	Executor      string       `yaml:"executor"`
-	Claude        ClaudeConfig `yaml:"claude"`
-	Pi            PiConfig     `yaml:"pi"`
-	TicketCommand string       `yaml:"ticket_command"`
+	Executor      string         `yaml:"executor"`
+	Claude        ClaudeConfig   `yaml:"claude"`
+	Pi            PiConfig       `yaml:"pi"`
+	OpenCode      OpenCodeConfig `yaml:"opencode"`
+	TicketCommand string         `yaml:"ticket_command"`
 
 	Git    GitConfig    `yaml:"git"`
 	Review ReviewConfig `yaml:"review"`
@@ -100,13 +111,14 @@ type Config struct {
 // configOverlay is used for parsing override YAML files.
 // Pointer types distinguish "not set" (nil) from "explicitly set to zero/false".
 type configOverlay struct {
-	MaxIterations   *int         `yaml:"max_iterations"`
-	StagnationLimit *int         `yaml:"stagnation_limit"`
-	Timeout         *int         `yaml:"timeout"`
-	Executor        string       `yaml:"executor"`
-	Claude          ClaudeConfig `yaml:"claude"`
-	Pi              PiConfig     `yaml:"pi"`
-	TicketCommand   string       `yaml:"ticket_command"`
+	MaxIterations   *int           `yaml:"max_iterations"`
+	StagnationLimit *int           `yaml:"stagnation_limit"`
+	Timeout         *int           `yaml:"timeout"`
+	Executor        string         `yaml:"executor"`
+	Claude          ClaudeConfig   `yaml:"claude"`
+	Pi              PiConfig       `yaml:"pi"`
+	OpenCode        OpenCodeConfig `yaml:"opencode"`
+	TicketCommand   string         `yaml:"ticket_command"`
 
 	Git    gitOverlay    `yaml:"git"`
 	Review reviewOverlay `yaml:"review"`
@@ -153,10 +165,10 @@ func (c *Config) ConfigDir() string {
 // Validate checks the configuration for invalid values.
 func (c *Config) Validate() error {
 	if !validExecutors[c.Executor] {
-		return fmt.Errorf("unknown executor %q (supported: claude, pi)", c.Executor)
+		return fmt.Errorf("unknown executor %q (supported: claude, pi, opencode)", c.Executor)
 	}
 	if c.Review.Executor.Name != "" && !validExecutors[c.Review.Executor.Name] {
-		return fmt.Errorf("unknown review.executor.name %q (supported: claude, pi)", c.Review.Executor.Name)
+		return fmt.Errorf("unknown review.executor.name %q (supported: claude, pi, opencode)", c.Review.Executor.Name)
 	}
 	return nil
 }
@@ -293,6 +305,7 @@ func (c *Config) applyOverlay(o *configOverlay) {
 		log.Printf("warning: pi.api_key loaded from config file — ensure this is a trusted source")
 		c.Pi.APIKey = o.Pi.APIKey
 	}
+	applyOpenCodeOverlay(&c.OpenCode, &o.OpenCode)
 
 	if o.TicketCommand != "" {
 		c.TicketCommand = o.TicketCommand
@@ -373,6 +386,36 @@ func applyReviewExecutorOverlay(dst *ReviewExecutorConfig, src *ReviewExecutorCo
 	if src.Pi.APIKey != "" {
 		log.Printf("warning: review.executor.pi.api_key loaded from config file — ensure this is a trusted source")
 		dst.Pi.APIKey = src.Pi.APIKey
+	}
+
+	if src.OpenCode.Flags != "" {
+		dst.OpenCode.Flags = src.OpenCode.Flags
+	}
+	if src.OpenCode.ConfigDir != "" {
+		dst.OpenCode.ConfigDir = src.OpenCode.ConfigDir
+	}
+	if src.OpenCode.Model != "" {
+		dst.OpenCode.Model = src.OpenCode.Model
+	}
+	if src.OpenCode.APIKey != "" {
+		log.Printf("warning: review.executor.opencode.api_key loaded from config file — ensure this is a trusted source")
+		dst.OpenCode.APIKey = src.OpenCode.APIKey
+	}
+}
+
+func applyOpenCodeOverlay(dst *OpenCodeConfig, src *OpenCodeConfig) {
+	if src.Flags != "" {
+		dst.Flags = src.Flags
+	}
+	if src.ConfigDir != "" {
+		dst.ConfigDir = src.ConfigDir
+	}
+	if src.Model != "" {
+		dst.Model = src.Model
+	}
+	if src.APIKey != "" {
+		log.Printf("warning: opencode.api_key loaded from config file — ensure this is a trusted source")
+		dst.APIKey = src.APIKey
 	}
 }
 
