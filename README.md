@@ -198,7 +198,7 @@ programmator config show                  # show resolved config
 - **Max iterations**: Prevents runaway loops (default: 50)
 - **Stagnation detection**: Exits if no files change for N iterations (default: 3)
 - **Error repetition**: Exits if same error occurs 3 times
-- **Timeout**: Kills the executor if a single invocation takes too long (default: 900s)
+- **Timeout**: Kills the executor if a single invocation takes too long (default: 45m)
 - **Ctrl+C**: Graceful stop after current iteration
 
 ## Auto Git Workflow
