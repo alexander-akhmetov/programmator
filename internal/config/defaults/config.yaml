@@ -10,7 +10,7 @@ stagnation_limit: 3 # Exit after N consecutive iterations with no file changes
 timeout: 900 # Seconds per executor invocation
 
 # Executor settings
-executor: claude # Which coding agent to use ("claude", "pi", or "opencode")
+executor: claude # Which coding agent to use ("claude", "pi", "opencode", or "codex")
 
 # Claude executor settings
 claude:
@@ -33,6 +33,13 @@ opencode:
   model: "" # Model in "provider/model" format (e.g. "anthropic/claude-sonnet-4-5")
   api_key: "" # API key for the configured provider
 
+# Codex executor settings
+# Note: --dangerously-bypass-approvals-and-sandbox is auto-injected at runtime.
+codex:
+  flags: "" # Additional flags passed to codex command
+  model: "" # Model name (e.g. "o3", "gpt-5-codex")
+  api_key: "" # OpenAI API key
+
 # Ticket settings
 ticket_command: "tk" # Binary name for the ticket CLI (tk or ticket)
 
@@ -51,7 +58,7 @@ review:
   # Optional review-specific executor override.
   # If name is empty, review uses top-level executor/claude/pi settings.
   executor:
-    name: "" # "claude", "pi", or "opencode"
+    name: "" # "claude", "pi", "opencode", or "codex"
     claude:
       flags: "" # Example: "--model opus"
       config_dir: ""
@@ -65,6 +72,10 @@ review:
     opencode:
       flags: ""
       config_dir: ""
+      model: ""
+      api_key: ""
+    codex:
+      flags: ""
       model: ""
       api_key: ""
 
