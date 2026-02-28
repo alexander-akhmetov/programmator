@@ -383,6 +383,27 @@ func (l *Loop) handleReview(rc *runContext) loopAction {
 		l.engine.ReviewIterations, l.engine.MaxReviewIter))
 
 	rc.state.EnterReviewPhase()
+
+	// Start a ticker to refresh the footer every second during review,
+	// since review agents bypass invokeClaudePrint and its pollProcessStats.
+	stopTicker := make(chan struct{})
+	if l.onStateChange != nil {
+		l.onStateChange(rc.state, rc.workItem, rc.result.TotalFilesChanged)
+		go func() {
+			ticker := time.NewTicker(1 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-stopTicker:
+					return
+				case <-ticker.C:
+					l.onStateChange(rc.state, rc.workItem, rc.result.TotalFilesChanged)
+				}
+			}
+		}()
+	}
+	defer close(stopTicker)
+
 	if l.reviewRunner == nil {
 		l.applySettingsToReviewConfig()
 		l.applyReviewContext(rc.workItem)
