@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"os"
 	"strings"
 )
 
@@ -43,24 +42,4 @@ func FilterEnv(environ []string, excludePrefixes ...string) []string {
 		}
 	}
 	return result
-}
-
-// EnvConfig holds environment configuration for Claude subprocesses.
-type EnvConfig struct {
-	ClaudeConfigDir string
-	AnthropicAPIKey string
-}
-
-// BuildEnv constructs the environment variable slice for a Claude subprocess.
-// It filters ANTHROPIC_API_KEY and CLAUDE_CONFIG_DIR from the inherited
-// environment and only sets them if explicitly configured via the EnvConfig.
-func BuildEnv(cfg EnvConfig) []string {
-	env := FilterEnv(os.Environ(), "ANTHROPIC_API_KEY=", "CLAUDE_CONFIG_DIR=")
-	if cfg.ClaudeConfigDir != "" {
-		env = append(env, "CLAUDE_CONFIG_DIR="+cfg.ClaudeConfigDir)
-	}
-	if cfg.AnthropicAPIKey != "" {
-		env = append(env, "ANTHROPIC_API_KEY="+cfg.AnthropicAPIKey)
-	}
-	return env
 }

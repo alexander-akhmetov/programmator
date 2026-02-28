@@ -10,7 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"github.com/alexander-akhmetov/programmator/internal/llm"
+	"github.com/alexander-akhmetov/programmator/internal/llm/claude"
+	"github.com/alexander-akhmetov/programmator/internal/llm/executor"
 	"github.com/alexander-akhmetov/programmator/internal/protocol"
 )
 
@@ -97,9 +98,9 @@ func TestClaudeAgent(t *testing.T) {
 			nil,
 			"prompt",
 			WithTimeout(10*time.Minute),
-			WithExecutorConfig(llm.ExecutorConfig{
+			WithExecutorConfig(executor.Config{
 				Name: "claude",
-				Claude: llm.EnvConfig{
+				Claude: claude.Config{
 					ClaudeConfigDir: "/custom/config",
 					AnthropicAPIKey: "test-key",
 				},
@@ -118,7 +119,7 @@ func TestDefaultAgentFactory_PassesExecutorConfig(t *testing.T) {
 	cfg := Config{
 		MaxIterations: 3,
 		Timeout:       120,
-		ExecutorConfig: llm.ExecutorConfig{
+		ExecutorConfig: executor.Config{
 			Name:       "claude",
 			ExtraFlags: []string{"--dangerously-skip-permissions"},
 		},
@@ -137,9 +138,9 @@ func TestDefaultAgentFactory_PassesEnvConfig(t *testing.T) {
 	cfg := Config{
 		MaxIterations: 3,
 		Timeout:       120,
-		ExecutorConfig: llm.ExecutorConfig{
+		ExecutorConfig: executor.Config{
 			Name: "claude",
-			Claude: llm.EnvConfig{
+			Claude: claude.Config{
 				ClaudeConfigDir: "/custom/claude/config",
 				AnthropicAPIKey: "test-key",
 			},
@@ -165,7 +166,7 @@ func TestDefaultAgentFactory_EmptyExecutorConfig(t *testing.T) {
 
 	claudeAgent, ok := agent.(*ClaudeAgent)
 	require.True(t, ok)
-	require.Equal(t, llm.ExecutorConfig{}, claudeAgent.executorConfig)
+	require.Equal(t, executor.Config{}, claudeAgent.executorConfig)
 }
 
 func TestDefaultAgentFactory_AlwaysCreatesClaude(t *testing.T) {

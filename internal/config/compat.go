@@ -5,24 +5,27 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/alexander-akhmetov/programmator/internal/llm"
+	"github.com/alexander-akhmetov/programmator/internal/llm/claude"
+	"github.com/alexander-akhmetov/programmator/internal/llm/executor"
+	"github.com/alexander-akhmetov/programmator/internal/llm/opencode"
+	"github.com/alexander-akhmetov/programmator/internal/llm/pi"
 	"github.com/alexander-akhmetov/programmator/internal/review"
 	"github.com/alexander-akhmetov/programmator/internal/safety"
 )
 
-// ToExecutorConfig converts the unified Config to an llm.ExecutorConfig.
+// ToExecutorConfig converts the unified Config to an executor.Config.
 // For Claude, always injects --dangerously-skip-permissions because the
 // permission system has been removed; dcg is the sole safety layer.
-func (c *Config) ToExecutorConfig() llm.ExecutorConfig {
+func (c *Config) ToExecutorConfig() executor.Config {
 	return buildExecutorConfig(c.Executor, c.Claude, c.Pi, c.OpenCode)
 }
 
-func buildExecutorConfig(name string, claudeCfg ClaudeConfig, piCfg PiConfig, opencodeCfg OpenCodeConfig) llm.ExecutorConfig {
-	cfg := llm.ExecutorConfig{Name: name}
+func buildExecutorConfig(name string, claudeCfg ClaudeConfig, piCfg PiConfig, opencodeCfg OpenCodeConfig) executor.Config {
+	cfg := executor.Config{Name: name}
 
 	switch name {
 	case "pi":
-		cfg.Pi = llm.PiEnvConfig{
+		cfg.Pi = pi.Config{
 			ConfigDir: piCfg.ConfigDir,
 			Provider:  piCfg.Provider,
 			Model:     piCfg.Model,
@@ -30,14 +33,14 @@ func buildExecutorConfig(name string, claudeCfg ClaudeConfig, piCfg PiConfig, op
 		}
 		cfg.ExtraFlags = strings.Fields(piCfg.Flags)
 	case "opencode":
-		cfg.OpenCode = llm.OpenCodeEnvConfig{
+		cfg.OpenCode = opencode.Config{
 			Model:     opencodeCfg.Model,
 			APIKey:    opencodeCfg.APIKey,
 			ConfigDir: opencodeCfg.ConfigDir,
 		}
 		cfg.ExtraFlags = strings.Fields(opencodeCfg.Flags)
 	default: // "claude" or ""
-		cfg.Claude = llm.EnvConfig{
+		cfg.Claude = claude.Config{
 			ClaudeConfigDir: claudeCfg.ConfigDir,
 			AnthropicAPIKey: claudeCfg.AnthropicAPIKey,
 		}
@@ -65,9 +68,9 @@ func (c *Config) ToSafetyConfig() safety.Config {
 	}
 }
 
-// toReviewExecutorConfig converts review-specific executor settings to llm.ExecutorConfig.
+// toReviewExecutorConfig converts review-specific executor settings to executor.Config.
 // It inherits top-level executor settings and applies review.executor overrides.
-func (c *Config) toReviewExecutorConfig() llm.ExecutorConfig {
+func (c *Config) toReviewExecutorConfig() executor.Config {
 	name := c.Executor
 	claudeCfg := c.Claude
 	piCfg := c.Pi

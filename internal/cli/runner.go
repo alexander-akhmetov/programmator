@@ -11,7 +11,7 @@ import (
 
 	"github.com/alexander-akhmetov/programmator/internal/domain"
 	"github.com/alexander-akhmetov/programmator/internal/event"
-	"github.com/alexander-akhmetov/programmator/internal/llm"
+	"github.com/alexander-akhmetov/programmator/internal/llm/executor"
 	"github.com/alexander-akhmetov/programmator/internal/loop"
 	"github.com/alexander-akhmetov/programmator/internal/prompt"
 	"github.com/alexander-akhmetov/programmator/internal/review"
@@ -25,7 +25,7 @@ type RunConfig struct {
 	PromptBuilder     *prompt.Builder
 	TicketCommand     string
 	GitWorkflowConfig loop.GitWorkflowConfig
-	ExecutorConfig    llm.ExecutorConfig
+	ExecutorConfig    executor.Config
 	Out               io.Writer // output writer (default: os.Stdout)
 	IsTTY             bool
 	TermWidth         int

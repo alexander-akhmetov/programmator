@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/alexander-akhmetov/programmator/internal/llm"
+	"github.com/alexander-akhmetov/programmator/internal/llm/executor"
 	"gopkg.in/yaml.v3"
 )
 
@@ -119,7 +120,7 @@ type ClaudeAgent struct {
 	focus          []string
 	prompt         string
 	timeout        time.Duration
-	executorConfig llm.ExecutorConfig
+	executorConfig executor.Config
 	invoker        llm.Invoker
 }
 
@@ -134,7 +135,7 @@ func WithTimeout(d time.Duration) ClaudeAgentOption {
 }
 
 // WithExecutorConfig sets the executor configuration for the agent.
-func WithExecutorConfig(cfg llm.ExecutorConfig) ClaudeAgentOption {
+func WithExecutorConfig(cfg executor.Config) ClaudeAgentOption {
 	return func(a *ClaudeAgent) {
 		a.executorConfig = cfg
 	}
@@ -252,7 +253,7 @@ func (a *ClaudeAgent) invokeClaude(ctx context.Context, workingDir, promptText s
 	inv := a.invoker
 	if inv == nil {
 		var err error
-		inv, err = llm.NewInvoker(a.executorConfig)
+		inv, err = executor.New(a.executorConfig)
 		if err != nil {
 			return "", fmt.Errorf("create invoker: %w", err)
 		}
