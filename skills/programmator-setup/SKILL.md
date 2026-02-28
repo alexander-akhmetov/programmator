@@ -24,8 +24,10 @@ Or download a binary from [GitHub Releases](https://github.com/alexander-akhmeto
 2. **Check that an executor is available** — programmator needs a coding agent to do the work:
    - **Claude Code** (default): `claude --version`
    - **pi coding agent**: `pi-coding-agent --version`
-   If neither is installed, tell the user they need at least one.
-3. **Optionally create a config** — programmator works with zero config (defaults to Claude Code as executor). Only needed if the user wants to use pi, customize review agents, or enable auto-commit. Config goes in `~/.config/programmator/config.yaml` (global) or `.programmator/config.yaml` (per-project override).
+   - **OpenCode**: `opencode --version`
+   - **Codex**: `codex --version`
+   If none are installed, tell the user they need at least one.
+3. **Optionally create a config** — programmator works with zero config (defaults to Claude Code as executor). Only needed if the user wants to use a different executor, customize review agents, or enable auto-commit. Config goes in `~/.config/programmator/config.yaml` (global) or `.programmator/config.yaml` (per-project override).
 4. **Try it out** — create a simple plan file and run it:
 
 ```bash
@@ -128,7 +130,7 @@ Or via CLI: `programmator start ./plan.md --auto-commit`
 | `max_iterations` | `50` | Maximum loop iterations before forced exit |
 | `stagnation_limit` | `3` | Exit after N consecutive iterations with no file changes |
 | `timeout` | `900` | Seconds per executor invocation |
-| `executor` | `claude` | Which coding agent to use (`"claude"` or `"pi"`) |
+| `executor` | `claude` | Which coding agent to use (`"claude"`, `"pi"`, `"opencode"`, or `"codex"`) |
 | `claude.flags` | `""` | Additional flags passed to the `claude` command |
 | `claude.config_dir` | `""` | Custom Claude config directory |
 | `claude.anthropic_api_key` | `""` | Anthropic API key (overrides env) |
@@ -137,6 +139,13 @@ Or via CLI: `programmator start ./plan.md --auto-commit`
 | `pi.provider` | `""` | LLM provider for pi (`"anthropic"`, `"openai"`) |
 | `pi.model` | `""` | Model name for pi (`"sonnet"`, `"gpt-4o"`) |
 | `pi.api_key` | `""` | API key for the configured pi provider |
+| `opencode.flags` | `""` | Additional flags passed to `opencode` |
+| `opencode.config_dir` | `""` | Custom OPENCODE_CONFIG_DIR |
+| `opencode.model` | `""` | Model in `"provider/model"` format |
+| `opencode.api_key` | `""` | API key for the configured provider |
+| `codex.flags` | `""` | Additional flags passed to `codex` |
+| `codex.model` | `""` | Model name (e.g. `"o3"`, `"gpt-5-codex"`) |
+| `codex.api_key` | `""` | OpenAI API key |
 | `ticket_command` | `tk` | Binary name for the ticket CLI |
 | `git.auto_commit` | `false` | Auto-commit after each phase completion |
 | `git.move_completed_plans` | `false` | Move completed plans to a `completed/` directory |

@@ -4,7 +4,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/alexander-akhmetov/programmator)](https://goreportcard.com/report/github.com/alexander-akhmetov/programmator)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Autonomous coding agent orchestrator that executes multi-task plans without supervision. Supports [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [pi coding agent](https://github.com/badlogic/pi-mono) as executors.
+Autonomous coding agent orchestrator that executes multi-task plans without supervision. Supports [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [pi coding agent](https://github.com/badlogic/pi-mono), [OpenCode](https://github.com/opencode-ai/opencode), and [Codex](https://github.com/openai/codex) as executors.
 
 Coding agents are interactive — they require you to watch, approve, and guide each step. For complex features spanning multiple tasks, this means hours of babysitting. As context fills up during long sessions, the model starts making mistakes and producing worse code.
 
@@ -37,7 +37,7 @@ Download a binary from [GitHub Releases](https://github.com/alexander-akhmetov/p
 go install github.com/alexander-akhmetov/programmator/cmd/programmator@latest
 ```
 
-You'll also need at least one executor: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [pi coding agent](https://github.com/badlogic/pi-mono).
+You'll also need at least one executor: [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [pi coding agent](https://github.com/badlogic/pi-mono), [OpenCode](https://github.com/opencode-ai/opencode), or [Codex](https://github.com/openai/codex).
 
 ## Quick Start
 
@@ -227,7 +227,7 @@ See resolved values with `programmator config show`.
 | `max_iterations` | `50` | Maximum loop iterations before forced exit |
 | `stagnation_limit` | `3` | Exit after N consecutive iterations with no file changes |
 | `timeout` | `900` | Seconds per executor invocation |
-| `executor` | `claude` | Which coding agent to use (`"claude"` or `"pi"`) |
+| `executor` | `claude` | Which coding agent to use (`"claude"`, `"pi"`, `"opencode"`, or `"codex"`) |
 | `claude.flags` | `""` | Additional flags passed to the `claude` command |
 | `claude.config_dir` | `""` | Custom Claude config directory (empty = default) |
 | `claude.anthropic_api_key` | `""` | Anthropic API key passed to Claude (overrides env) |
@@ -236,6 +236,13 @@ See resolved values with `programmator config show`.
 | `pi.provider` | `""` | LLM provider for pi (e.g. `"anthropic"`, `"openai"`) |
 | `pi.model` | `""` | Model name for pi (e.g. `"sonnet"`, `"gpt-4o"`) |
 | `pi.api_key` | `""` | API key for the configured pi provider |
+| `opencode.flags` | `""` | Additional flags passed to the `opencode` command |
+| `opencode.config_dir` | `""` | Custom OPENCODE_CONFIG_DIR (empty = default) |
+| `opencode.model` | `""` | Model in `"provider/model"` format (e.g. `"anthropic/claude-sonnet-4-5"`) |
+| `opencode.api_key` | `""` | API key for the configured provider |
+| `codex.flags` | `""` | Additional flags passed to the `codex` command |
+| `codex.model` | `""` | Model name (e.g. `"o3"`, `"gpt-5-codex"`) |
+| `codex.api_key` | `""` | OpenAI API key |
 | `ticket_command` | `tk` | Binary name for the ticket CLI (`tk` or `ticket`) |
 | `git.auto_commit` | `false` | Auto-commit after each phase completion |
 | `git.move_completed_plans` | `false` | Move completed plans to a `completed/` directory |
@@ -243,9 +250,11 @@ See resolved values with `programmator config show`.
 | `git.branch_prefix` | `""` | Prefix for auto-created branches (default: `programmator/`) |
 | `review.max_iterations` | `3` | Maximum review fix iterations |
 | `review.parallel` | `true` | Run review agents in parallel |
-| `review.executor.name` | `""` | Optional review executor override (`claude` / `pi`, empty = inherit top-level) |
-| `review.executor.claude.flags` | `""` | Review-only Claude flags (for example `--model opus`) |
+| `review.executor.name` | `""` | Optional review executor override (`claude` / `pi` / `opencode` / `codex`, empty = inherit top-level) |
+| `review.executor.claude.*` | `""` | Review-only Claude settings (`flags`, `config_dir`, `anthropic_api_key`) |
 | `review.executor.pi.*` | `""` | Review-only PI settings (`flags`, `config_dir`, `provider`, `model`, `api_key`) |
+| `review.executor.opencode.*` | `""` | Review-only OpenCode settings (`flags`, `config_dir`, `model`, `api_key`) |
+| `review.executor.codex.*` | `""` | Review-only Codex settings (`flags`, `model`, `api_key`) |
 | `review.include` | `[]` | Subset of built-in review agents (empty = all defaults) |
 | `review.exclude` | `[]` | Remove specific default review agents |
 | `review.overrides` | `[]` | Override default agents by name (focus/prompt/prompt_file) |
@@ -267,6 +276,8 @@ Environment variables used by programmator and its executors:
 | `TICKETS_DIR` | `~/.tickets` | Where ticket files live |
 | `CLAUDE_CONFIG_DIR` | - | Custom Claude config directory (passed to Claude subprocess) |
 | `PI_CODING_AGENT_DIR` | - | Custom pi coding agent config directory |
+| `OPENCODE_CONFIG_DIR` | - | Custom OpenCode config directory |
+| `OPENAI_API_KEY` | - | OpenAI API key (used by Codex executor) |
 
 </details>
 

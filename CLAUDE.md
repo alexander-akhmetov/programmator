@@ -22,7 +22,7 @@ make fmt                    # Auto-fix formatting
 Entry: `cmd/programmator/main.go` → `internal/cli/` → `internal/loop/loop.go`
 
 - `internal/loop/` — main orchestration loop
-- `internal/llm/` — executor invocation (ClaudeInvoker, PiInvoker), streaming JSON parsers
+- `internal/llm/` — executor interface and shared utilities; sub-packages `claude/`, `pi/`, `opencode/`, `codex/` for each executor; `executor/` factory
 - `internal/source/` — work source abstraction (PlanSource, TicketSource), auto-detection in `detect.go`
 - `internal/review/` — multi-agent review pipeline, parallel execution, validators
 - `internal/parser/` — PROGRAMMATOR_STATUS YAML extraction from executor output

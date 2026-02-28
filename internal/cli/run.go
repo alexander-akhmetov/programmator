@@ -43,7 +43,7 @@ func init() {
 	runCmd.Flags().StringVarP(&runWorkingDir, "dir", "d", "", "Working directory (default: current directory)")
 	runCmd.Flags().BoolVar(&runNonInteractive, "print", false, "Non-interactive mode: print output directly")
 	runCmd.Flags().IntVar(&runMaxTurns, "max-turns", 0, "Maximum agentic turns (0 = unlimited)")
-	runCmd.Flags().StringVar(&runExecutor, "executor", "", "Executor to use: claude, pi (default: claude)")
+	runCmd.Flags().StringVar(&runExecutor, "executor", "", "Executor to use: claude, pi, opencode, codex (default: claude)")
 }
 
 // buildRunPrompt assembles the prompt from CLI args or stdin.
