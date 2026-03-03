@@ -74,8 +74,6 @@ func (o *Invoker) Invoke(ctx context.Context, prompt string, opts llm.InvokeOpti
 		args = append(args, "--format", "json")
 	}
 
-	args = append(args, "-q")
-
 	if opts.WorkingDir != "" {
 		args = append(args, "--dir", opts.WorkingDir)
 	}
