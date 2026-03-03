@@ -213,7 +213,7 @@ func TestInvokerTimeout(t *testing.T) {
 	require.Contains(t, res.Text, string(protocol.StatusBlocked))
 }
 
-func TestInvokerModelAndQuietFlags(t *testing.T) {
+func TestInvokerModelFlag(t *testing.T) {
 	tmpDir := t.TempDir()
 	script := "#!/bin/sh\necho \"$@\"\n"
 	err := os.WriteFile(tmpDir+"/opencode", []byte(script), 0o755)
@@ -226,7 +226,6 @@ func TestInvokerModelAndQuietFlags(t *testing.T) {
 	res, err := inv.Invoke(context.Background(), "test", llm.InvokeOptions{})
 	require.NoError(t, err)
 	require.Contains(t, res.Text, "--model anthropic/claude-sonnet-4-5")
-	require.Contains(t, res.Text, "-q")
 	require.Contains(t, res.Text, "run")
 }
 
