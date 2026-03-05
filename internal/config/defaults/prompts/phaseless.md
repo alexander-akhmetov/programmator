@@ -33,6 +33,7 @@ STEP 2 - VALIDATE:
 - ALL tests must pass and ALL linter issues must be resolved
 
 STEP 3 - COMPLETE:
+- If the plan/ticket has any task checkboxes, mark completed ones as done: change `- [ ]` to `- [x]`
 - Report your status
 
 ## Session End Protocol

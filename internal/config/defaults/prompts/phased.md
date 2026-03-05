@@ -39,6 +39,7 @@ STEP 2 - VALIDATE:
 - ALL tests must pass and ALL linter issues must be resolved before proceeding
 
 STEP 3 - COMPLETE:
+- Mark the completed phase as done in the plan/ticket file: change its checkbox from `- [ ]` to `- [x]`
 - Check if more uncompleted phases remain
 
 CRITICAL: Complete ONE phase per iteration, then STOP.
