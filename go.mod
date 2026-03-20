@@ -1,6 +1,6 @@
 module github.com/alexander-akhmetov/programmator
 
-go 1.26.0
+go 1.26.1
 
 require (
 	github.com/aymanbagabas/go-udiff v0.4.0
