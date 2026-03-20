@@ -3,7 +3,7 @@ module github.com/alexander-akhmetov/programmator
 go 1.26.1
 
 require (
-	github.com/aymanbagabas/go-udiff v0.4.0
+	github.com/aymanbagabas/go-udiff v0.4.1
 	github.com/charmbracelet/bubbletea v1.2.4
 	github.com/charmbracelet/glamour v0.10.0
 	github.com/go-git/go-git/v5 v5.17.0
