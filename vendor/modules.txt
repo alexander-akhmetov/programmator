@@ -32,8 +32,8 @@ github.com/ProtonMail/go-crypto/openpgp/packet
 github.com/ProtonMail/go-crypto/openpgp/s2k
 github.com/ProtonMail/go-crypto/openpgp/x25519
 github.com/ProtonMail/go-crypto/openpgp/x448
-# github.com/alecthomas/chroma/v2 v2.14.0
-## explicit; go 1.19
+# github.com/alecthomas/chroma/v2 v2.20.0
+## explicit; go 1.22
 github.com/alecthomas/chroma/v2
 github.com/alecthomas/chroma/v2/formatters
 github.com/alecthomas/chroma/v2/formatters/html
@@ -58,8 +58,8 @@ github.com/charmbracelet/bubbletea
 # github.com/charmbracelet/colorprofile v0.2.3-0.20250311203215-f60798e515dc
 ## explicit; go 1.18
 github.com/charmbracelet/colorprofile
-# github.com/charmbracelet/glamour v0.10.0
-## explicit; go 1.23.0
+# github.com/charmbracelet/glamour v1.0.0
+## explicit; go 1.24.0
 github.com/charmbracelet/glamour
 github.com/charmbracelet/glamour/ansi
 github.com/charmbracelet/glamour/internal/autolink
@@ -68,8 +68,8 @@ github.com/charmbracelet/glamour/styles
 ## explicit; go 1.18
 github.com/charmbracelet/lipgloss
 github.com/charmbracelet/lipgloss/table
-# github.com/charmbracelet/x/ansi v0.10.1
-## explicit; go 1.23.0
+# github.com/charmbracelet/x/ansi v0.10.2
+## explicit; go 1.24.0
 github.com/charmbracelet/x/ansi
 github.com/charmbracelet/x/ansi/parser
 # github.com/charmbracelet/x/cellbuf v0.0.13
@@ -103,7 +103,7 @@ github.com/cyphar/filepath-securejoin
 # github.com/davecgh/go-spew v1.1.1
 ## explicit
 github.com/davecgh/go-spew/spew
-# github.com/dlclark/regexp2 v1.11.0
+# github.com/dlclark/regexp2 v1.11.5
 ## explicit; go 1.13
 github.com/dlclark/regexp2
 github.com/dlclark/regexp2/syntax
@@ -195,7 +195,7 @@ github.com/jbenet/go-context/io
 # github.com/kevinburke/ssh_config v1.2.0
 ## explicit
 github.com/kevinburke/ssh_config
-# github.com/lucasb-eyer/go-colorful v1.2.0
+# github.com/lucasb-eyer/go-colorful v1.3.0
 ## explicit; go 1.12
 github.com/lucasb-eyer/go-colorful
 # github.com/mattn/go-isatty v0.0.20
@@ -204,7 +204,7 @@ github.com/mattn/go-isatty
 # github.com/mattn/go-localereader v0.0.1
 ## explicit
 github.com/mattn/go-localereader
-# github.com/mattn/go-runewidth v0.0.16
+# github.com/mattn/go-runewidth v0.0.17
 ## explicit; go 1.9
 github.com/mattn/go-runewidth
 # github.com/microcosm-cc/bluemonday v1.0.27
@@ -261,8 +261,8 @@ github.com/xanzy/ssh-agent
 # github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e
 ## explicit; go 1.19
 github.com/xo/terminfo
-# github.com/yuin/goldmark v1.7.8
-## explicit; go 1.19
+# github.com/yuin/goldmark v1.7.13
+## explicit; go 1.22
 github.com/yuin/goldmark
 github.com/yuin/goldmark/ast
 github.com/yuin/goldmark/extension
@@ -272,8 +272,8 @@ github.com/yuin/goldmark/renderer
 github.com/yuin/goldmark/renderer/html
 github.com/yuin/goldmark/text
 github.com/yuin/goldmark/util
-# github.com/yuin/goldmark-emoji v1.0.5
-## explicit; go 1.15
+# github.com/yuin/goldmark-emoji v1.0.6
+## explicit; go 1.22
 github.com/yuin/goldmark-emoji
 github.com/yuin/goldmark-emoji/ast
 github.com/yuin/goldmark-emoji/definition
